@@ -43,6 +43,7 @@ class Config:
     thresholds: Thresholds = field(default_factory=Thresholds)
     deadlines: dict[str, Deadline] = field(default_factory=dict)
     fail_on: str = "high"
+    target: dict = field(default_factory=dict)  # [target] host, user, port, key
 
 
 def load_config(path: str | Path | None) -> Config:
@@ -56,6 +57,7 @@ def load_config(path: str | Path | None) -> Config:
             setattr(cfg.thresholds, k, v)
     for name, d in data.get("deadlines", {}).items():
         cfg.deadlines[name] = Deadline(budget_us=d["budget_us"], period_us=d.get("period_us"))
+    cfg.target = dict(data.get("target", {}))
     if "fail_on" in data:
         cfg.fail_on = data["fail_on"]
     return cfg

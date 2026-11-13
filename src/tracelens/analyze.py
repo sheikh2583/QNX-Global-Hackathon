@@ -21,6 +21,7 @@ class Analysis:
     findings: list[Finding]
     config: Config
     errors: list[str] = field(default_factory=list)
+    snapshot_path: str | None = None
 
 
 def analyze_model(model: TraceModel, cfg: Config | None = None) -> Analysis:
@@ -39,8 +40,18 @@ def analyze_model(model: TraceModel, cfg: Config | None = None) -> Analysis:
     return Analysis(model=model, findings=findings, config=cfg, errors=errors)
 
 
-def analyze_file(path: str | Path, cfg: Config | None = None, cycles_per_sec: int | None = None) -> Analysis:
-    return analyze_model(TraceModel(parse_file(path, cycles_per_sec)), cfg)
+def analyze_file(path: str | Path, cfg: Config | None = None, cycles_per_sec: int | None = None,
+                 snapshot: str | Path | None = "auto") -> Analysis:
+    """``snapshot``: a pidin listing from capture start; "auto" uses ``<trace>.pidin.txt`` if present."""
+    from .ingest.pidin import load_pidin, sibling_snapshot
+    snap_path = sibling_snapshot(path) if snapshot == "auto" else snapshot
+    snap = load_pidin(snap_path) if snap_path else None
+    model = TraceModel(parse_file(path, cycles_per_sec),
+                       snapshot=snap.prio if snap else None,
+                       snapshot_names=snap.proc_names if snap else None)
+    a = analyze_model(model, cfg)
+    a.snapshot_path = str(snap_path) if snap_path else None
+    return a
 
 
 def analyze_text(text: str, cfg: Config | None = None, cycles_per_sec: int | None = None) -> Analysis:

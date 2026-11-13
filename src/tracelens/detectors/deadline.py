@@ -44,9 +44,7 @@ def _releases(items: list, period: int | None, markers: list) -> list[int]:
     return [s0 + phase + ((st - s0 - phase) // period) * period for st in starts]
 
 
-def detect(model: TraceModel, cfg: Config) -> list[Finding]:
-    if not cfg.deadlines:
-        return []
+def _jobs(model: TraceModel) -> tuple[dict[str, list], dict[str, list]]:
     jobs: dict[str, list] = {}
     releases: dict[str, list] = {}
     open_jobs: dict[str, object] = {}
@@ -62,7 +60,27 @@ def detect(model: TraceModel, cfg: Config) -> list[Finding]:
             elif name in open_jobs:
                 start = open_jobs.pop(name)
                 jobs.setdefault(name, []).append((start, e))
+    return jobs, releases
 
+
+def responses(model: TraceModel, cfg: Config) -> dict[str, list[int]]:
+    """Per declared deadline: each job's response time in ns, measured from its release."""
+    jobs, releases = _jobs(model)
+    out: dict[str, list[int]] = {}
+    for name, dl in cfg.deadlines.items():
+        items = sorted(jobs.get(name, []), key=lambda x: x[0].t_ns)
+        if not items:
+            continue
+        period = int(dl.period_us * 1000) if dl.period_us else None
+        rel = _releases(items, period, releases.get(name, []))
+        out[name] = [end.t_ns - r for (_, end), r in zip(items, rel)]
+    return out
+
+
+def detect(model: TraceModel, cfg: Config) -> list[Finding]:
+    if not cfg.deadlines:
+        return []
+    jobs, releases = _jobs(model)
     findings = []
     for name, dl in cfg.deadlines.items():
         items = sorted(jobs.get(name, []), key=lambda x: x[0].t_ns)

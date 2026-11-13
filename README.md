@@ -16,6 +16,15 @@ tracelens analyze fixtures/synthetic/z1_prio_inversion.txt \
 
 The core has **no dependencies** beyond Python 3.11.
 
+On the QNX side (run from WSL2/Linux, where the QEMU guest is reachable):
+
+```bash
+tracelens capture bugzoo/out/z1_infusion_pump --host <qemu-ip> -c bugzoo/tracelens.toml --analyze -- -d 2
+tracelens compare -c bugzoo/tracelens.toml --before captures/before*.txt --after captures/after*.txt
+```
+
+`capture` deploys the binary, snapshots thread priorities with `pidin`, runs it under `tracelogger`, and fetches and decodes the trace. `compare` gives VERIFIED / NOT FIXED / INCONCLUSIVE over at least 5 clean runs on each side. *(Target commands not yet run on real QNX.)*
+
 ## What it detects
 
 | Detector | QNX-specific angle |

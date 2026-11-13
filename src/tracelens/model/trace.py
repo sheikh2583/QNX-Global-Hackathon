@@ -74,10 +74,13 @@ class ThreadInfo:
 
 
 class TraceModel:
-    def __init__(self, trace: ParsedTrace, snapshot: dict[Key, int] | None = None):
-        """``snapshot`` seeds base priorities ((pid, tid) -> prio), e.g. from pidin at capture start."""
+    def __init__(self, trace: ParsedTrace, snapshot: dict[Key, int] | None = None,
+                 snapshot_names: dict[int, str] | None = None):
+        """``snapshot`` seeds base priorities ((pid, tid) -> prio), e.g. from pidin at capture start;
+        ``snapshot_names`` seeds process names (pid -> name)."""
         self.trace = trace
         self.snapshot = snapshot or {}
+        self.snapshot_names = snapshot_names or {}
         self.integrity: list[str] = []  # scheduler state-machine violations (dropped events?)
         self.events = trace.events
         self.by_id: dict[int, Event] = {e.id: e for e in self.events}
@@ -95,6 +98,8 @@ class TraceModel:
         th = self.threads.get(key)
         if th is None:
             th = self.threads[key] = ThreadInfo(pid=key[0], tid=key[1])
+            if key in self.snapshot:  # base priority at capture start; kernel events refine it
+                th.set_prio(self.t_start, self.snapshot[key], -1, "snapshot")
         return th
 
     def _build(self) -> None:
@@ -109,8 +114,7 @@ class TraceModel:
             violations[kind] = violations.get(kind, 0) + 1
             first_seen.setdefault(kind, e)
 
-        for key, prio in self.snapshot.items():
-            self._thread(key).set_prio(self.t_start, prio, -1, "snapshot")
+        self.proc_names.update(self.snapshot_names)
 
         for e in self.events:
             if e.cls == "PROCESS":

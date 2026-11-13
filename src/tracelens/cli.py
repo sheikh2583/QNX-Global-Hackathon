@@ -5,7 +5,8 @@ Exit codes (CI contract):
   1  findings at or above --fail-on
   2  usage or input error (including a trace without a clock rate)
   3  inconclusive: the trace is lossy (scheduler state machine broken, usually dropped
-     events), so no verdict is given; rerun the capture or pass --allow-lossy
+     events), so no verdict is given; rerun the capture or pass --allow-lossy.
+     For `compare`: too few clean runs to decide.
 """
 
 from __future__ import annotations
@@ -26,9 +27,7 @@ EXIT_LOSSY = 3
 SEV_TAG = {"critical": "CRITICAL", "high": "HIGH", "medium": "MEDIUM", "low": "LOW"}
 
 PLANNED = {
-    "capture": "P1 — run a workload on the QNX target and pull back the .kev trace",
     "fix": "P4 — autonomous fix: patch, qcc build, deploy, re-trace, verify",
-    "diff": "P5 — compare two traces and flag timing regressions",
     "export": "P5 — export to Perfetto (ui.perfetto.dev)",
     "mcp": "P5 — MCP server exposing traces and findings to AI assistants",
 }
@@ -38,7 +37,7 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     cfg = load_config(args.config)
     if args.fail_on:
         cfg.fail_on = args.fail_on
-    a = analyze_file(args.trace, cfg, cycles_per_sec=args.cycles_per_sec)
+    a = analyze_file(args.trace, cfg, cycles_per_sec=args.cycles_per_sec, snapshot=args.snapshot)
     m = a.model
 
     if args.json:
@@ -51,6 +50,8 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     if not args.quiet:
         dur = (m.t_end - m.t_start) / 1e6
         print(f"TraceLens {__version__} | {m.trace.source}")
+        if a.snapshot_path:
+            print(f"  thread snapshot: {a.snapshot_path}")
         print(f"  {len(m.events):,} events, {len(m.threads)} threads, {dur:.1f} ms traced")
         if m.trace.unparsed_lines:
             print(f"  warning: {m.trace.unparsed_lines} lines not recognised")
@@ -94,7 +95,7 @@ def _cmd_explain(args: argparse.Namespace) -> int:
     cfg = load_config(args.config)
     if args.fail_on:
         cfg.fail_on = args.fail_on
-    a = analyze_file(args.trace, cfg, cycles_per_sec=args.cycles_per_sec)
+    a = analyze_file(args.trace, cfg, cycles_per_sec=args.cycles_per_sec, snapshot=args.snapshot)
     sources = {Path(s).name: Path(s).read_text(encoding="utf-8", errors="replace") for s in args.source}
 
     print(f"TraceLens {__version__} | explaining {min(len(a.findings), args.limit or 10**9)} "
@@ -124,6 +125,62 @@ def _cmd_explain(args: argparse.Namespace) -> int:
         Path(args.html).write_text(render(a, expl), encoding="utf-8")
         print(f"  report: {args.html}")
     return _verdict(a, cfg, args.allow_lossy)
+
+
+def _cmd_capture(args: argparse.Namespace) -> int:
+    import os
+    from .target import Target, TargetError, capture
+
+    cfg_target = load_config(args.config).target if args.config else {}
+    host = args.host or os.environ.get("TRACELENS_TARGET") or cfg_target.get("host")
+    if not host:
+        print("tracelens capture: no target host. Pass --host (inside the QEMU image folder, "
+              "`mkqnximage --getip` prints it), set TRACELENS_TARGET, or add [target] host to tracelens.toml.",
+              file=sys.stderr)
+        return 2
+    target = Target(host=host, user=args.user or cfg_target.get("user", "root"),
+                    port=args.port or int(cfg_target.get("port", 22)), key=args.key or cfg_target.get("key"))
+    wargs = args.workload_args[1:] if args.workload_args[:1] == ["--"] else args.workload_args
+    try:
+        res = capture(target, args.binary, wargs, args.out, seconds=args.seconds, name=args.name,
+                      snapshot=not args.no_snapshot, traceprinter=args.traceprinter)
+    except (TargetError, FileNotFoundError) as exc:
+        print(f"tracelens capture: {exc}", file=sys.stderr)
+        return 2
+    for line in res.log:
+        print(f"  {line}")
+    if res.workload_rc not in (0, None):
+        print(f"  warning: the workload exited {res.workload_rc}", file=sys.stderr)
+    if not args.analyze:
+        print(f"  next: tracelens analyze {res.text}" + (f" -c {args.config}" if args.config else ""))
+        return 0
+    ns = argparse.Namespace(trace=str(res.text), config=args.config, fail_on=None, json=None,
+                            html=str(Path(args.out) / f"{res.name}.html"), quiet=False,
+                            cycles_per_sec=None, allow_lossy=False, snapshot="auto")
+    return _cmd_analyze(ns)
+
+
+def _cmd_compare(args: argparse.Namespace) -> int:
+    from .verdict import INCONCLUSIVE, VERIFIED, compare_files
+
+    cfg = load_config(args.config)
+    if args.fail_on:
+        cfg.fail_on = args.fail_on
+    v = compare_files(args.before, args.after, cfg, target_kinds=args.kind or None,
+                      min_runs=args.min_runs, alpha=args.alpha)
+    print(f"TraceLens {__version__} | before/after over {v.runs_before} + {v.runs_after} clean runs"
+          + (f" ({v.lossy_skipped} lossy skipped)" if v.lossy_skipped else ""))
+    for kind, (rb, ra) in v.targets.items():
+        print(f"  {kind:<22} before {rb:>4.0%} of runs  ->  after {ra:>4.0%}")
+    for d in v.deadlines:
+        print(f"  deadline '{d.name}': p99 {d.before_p99 / 1e6:.2f} -> {d.after_p99 / 1e6:.2f} ms "
+              f"(budget {d.budget_ns / 1e6:.2f} ms; misses {d.before_misses} -> {d.after_misses}); {d.reason}")
+    for r in v.reasons:
+        print(f"  - {r}")
+    print(f"  VERDICT: {v.verdict}")
+    if args.json:
+        Path(args.json).write_text(json.dumps(v.to_dict(), indent=2), encoding="utf-8")
+    return {VERIFIED: 0, INCONCLUSIVE: EXIT_LOSSY}.get(v.verdict, 1)
 
 
 def _cmd_dump(args: argparse.Namespace) -> int:
@@ -169,6 +226,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     a = sub.add_parser("analyze", help="detect real-time issues in a traceprinter dump")
     a.add_argument("trace")
+    a.add_argument("--snapshot", default="auto",
+                       help="pidin listing from capture start (default: <trace>.pidin.txt if present)")
     a.add_argument("--cycles-per-sec", type=int, help="clock rate if the trace header lacks CYCLES_PER_SEC")
     a.add_argument("--allow-lossy", action="store_true", help="give a verdict even on a lossy trace")
     a.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines)")
@@ -180,6 +239,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     x = sub.add_parser("explain", help="analyze, then explain each finding with Claude (validated citations)")
     x.add_argument("trace")
+    x.add_argument("--snapshot", default="auto",
+                       help="pidin listing from capture start (default: <trace>.pidin.txt if present)")
     x.add_argument("--cycles-per-sec", type=int, help="clock rate if the trace header lacks CYCLES_PER_SEC")
     x.add_argument("--allow-lossy", action="store_true", help="give a verdict even on a lossy trace")
     x.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines)")
@@ -195,6 +256,33 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
     x.add_argument("-q", "--quiet", action="store_true")
     x.set_defaults(func=_cmd_explain)
+
+    c = sub.add_parser("capture", help="run a workload on the QNX target under a kernel trace and fetch it")
+    c.add_argument("binary", help="workload built with qcc (e.g. bugzoo/out/z1_infusion_pump)")
+    c.add_argument("workload_args", nargs=argparse.REMAINDER, help="arguments for the workload, after --")
+    c.add_argument("--host", help="target address (or TRACELENS_TARGET, or [target] host in the config)")
+    c.add_argument("--user")
+    c.add_argument("--port", type=int)
+    c.add_argument("--key", help="ssh private key")
+    c.add_argument("--seconds", type=int, default=4, help="trace length (the workload must finish inside it)")
+    c.add_argument("--out", default="captures", help="local folder for .kev, .txt, .pidin.txt")
+    c.add_argument("--name", help="base name for the output files (default: binary name)")
+    c.add_argument("--no-snapshot", action="store_true", help="skip the pidin thread snapshot")
+    c.add_argument("--traceprinter", choices=["auto", "host", "target"], default="auto")
+    c.add_argument("-c", "--config", help="tracelens.toml ([target] section, deadlines)")
+    c.add_argument("--analyze", action="store_true", help="analyze the trace right after capture")
+    c.set_defaults(func=_cmd_capture)
+
+    v = sub.add_parser("compare", help="before/after verdict over several captures (is the fix real?)")
+    v.add_argument("--before", nargs="+", required=True, metavar="TRACE")
+    v.add_argument("--after", nargs="+", required=True, metavar="TRACE")
+    v.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines)")
+    v.add_argument("--kind", action="append", help="finding kind that must disappear (default: those in most before-runs)")
+    v.add_argument("--min-runs", type=int, default=5, help="clean runs needed on each side (default 5)")
+    v.add_argument("--alpha", type=float, default=0.01, help="significance level for timing improvement")
+    v.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
+    v.add_argument("--json", help="write the verdict as JSON here")
+    v.set_defaults(func=_cmd_compare)
 
     d = sub.add_parser("dump", help="print the normalized event stream as JSONL")
     d.add_argument("trace")

@@ -1,0 +1,105 @@
+"""Capture a kernel event trace of one workload run on the QNX target.
+
+Steps (one ``tracelens capture`` call):
+  1. copy the workload binary to the target
+  2. thread snapshot with ``pidin`` (base priorities and names at capture start)
+  3. start ``tracelogger`` in wide mode for a fixed time, run the workload inside that window
+  4. copy the ``.kev`` back
+  5. decode it with ``traceprinter`` on the host if available (needs the SDP environment),
+     otherwise on the target, and copy the text back
+
+Flags marked (verify) still need checking against QNX 8.0's ``use tracelogger`` output.
+"""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from .ssh import Target, TargetError, q
+
+REMOTE_DIR = "/tmp/tracelens"
+
+
+@dataclass
+class CaptureResult:
+    name: str
+    kev: Path
+    text: Path | None
+    snapshot: Path | None
+    log: list[str] = field(default_factory=list)
+    workload_rc: int | None = None
+
+
+def trace_command(binary: str, args: list[str], kev: str, seconds: int, settle: float = 1.0) -> str:
+    """Shell command that runs ``binary`` inside a time-limited tracelogger capture."""
+    run = " ".join(q(a) for a in [binary, *args])
+    return (
+        f"tracelogger -w -s {int(seconds)} -f {q(kev)} >/dev/null 2>&1 & "  # -w wide, -s secs, -f file (verify)
+        f"TL=$!; sleep {settle}; {run}; RC=$?; wait $TL; echo TRACELENS_RC=$RC"
+    )
+
+
+def capture(target: Target, binary: str | Path, args: list[str], out_dir: str | Path,
+            seconds: int = 4, name: str | None = None, snapshot: bool = True,
+            traceprinter: str = "auto", host_runner=None) -> CaptureResult:
+    """Run ``binary`` on the target under a trace; return local paths of the results.
+
+    ``traceprinter``: "host", "target", or "auto" (host if ``traceprinter`` is on PATH).
+    """
+    binary = Path(binary)
+    name = name or binary.name
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    remote_bin = f"{REMOTE_DIR}/{binary.name}"
+    remote_kev = f"{REMOTE_DIR}/{name}.kev"
+    res = CaptureResult(name=name, kev=out / f"{name}.kev", text=None, snapshot=None)
+
+    target.run(f"mkdir -p {REMOTE_DIR}")
+    target.put(binary, remote_bin)
+    target.run(f"chmod +x {q(remote_bin)}")
+    res.log.append(f"deployed {binary} -> {remote_bin}")
+
+    if snapshot:
+        snap = target.run("pidin", timeout=30, check=False)
+        if snap.returncode == 0 and snap.stdout.strip():
+            res.snapshot = out / f"{name}.pidin.txt"
+            res.snapshot.write_text(snap.stdout, encoding="utf-8")
+            res.log.append(f"thread snapshot -> {res.snapshot}")
+        else:
+            res.log.append("thread snapshot failed; priorities will come from trace events only")
+
+    cp = target.run(trace_command(remote_bin, args, remote_kev, seconds), timeout=seconds + 60, check=False)
+    for line in cp.stdout.splitlines():
+        if line.startswith("TRACELENS_RC="):
+            try:
+                res.workload_rc = int(line.split("=", 1)[1])
+            except ValueError:
+                pass
+    if cp.returncode != 0:
+        raise TargetError(f"trace run failed ({cp.returncode}):\n{cp.stderr.strip()}")
+    res.log.append(f"traced {seconds}s, workload exit {res.workload_rc}")
+
+    target.get(remote_kev, res.kev)
+    res.log.append(f"trace -> {res.kev}")
+
+    text = out / f"{name}.txt"
+    where = traceprinter
+    if where == "auto":
+        where = "host" if shutil.which("traceprinter") else "target"
+    if where == "host":
+        run = host_runner or (lambda argv: subprocess.run(argv, capture_output=True, text=True, timeout=300))
+        cp = run(["traceprinter", "-f", str(res.kev)])
+        if cp.returncode != 0:
+            raise TargetError(f"host traceprinter failed: {cp.stderr.strip()} "
+                              "(license? try --traceprinter target)")
+        text.write_text(cp.stdout, encoding="utf-8")
+    else:
+        remote_txt = f"{REMOTE_DIR}/{name}.txt"
+        target.run(f"traceprinter -f {q(remote_kev)} > {q(remote_txt)}", timeout=300)
+        target.get(remote_txt, text)
+    res.text = text
+    res.log.append(f"decoded with traceprinter on the {where} -> {text}")
+    return res
