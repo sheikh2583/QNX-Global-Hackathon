@@ -1,0 +1,38 @@
+# Bug zoo
+
+Small, realistic QNX 8.0 workloads with **planted real-time bugs**. TraceLens must catch every one, stay silent on the reference fixes, and (from v0.2) fix each bug autonomously and prove it by re-tracing.
+
+| Workload | Story | Planted bug | Detector |
+|---|---|---|---|
+| `z1_infusion_pump` | 1 kHz-class dose controller sharing a sensor buffer | Semaphore as a lock → priority inversion (no inheritance) | `priority_inversion`, `deadline_miss` |
+| `z2_brake_by_wire` | Brake controller → arbiter server, plus diagnostics | `_NTO_CHF_FIXED_PRIORITY` channel → server runs below its client | `priority_inversion` (message channel), `deadline_miss` |
+| `z3_sensor_fusion` | Two fusion servers that occasionally call each other | Mutual `MsgSend()` → Send/Reply deadlock (broken by a 1 s timeout) | `ipc_deadlock` |
+| `z4_camera_pipeline` | 4 workers publishing tiles every 4 ms | 0.6 ms of work inside one global mutex (4 workers, 2 CPUs) | `mutex_contention`, `deadline_miss` |
+| `z5_motor_encoder` | Encoder interrupt service thread | 2 ms of work before `InterruptUnmask()` | `irq_handler_overrun` |
+
+Ground-truth fixes live in [`reference/`](reference/) (hidden from the fix agent).
+
+## Build (host, QNX SDP 8.0)
+
+```bash
+source ~/qnx800/qnxsdp-env.sh
+make            # out/<name> (buggy) and out/<name>_fixed (reference)
+```
+
+## Run under a trace (on the QNX target)
+
+```bash
+scp out/* run_traced.sh root@<qemu-ip>:/tmp/zoo/
+ssh root@<qemu-ip> 'cd /tmp/zoo && ./run_traced.sh ./z1_infusion_pump -d 2'
+scp root@<qemu-ip>:/tmp/tracelens/z1_infusion_pump.kev .
+traceprinter -f z1_infusion_pump.kev > z1_infusion_pump.txt
+tracelens analyze z1_infusion_pump.txt -c tracelens.toml --html z1.html
+```
+
+`z5_motor_encoder` needs `-i <irq>`: pick a device interrupt that fires regularly (e.g. the NIC's, from `pidin irqs`) and drive it with `ping -f` from the host. *(verify on the QEMU image)*
+
+## Notes
+
+- Every thread is pinned (`ThreadCtl(_NTO_TCTL_RUNMASK)`) and runs `SCHED_FIFO`, so scheduling is reproducible on the 8-CPU QEMU guest.
+- Workloads announce themselves with `TraceEvent()` user string events (`TL_META`, `TL_JOB_START`, `TL_JOB_END`), which TraceLens uses for thread names, priorities and deadlines.
+- Status: all sources pass a host syntax check (`gcc -fsyntax-only -Wall -Wextra` against QNX API stubs). **Not yet built with `qcc` or run on QNX.**

@@ -1,0 +1,25 @@
+# TraceLens configuration for the bug zoo (real QNX captures).
+# Deadline names match the TL_JOB_START/TL_JOB_END markers emitted by each workload.
+
+fail_on = "high"
+
+[thresholds]
+inversion_min_block_us = 1000
+inversion_min_interference_us = 500
+contention_min_total_wait_us = 2000
+contention_min_waits = 5
+irq_max_latency_us = 200
+irq_max_handler_us = 500
+deadlock_min_blocked_us = 50000
+
+[deadlines.control]   # z1 infusion pump: dose computation every 10 ms
+budget_us = 1000
+period_us = 10000
+
+[deadlines.brake]     # z2 brake-by-wire: request round trip every 10 ms
+budget_us = 2000
+period_us = 10000
+
+[deadlines.frame]     # z4 camera pipeline: per-worker tile every 4 ms
+budget_us = 1500
+period_us = 4000

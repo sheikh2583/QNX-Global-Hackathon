@@ -1,0 +1,92 @@
+"""Interrupt latency and handler overrun (event-driven IST model).
+
+For each vector attached with InterruptAttachEvent()/InterruptAttach(), pair
+each INT_ENTR with the handler thread's next InterruptWait() return
+(latency), then measure how long the handler works before InterruptUnmask()
+or its next InterruptWait() (handler time, during which the IRQ stays masked).
+"""
+
+from __future__ import annotations
+
+from ..config import Config
+from ..findings import Finding
+from ..model.trace import TraceModel
+from ._util import fmt_ms, ms, percentile, us
+
+QNX_NOTE = ("The interrupt stays masked until the handler thread calls InterruptUnmask(). "
+            "Keep the IST minimal: read/ack the device, unmask, and hand the heavy work to a "
+            "lower-priority worker with MsgSendPulse().")
+
+
+def detect(model: TraceModel, cfg: Config) -> list[Finding]:
+    t = cfg.thresholds
+    handlers: dict[int, tuple] = {}
+    for th in model.threads.values():
+        for e in th.calls:
+            if e.kind.startswith("INTERRUPT_ATTACH"):
+                vec = e.arg_int("intr")
+                if vec is not None:
+                    handlers[vec] = th.key
+
+    samples: dict[int, list] = {}
+    for irq in model.irq_entries:
+        try:
+            vec = int(irq.kind)
+        except ValueError:
+            continue
+        key = handlers.get(vec)
+        if key is None:
+            continue
+        th = model.threads[key]
+        wake = model.next_exit_after(th, irq.t_ns, ("INTERRUPT_WAIT",))
+        if wake is None:
+            continue
+        done = model.next_call_after(th, wake.t_ns, ("INTERRUPT_UNMASK", "INTERRUPT_WAIT"))
+        work = (done.t_ns - wake.t_ns) if done else None
+        samples.setdefault(vec, []).append((irq, wake, done, wake.t_ns - irq.t_ns, work))
+
+    findings = []
+    for vec, items in samples.items():
+        key = handlers[vec]
+        lat = [s[3] for s in items]
+        work = [s[4] for s in items if s[4] is not None]
+        p99_lat = percentile(lat, 99)
+        max_work = max(work) if work else 0
+        metrics = {
+            "interrupts": len(items),
+            "p50_latency_us": round(us(percentile(lat, 50)), 1),
+            "p99_latency_us": round(us(p99_lat), 1),
+            "max_latency_us": round(us(max(lat)), 1),
+            "p99_handler_us": round(us(percentile(work, 99)), 1) if work else 0,
+            "max_handler_us": round(us(max_work), 1),
+        }
+        if us(p99_lat) > t.irq_max_latency_us:
+            worst = max(items, key=lambda s: s[3])
+            findings.append(Finding(
+                kind="irq_latency",
+                severity="high",
+                title=f"Slow interrupt response on IRQ {vec}",
+                summary=(f"Handler {model.describe(key)} took p99 {us(p99_lat):.0f} us to start "
+                         f"after IRQ {vec} (budget {t.irq_max_latency_us:.0f} us)."),
+                t_start=worst[0].t_ns, t_end=worst[1].t_ns,
+                threads=[model.label(key)],
+                evidence=[worst[0].id, worst[1].id],
+                metrics=metrics, qnx_note=QNX_NOTE,
+            ))
+        if work and us(max_work) > t.irq_max_handler_us:
+            worst = max((s for s in items if s[4] is not None), key=lambda s: s[4])
+            over = sum(1 for w in work if us(w) > t.irq_max_handler_us)
+            findings.append(Finding(
+                kind="irq_handler_overrun",
+                severity="high",
+                title=f"Interrupt handler overrun on IRQ {vec}",
+                summary=(f"Handler {model.describe(key)} kept IRQ {vec} masked for up to "
+                         f"{fmt_ms(max_work)} ({over}/{len(work)} interrupts over the "
+                         f"{t.irq_max_handler_us:.0f} us budget)."),
+                t_start=worst[1].t_ns, t_end=worst[2].t_ns,
+                threads=[model.label(key)],
+                evidence=[worst[0].id, worst[1].id, worst[2].id],
+                metrics={**metrics, "overruns": over, "max_handler_ms": round(ms(max_work), 3)},
+                qnx_note=QNX_NOTE,
+            ))
+    return findings

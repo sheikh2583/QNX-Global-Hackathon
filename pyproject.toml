@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tracelens"
+version = "0.1.0.dev0"
+description = "Autonomous real-time debugging agent for QNX kernel event traces"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = []  # core is stdlib-only on purpose: judges can run it anywhere
+
+[project.optional-dependencies]
+ai = ["anthropic"]
+mcp = ["mcp"]
+dev = ["pytest"]
+
+[project.scripts]
+tracelens = "tracelens.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tracelens = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

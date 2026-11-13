@@ -1,0 +1,147 @@
+"""``tracelens`` command line.
+
+Exit codes (CI contract):
+  0  no findings at or above --fail-on
+  1  findings at or above --fail-on
+  2  usage or input error
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from . import __version__
+from .analyze import analyze_file
+from .config import load_config
+from .findings import at_least
+
+SEV_TAG = {"critical": "CRITICAL", "high": "HIGH", "medium": "MEDIUM", "low": "LOW"}
+
+PLANNED = {
+    "capture": "P1 — run a workload on the QNX target and pull back the .kev trace",
+    "explain": "P3 — Claude explanation of each finding, with validated event citations",
+    "fix": "P4 — autonomous fix: patch, qcc build, deploy, re-trace, verify",
+    "diff": "P5 — compare two traces and flag timing regressions",
+    "export": "P5 — export to Perfetto (ui.perfetto.dev)",
+    "mcp": "P5 — MCP server exposing traces and findings to AI assistants",
+}
+
+
+def _cmd_analyze(args: argparse.Namespace) -> int:
+    cfg = load_config(args.config)
+    if args.fail_on:
+        cfg.fail_on = args.fail_on
+    a = analyze_file(args.trace, cfg)
+    m = a.model
+
+    if args.json:
+        from .report.json_out import dumps
+        Path(args.json).write_text(dumps(a), encoding="utf-8")
+    if args.html:
+        from .report.html import render
+        Path(args.html).write_text(render(a), encoding="utf-8")
+
+    if not args.quiet:
+        dur = (m.t_end - m.t_start) / 1e6
+        print(f"TraceLens {__version__} | {m.trace.source}")
+        print(f"  {len(m.events):,} events, {len(m.threads)} threads, {dur:.1f} ms traced")
+        if m.trace.unparsed_lines:
+            print(f"  warning: {m.trace.unparsed_lines} lines not recognised")
+        print()
+        for f in a.findings:
+            print(f"  [{SEV_TAG.get(f.severity, f.severity)}] {f.id} {f.title}")
+            print(f"      {f.summary}")
+        if not a.findings:
+            print("  No real-time issues detected.")
+        for err in a.errors:
+            print(f"  detector error: {err}", file=sys.stderr)
+        print()
+        failing = sum(1 for f in a.findings if at_least(f.severity, cfg.fail_on))
+        print(f"  {len(a.findings)} findings, {failing} at or above '{cfg.fail_on}'"
+              + (f" | report: {args.html}" if args.html else ""))
+
+    return 1 if any(at_least(f.severity, cfg.fail_on) for f in a.findings) else 0
+
+
+def _cmd_dump(args: argparse.Namespace) -> int:
+    from .ingest.traceprinter import parse_file
+    trace = parse_file(args.trace)
+    out = sys.stdout
+    for e in trace.events:
+        out.write(json.dumps(e.to_dict()) + "\n")
+    return 0
+
+
+def _cmd_threads(args: argparse.Namespace) -> int:
+    from .ingest.traceprinter import parse_file
+    from .model.trace import TraceModel
+    m = TraceModel(parse_file(args.trace))
+    span = max(1, m.t_end - m.t_start)
+    print(f"{'thread':<28} {'prio':>4} {'running':>9} {'ready':>9} {'blocked':>9}")
+    for key, th in sorted(m.threads.items()):
+        run = m.overlap(th, {"RUNNING"}, m.t_start, m.t_end)
+        ready = m.overlap(th, {"READY"}, m.t_start, m.t_end)
+        blk = m.overlap(th, {"SEM", "MUTEX", "CONDVAR", "SEND", "REPLY", "INTR"}, m.t_start, m.t_end)
+        print(f"{m.label(key):<28} {th.prio if th.prio is not None else '-':>4} "
+              f"{run / span:>8.1%} {ready / span:>8.1%} {blk / span:>8.1%}")
+    return 0
+
+
+def _cmd_synth(args: argparse.Namespace) -> int:
+    from .testing.scenarios import DEADLINES_TOML, SCENARIOS
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    # newline="\n": fixtures must be byte-identical on every OS (CI diffs them).
+    for name, make in SCENARIOS.items():
+        (out / f"{name}.txt").write_text(make(), encoding="utf-8", newline="\n")
+    (out / "tracelens.toml").write_text(DEADLINES_TOML, encoding="utf-8", newline="\n")
+    print(f"wrote {len(SCENARIOS)} synthetic traces + tracelens.toml to {out}")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="tracelens", description=__doc__.splitlines()[0])
+    p.add_argument("--version", action="version", version=f"tracelens {__version__}")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    a = sub.add_parser("analyze", help="detect real-time issues in a traceprinter dump")
+    a.add_argument("trace")
+    a.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines)")
+    a.add_argument("--json", help="write JSON findings here")
+    a.add_argument("--html", help="write the HTML report here")
+    a.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
+    a.add_argument("-q", "--quiet", action="store_true")
+    a.set_defaults(func=_cmd_analyze)
+
+    d = sub.add_parser("dump", help="print the normalized event stream as JSONL")
+    d.add_argument("trace")
+    d.set_defaults(func=_cmd_dump)
+
+    t = sub.add_parser("threads", help="per-thread CPU / ready / blocked summary")
+    t.add_argument("trace")
+    t.set_defaults(func=_cmd_threads)
+
+    s = sub.add_parser("synth", help="write the synthetic bug-zoo traces (for demos and tests)")
+    s.add_argument("--out", default="fixtures/synthetic")
+    s.set_defaults(func=_cmd_synth)
+
+    for name, desc in PLANNED.items():
+        sp = sub.add_parser(name, help=f"[planned] {desc}")
+        sp.set_defaults(func=lambda _a, d=desc: (print(f"not implemented yet: {d}"), 2)[1])
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return args.func(args)
+    except FileNotFoundError as exc:
+        print(f"tracelens: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

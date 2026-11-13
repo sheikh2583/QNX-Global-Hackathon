@@ -1,0 +1,9 @@
+fail_on = "high"
+
+[deadlines.control]
+budget_us = 1000
+period_us = 10000
+
+[deadlines.brake]
+budget_us = 2000
+period_us = 10000

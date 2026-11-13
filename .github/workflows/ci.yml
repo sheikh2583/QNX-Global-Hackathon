@@ -1,0 +1,83 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: unit tests (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+      - name: Committed fixtures match the generator
+        run: |
+          tracelens synth --out fixtures/synthetic
+          git diff --exit-code -- fixtures/synthetic
+
+  bugzoo-hostcheck:
+    # Type-checks every bug-zoo workload and reference fix with host gcc against
+    # QNX API stubs (bugzoo/hostcheck/). No QNX license needed; qcc builds happen on the dev host.
+    name: bug zoo compiles (host stubs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C bugzoo hostcheck
+
+  trace-gate:
+    # The CI contract TraceLens offers to QNX projects, demonstrated on the bug zoo:
+    # clean traces must pass, every planted bug must fail the gate.
+    name: real-time trace gate
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+
+      - name: Clean baseline passes
+        run: |
+          mkdir -p reports
+          tracelens analyze fixtures/synthetic/z0_clean.txt \
+            -c fixtures/synthetic/tracelens.toml \
+            --html reports/z0_clean.html --json reports/z0_clean.json
+
+      - name: Every planted bug is caught
+        run: |
+          set +e
+          failed=0
+          for t in fixtures/synthetic/z[1-9]*.txt; do
+            name=$(basename "$t" .txt)
+            tracelens analyze "$t" -c fixtures/synthetic/tracelens.toml \
+              --html "reports/$name.html" --json "reports/$name.json"
+            rc=$?
+            if [ "$rc" -ne 1 ]; then
+              echo "::error file=$t::expected TraceLens to flag $name (exit 1), got exit $rc"
+              failed=1
+            else
+              echo "::notice file=$t::$name caught as expected"
+            fi
+          done
+          exit $failed
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracelens-reports
+          path: reports/
