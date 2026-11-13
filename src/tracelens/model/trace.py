@@ -87,6 +87,11 @@ class TraceModel:
         self.threads: dict[Key, ThreadInfo] = {}
         self.proc_names: dict[int, str] = {}
         self.coid_map: dict[tuple[int, int], int] = {}  # (client pid, coid) -> server pid
+        self.coid_chid: dict[tuple[int, int], str] = {}  # (client pid, coid) -> server channel id
+        # COMM events (verify kind/field names on QNX 8.0): SND_MESSAGE carries the rcvid and the
+        # receiving pid; REC_MESSAGE, attributed to the server thread, carries the same rcvid.
+        self.comm_snd: dict[Key, list[Event]] = {}  # client thread -> its SND_MESSAGE events
+        self.comm_rec: dict[str, list[Event]] = {}  # rcvid -> REC_MESSAGE events
         self.sync_ops: dict[str, list[Event]] = {}  # sync object address -> kernel calls on it
         self.irq_entries: list[Event] = []
         self.t_start = self.events[0].t_ns if self.events else 0
@@ -189,6 +194,14 @@ class TraceModel:
                         server = e.pid
                     if coid is not None and coid >= 0 and server is not None:
                         self.coid_map[(key[0], coid)] = server
+                        if (chid := call.args.get("chid")) is not None:
+                            self.coid_chid[(key[0], coid)] = _norm(chid)
+
+            elif e.cls == "COMM":
+                if e.kind.startswith("SND_MESSAGE"):
+                    self.comm_snd.setdefault(key, []).append(e)
+                elif e.kind.startswith("REC_MESSAGE") and (rcvid := e.args.get("rcvid")) is not None:
+                    self.comm_rec.setdefault(_norm(rcvid), []).append(e)
 
             elif e.cls == "USREVENT":
                 th.user.append(e)
@@ -278,8 +291,54 @@ class TraceModel:
         return None
 
     def server_of(self, call: Event) -> int | None:
-        """Server pid for a MsgSend*-style call, via the ConnectAttach coid map."""
+        """Server pid for a MsgSend*-style call (see ``message_target``)."""
+        return self.message_target(call)[0]
+
+    def message_target(self, call: Event) -> tuple[int | None, Key | None, str | None]:
+        """(server pid, server thread if it received the message, channel id) for a MsgSend* call.
+
+        1. COMM events: the client's SND_MESSAGE right after the call gives the rcvid and the
+           receiving pid; a REC_MESSAGE with that rcvid names the server *thread*. This works for
+           connections made before the capture started.
+        2. Otherwise the ConnectAttach() coid map, when the connection was made inside the trace.
+        """
+        key = call.key
         coid = call.arg_int("coid")
+        chid = self.coid_chid.get((call.pid, coid)) if coid is not None else None
+        for snd in self.comm_snd.get(key, ()):
+            if snd.t_ns < call.t_ns:
+                continue
+            nxt = self.threads[key].calls if key in self.threads else []
+            later = [c for c in nxt if c.t_ns > call.t_ns and c.kind.startswith("MSG_SEND")]
+            if later and snd.t_ns > later[0].t_ns:
+                break  # this SND belongs to a later MsgSend
+            pid = snd.arg_int("pid")
+            server_thread = None
+            if (rcvid := snd.args.get("rcvid")) is not None:
+                for rec in self.comm_rec.get(_norm(rcvid), ()):
+                    if rec.t_ns >= snd.t_ns and rec.key is not None:
+                        server_thread = rec.key
+                        pid = rec.key[0]
+                        break
+            if pid is not None:
+                return pid, server_thread, chid
+            break
         if coid is None or call.pid is None:
+            return None, None, chid
+        return self.coid_map.get((call.pid, coid)), None, chid
+
+    def receive_channel(self, th: ThreadInfo, t: int) -> str | None:
+        """Channel a thread is RECEIVE-blocked on at ``t``: its last MsgReceive* call's chid."""
+        call = self.last_call_before(th, t, ("MSG_RECEIVE",))
+        if call is None or (chid := call.args.get("chid")) is None:
             return None
-        return self.coid_map.get((call.pid, coid))
+        return _norm(chid)
+
+
+def _norm(value: str) -> str:
+    """Normalise ids printed as hex or decimal ("0x0000001d", "29") to one form."""
+    v = value.rstrip(",")
+    try:
+        return str(int(v, 0))
+    except ValueError:
+        return v

@@ -250,3 +250,62 @@ def test_dropped_event_makes_trace_lossy_and_verdict_inconclusive(tmp_path):
 def test_bug_zoo_synthetic_traces_are_not_lossy():
     for name, make in S.SCENARIOS.items():
         assert not TraceModel(parse_text(make())).lossy, name
+
+
+# ------------------------------------------------------------------ message passing
+
+def _mutual_send(connect_in_trace: bool, pool_chid: int | None) -> str:
+    """fusion_a (pid 200) and fusion_b (pid 300) MsgSend to each other's channel 1.
+
+    connect_in_trace=False: the connections predate the capture (no ConnectAttach in the
+    trace); only COMM SND_MESSAGE events say where each message went.
+    pool_chid: fusion_b also has a pool thread RECEIVE-blocked on that channel.
+    """
+    b = TraceBuilder()
+    A, B, P = (200, 1), (300, 1), (300, 2)
+    b.proc(0, 200, "fusion_a")
+    b.proc(0, 300, "fusion_b")
+    b.meta(0, 0, A, "fusion_a", 30)
+    b.meta(0, 1, B, "fusion_b", 30)
+    if pool_chid is not None:
+        b.meta(0, 2, P, "fusion_b_pool", 30)
+        b.call(5, 2, "MSG_RECEIVEV", chid=pool_chid)
+        b.block(5, 2, "RECEIVE")
+    if connect_in_trace:
+        b.call(10, 0, "CONNECT_ATTACH", nd=0, pid=300, chid=1, index=0, flags=0)
+        b.ret(11, 0, "CONNECT_ATTACH", ret_val=3)
+        b.call(10, 1, "CONNECT_ATTACH", nd=0, pid=200, chid=1, index=0, flags=0)
+        b.ret(11, 1, "CONNECT_ATTACH", ret_val=3)
+    for cpu, dest, rcvid in ((0, 300, "0x11"), (1, 200, "0x22")):
+        b.call(1000, cpu, "MSG_SENDV", coid="0x00000003", sparts=1, rparts=1)
+        b.comm(1000, cpu, "SND_MESSAGE", rcvid=rcvid, pid=dest)
+        b.block(1000, cpu, "SEND")
+    b.meta(400_000, 3, (600, 1), "watchdog", 5)  # trace continues; the pair never recovers
+    return b.text()
+
+
+def test_deadlock_found_without_connect_attach_in_trace():
+    a = analyze_text(_mutual_send(connect_in_trace=False, pool_chid=None))
+    assert "ipc_deadlock" in kinds(a)
+
+
+def test_pool_thread_on_another_channel_does_not_hide_a_deadlock():
+    hidden = analyze_text(_mutual_send(connect_in_trace=True, pool_chid=2))
+    assert "ipc_deadlock" in kinds(hidden)  # the pool thread serves channel 2, not 1
+    served = analyze_text(_mutual_send(connect_in_trace=True, pool_chid=1))
+    assert "ipc_deadlock" not in kinds(served)  # a thread could take fusion_a's message
+
+
+def test_reply_blocked_client_resolves_to_the_server_thread():
+    b = TraceBuilder()
+    C, S1, S2 = (100, 1), (300, 1), (300, 2)
+    b.meta(0, 0, C, "client", 40)
+    b.meta(0, 1, S1, "server_t1", 10)
+    b.meta(0, 2, S2, "server_t2", 10)
+    b.call(100, 0, "MSG_SENDV", coid="0x00000004", sparts=1, rparts=1)
+    b.comm(100, 0, "SND_MESSAGE", rcvid="0x33", pid=300)
+    b.block(100, 0, "SEND")
+    b.comm(150, 2, "REC_MESSAGE", rcvid="0x33")
+    m = TraceModel(parse_text(b.text()))
+    call = next(e for e in m.threads[C].calls if e.kind == "MSG_SENDV")
+    assert m.message_target(call)[:2] == (300, S2)

@@ -3,10 +3,15 @@
 QNX message passing is synchronous: a client is SEND-blocked until a server
 receives, then REPLY-blocked until it replies. Every SEND/REPLY-blocked
 interval longer than the threshold becomes a time-bounded edge
-``client pid -> server pid`` (server resolved through ConnectAttach coids).
+``client pid -> server pid``. The server comes from COMM events (the client's
+SND_MESSAGE rcvid/pid, matched to the server thread's REC_MESSAGE), so
+connections made before the capture work too; failing that, from ConnectAttach
+coids inside the trace.
 
 * A **deadlock** is a cycle of edges whose time windows all overlap, during
-  which no member process has a thread RECEIVE-blocked (able to serve).
+  which no member process has a thread RECEIVE-blocked *on the channel the cycle
+  is calling* (a pool thread receiving on some other channel cannot help). When
+  the channel is unknown, any RECEIVE-blocked thread counts, as before.
   Deadlocks broken later by a timeout (TimerTimeout) are still reported.
 * A **deep chain** is a non-cyclic path of overlapping edges with at least
   ``chain_min_depth`` processes.
@@ -39,6 +44,8 @@ class Edge:
     thread: ThreadInfo
     iv: Interval
     call: Event
+    chid: str | None = None
+    server_thread: tuple | None = None
 
 
 def _edges(model: TraceModel, min_blocked: int) -> list[Edge]:
@@ -50,17 +57,28 @@ def _edges(model: TraceModel, min_blocked: int) -> list[Edge]:
             call = model.last_call_before(th, iv.start, ("MSG_SEND",))
             if call is None:
                 continue
-            server = model.server_of(call)
+            server, server_thread, chid = model.message_target(call)
             if server is None or server == th.pid:
                 continue
-            out.append(Edge(th.pid, server, iv.start, iv.end, th, iv, call))
+            out.append(Edge(th.pid, server, iv.start, iv.end, th, iv, call, chid, server_thread))
     # A thread's SEND then REPLY intervals for one request are one logical edge.
     return out
 
 
-def _receiving(model: TraceModel, pid: int, a: int, b: int) -> bool:
-    return any(model.overlap(th, {"RECEIVE"}, a, b) > 0
-               for th in model.threads.values() if th.pid == pid)
+def _receiving(model: TraceModel, pid: int, a: int, b: int, chid: str | None = None) -> bool:
+    """Could process ``pid`` serve a message on ``chid`` during [a, b)?"""
+    for th in model.threads.values():
+        if th.pid != pid:
+            continue
+        for iv in th.intervals:
+            if iv.start >= b:
+                break
+            if iv.state != "RECEIVE" or iv.end <= a:
+                continue
+            rc = model.receive_channel(th, iv.start)
+            if chid is None or rc is None or rc == chid:
+                return True
+    return False
 
 
 def detect(model: TraceModel, cfg: Config) -> list[Finding]:
@@ -84,7 +102,8 @@ def detect(model: TraceModel, cfg: Config) -> list[Finding]:
             if nxt.server == start_pid:
                 cyc = path + [nxt]
                 pids = frozenset(e.client for e in cyc)
-                if pids not in cycles and not any(_receiving(model, p, lo, hi) for p in pids):
+                wanted = {e.server: e.chid for e in cyc}
+                if pids not in cycles and not any(_receiving(model, p, lo, hi, wanted.get(p)) for p in pids):
                     cycles[pids] = (cyc, lo, hi)
                 extended = True
                 continue

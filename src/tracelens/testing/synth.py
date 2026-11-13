@@ -42,6 +42,12 @@ class TraceBuilder:
         body = " ".join(f"{k}:{v}" for k, v in args.items())
         self._emit(t_us, cpu, "KER_EXIT", f"{name}/{num:02d} {body}".rstrip())
 
+    def comm(self, t_us: float, cpu: int, kind: str, **args) -> None:
+        """Message-passing COMM event (e.g. SND_MESSAGE rcvid/pid, REC_MESSAGE rcvid); field
+        names follow the QNX docs (verify on QNX 8.0)."""
+        body = " ".join(f"{k}:{v}" for k, v in args.items())
+        self._emit(t_us, cpu, "COMM", f"{kind} {body}".rstrip())
+
     def irq(self, t_us: float, cpu: int, vector: int, exit_after_us: float = 2) -> None:
         self._emit(t_us, cpu, "INT_ENTR", f"0x{vector:08x} ({vector})       IP:0x00401000")
         self._emit(t_us + exit_after_us, cpu, "INT_EXIT", f"0x{vector:08x} ({vector}) inkernel:0x00000000")
