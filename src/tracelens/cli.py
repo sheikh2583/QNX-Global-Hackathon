@@ -27,8 +27,6 @@ EXIT_LOSSY = 3
 SEV_TAG = {"critical": "CRITICAL", "high": "HIGH", "medium": "MEDIUM", "low": "LOW"}
 
 PLANNED = {
-    "export": "P5 — export to Perfetto (ui.perfetto.dev)",
-    "mcp": "P5 — MCP server exposing traces and findings to AI assistants",
 }
 
 
@@ -223,6 +221,30 @@ def _cmd_fix(args: argparse.Namespace) -> int:
     return {"VERIFIED": 0, "NOTHING TO FIX": 0, "INCONCLUSIVE": EXIT_LOSSY, "ERROR": 2}.get(res.status, 1)
 
 
+def _cmd_export(args: argparse.Namespace) -> int:
+    from .export.perfetto import dumps
+    a = analyze_file(args.trace, load_config(args.config), cycles_per_sec=args.cycles_per_sec,
+                     snapshot=args.snapshot)
+    out = Path(args.out or Path(args.trace).with_suffix(".perfetto.json"))
+    out.write_text(dumps(a, include_calls=not args.no_calls), encoding="utf-8")
+    print(f"wrote {out} ({len(a.findings)} findings) - open it at https://ui.perfetto.dev")
+    return 0
+
+
+def _cmd_mcp(args: argparse.Namespace) -> int:
+    try:
+        from .mcp_server import main as serve
+    except ImportError:
+        print("tracelens mcp needs the MCP extra: pip install 'tracelens[mcp]'", file=sys.stderr)
+        return 2
+    try:
+        serve()
+    except ImportError:
+        print("tracelens mcp needs the MCP extra: pip install 'tracelens[mcp]'", file=sys.stderr)
+        return 2
+    return 0
+
+
 def _cmd_dump(args: argparse.Namespace) -> int:
     from .ingest.traceprinter import parse_file
     trace = parse_file(args.trace)
@@ -344,6 +366,18 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
     f.add_argument("--out", help="evidence bundle folder (default: fixes/<workload>-<context>)")
     f.set_defaults(func=_cmd_fix)
+
+    e = sub.add_parser("export", help="write Chrome Trace JSON for ui.perfetto.dev (states, markers, findings)")
+    e.add_argument("trace")
+    e.add_argument("-o", "--out", help="output file (default: <trace>.perfetto.json)")
+    e.add_argument("-c", "--config", help="tracelens.toml (so findings use your deadlines)")
+    e.add_argument("--snapshot", default="auto")
+    e.add_argument("--cycles-per-sec", type=int)
+    e.add_argument("--no-calls", action="store_true", help="leave out kernel-call instants (smaller file)")
+    e.set_defaults(func=_cmd_export)
+
+    sp = sub.add_parser("mcp", help="run the MCP server on stdio (claude mcp add tracelens -- tracelens mcp)")
+    sp.set_defaults(func=_cmd_mcp)
 
     d = sub.add_parser("dump", help="print the normalized event stream as JSONL")
     d.add_argument("trace")

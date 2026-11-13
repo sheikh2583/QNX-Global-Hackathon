@@ -26,7 +26,7 @@ from .prompts import SCHEMA, SYSTEM, retry_prompt, user_prompt
 DEFAULT_MODEL = "claude-opus-5-5"
 DEFAULT_EFFORT = "medium"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
-PROMPT_VERSION = "explain-v1"
+PROMPT_VERSION = "explain-v2-typed-claims"
 
 
 @dataclass
@@ -94,7 +94,7 @@ class Explainer:
                     result.error = f"invalid JSON from model: {exc}"
                     break
                 result.data = data
-                result.problems = validate(data, pack.allowed_ids, pack.core_ids)
+                result.problems = validate(data, pack.allowed_ids, pack.core_ids, a.model)
                 result.verified = not result.problems
                 if result.verified:
                     break

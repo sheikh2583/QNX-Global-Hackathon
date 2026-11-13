@@ -71,7 +71,10 @@ def build_pack(model: TraceModel, finding: Finding, context: int = 3, max_events
 def format_event(model: TraceModel, e: Event, t0: int) -> str:
     who = model.describe(e.key) if e.key is not None else "-"
     body = e.raw.strip() or f"{e.cls} {e.kind} {e.text}".strip()
-    return f"[E{e.id}] +{(e.t_ns - t0) / 1e6:.3f} ms cpu{e.cpu} {who} | {body}"
+    what = f"{e.cls} {e.kind}".strip()
+    if e.cls == "USREVENT" and e.text:
+        what = f"USREVENT {e.text.split()[0]}"
+    return f"[E{e.id}] +{(e.t_ns - t0) / 1e6:.3f} ms cpu{e.cpu} {who} {what} | {body}"
 
 
 def format_pack(model: TraceModel, pack: EvidencePack) -> str:

@@ -13,7 +13,7 @@ dependencies = []  # core is stdlib-only on purpose: judges can run it anywhere
 
 [project.optional-dependencies]
 ai = ["anthropic>=2.8"]  # needs output_config + server-side fallbacks
-mcp = ["mcp"]
+mcp = ["mcp>=2.3"]  # MCPServer API
 dev = ["pytest"]
 
 [project.scripts]

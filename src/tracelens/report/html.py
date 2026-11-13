@@ -123,7 +123,7 @@ def _explanation(x: Any, fid: str) -> str:
            else '<span class="tag bad">citations NOT verified</span>')
     steps = "".join(
         f"<li>{_cite(s.get('text', ''), fid)} "
-        + " ".join(_link(fid, int(i)) for i in s.get("evidence", []))
+        + " ".join(_link(fid, int(i["event"] if isinstance(i, dict) else i)) for i in s.get("evidence", []))
         + "</li>" for s in d.get("causal_chain", []))
     fix = d.get("fix", {})
     fix_steps = "".join(f"<li>{_cite(s, fid)}</li>" for s in fix.get("steps", []))

@@ -131,3 +131,47 @@ def test_reports_carry_explanations_and_link_citations(z1):
     assert f'href="#{f.id}-E{context_id}"' in html and f'id="{f.id}-E{context_id}"' in html
     d = to_dict(z1, {f.id: x})
     assert d["findings"][0]["explanation"]["verified"] is True
+
+
+# ------------------------------------------------------------------ typed claims
+
+def _typed(model, eid, thread=None, observed=None):
+    e = model.by_id[eid]
+    return {"event": eid,
+            "thread": thread if thread is not None else (model.label(e.key) if e.key else "-"),
+            "observed": observed if observed is not None else e.kind}
+
+
+def test_typed_claims_must_match_the_trace(z1):
+    f = z1.findings[0]
+    pack = build_pack(z1.model, f)
+    m = z1.model
+    eid = next(i for i in f.evidence if m.by_id[i].key is not None)
+    e = m.by_id[eid]
+    ok = expl([_typed(m, eid)])
+    assert validate(ok, pack.allowed_ids, pack.core_ids, m) == []
+
+    other = next(th for k, th in m.threads.items() if k != e.key and th.name)
+    wrong_thread = expl([_typed(m, eid, thread=other.name)])
+    assert any("is on" in p for p in validate(wrong_thread, pack.allowed_ids, pack.core_ids, m))
+
+    wrong_kind = expl([_typed(m, eid, observed="IRQ")])
+    probs = validate(wrong_kind, pack.allowed_ids, pack.core_ids, m)
+    assert any(f"E{eid} is {e.cls}" in p for p in probs)
+
+
+def test_evidence_lines_say_what_each_event_is(z1):
+    f = z1.findings[0]
+    text = format_pack(z1.model, build_pack(z1.model, f))
+    e = z1.model.by_id[f.evidence[0]]
+    assert f"{e.cls} {e.kind}" in text
+
+
+def test_explainer_rejects_mistyped_citation_then_accepts_fix(z1):
+    f = z1.findings[0]
+    m = z1.model
+    eid = next(i for i in f.evidence if m.by_id[i].key is not None)
+    client = FakeClient([expl([_typed(m, eid, observed="IRQ")]), expl([_typed(m, eid)])])
+    x = Explainer(client=client, cache_dir=None).explain(z1, f)
+    assert x.verified and x.attempts == 2
+    assert "not 'IRQ'" in client.calls[1]["messages"][-1]["content"]

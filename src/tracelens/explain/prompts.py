@@ -40,10 +40,14 @@ priority to the receiving thread.
 workload: thread name and priority, and job start/end for deadline checks.
 
 Evidence rules (an automated validator enforces them; violations are rejected):
-- Lines in the evidence look like "[E123] +4.210 ms cpu0 control (prio 50) | <raw event>". \
-Lines starting with * are the detector's own evidence.
-- Cite events only by ids that appear in the evidence, as integers in each causal step's \
-"evidence" list, and optionally inline as E123 in text. Never invent or guess an id.
+- Lines in the evidence look like "[E123] +4.210 ms cpu0 control (prio 50) THREAD SEM | <raw event>": \
+id, time, CPU, thread, then what the event is (class and kind). Lines starting with * are the \
+detector's own evidence.
+- Each causal step cites typed claims {"event": 123, "thread": "control", "observed": "SEM"}: the \
+event id, the thread it is on (as shown, or "-" for interrupts), and what it is, copied from the \
+line: a thread state (RUNNING, READY, SEM, MUTEX, SEND, REPLY...), a kernel call (SYNC_SEM_POST, \
+MSG_SENDV...), a marker (TL_JOB_START...) or IRQ. Each claim is checked against the trace. You may \
+also mention ids inline as E123. Never invent or guess an id.
 - Every causal step cites at least one event; cite at least one * event overall.
 - State measured numbers from the finding's metrics or the timestamps; do not invent \
 measurements. If something cannot be determined from the evidence, say so.
@@ -64,7 +68,19 @@ SCHEMA = {
                 "type": "object",
                 "properties": {
                     "text": {"type": "string"},
-                    "evidence": {"type": "array", "items": {"type": "integer"}},
+                    "evidence": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "event": {"type": "integer"},
+                                "thread": {"type": "string"},
+                                "observed": {"type": "string"},
+                            },
+                            "required": ["event", "thread", "observed"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
                 "required": ["text", "evidence"],
                 "additionalProperties": False,
