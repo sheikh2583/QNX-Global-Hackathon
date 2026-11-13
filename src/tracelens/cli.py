@@ -27,7 +27,6 @@ EXIT_LOSSY = 3
 SEV_TAG = {"critical": "CRITICAL", "high": "HIGH", "medium": "MEDIUM", "low": "LOW"}
 
 PLANNED = {
-    "fix": "P4 — autonomous fix: patch, qcc build, deploy, re-trace, verify",
     "export": "P5 — export to Perfetto (ui.perfetto.dev)",
     "mcp": "P5 — MCP server exposing traces and findings to AI assistants",
 }
@@ -183,6 +182,47 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     return {VERIFIED: 0, INCONCLUSIVE: EXIT_LOSSY}.get(v.verdict, 1)
 
 
+def _cmd_fix(args: argparse.Namespace) -> int:
+    import os
+    from .fix import FixAgent, QccBuilder
+    from .target import Target, capture
+
+    workload = Path(args.workload)
+    if not workload.is_dir():
+        print(f"tracelens fix: {workload} is not a workload directory", file=sys.stderr)
+        return 2
+    cfg = load_config(args.config)
+    host = args.host or os.environ.get("TRACELENS_TARGET") or cfg.target.get("host")
+    if not host:
+        print("tracelens fix: no target host (--host, TRACELENS_TARGET or [target] host)", file=sys.stderr)
+        return 2
+    target = Target(host=host, user=args.user or cfg.target.get("user", "root"),
+                    port=args.port or int(cfg.target.get("port", 22)), key=args.key or cfg.target.get("key"))
+    wargs = args.workload_args[1:] if args.workload_args[:1] == ["--"] else args.workload_args
+
+    def capturer(binary, _ws, label, i, out):
+        res = capture(target, binary, wargs, Path(out) / "traces", seconds=args.seconds, name=f"{label}-{i}")
+        return res.text
+
+    includes = [Path(d) for d in args.include] or [d for d in [workload.parent / "common"] if d.is_dir()]
+    out = Path(args.out or f"fixes/{workload.name}-{args.context}")
+    try:
+        agent = FixAgent(workload, includes, cfg, QccBuilder(), capturer, out, model=args.model,
+                         effort=args.effort, runs=args.runs, max_attempts=args.max_attempts,
+                         context=args.context, target_kinds=args.kind or None)
+    except ImportError:
+        print("tracelens fix needs the AI extra: pip install 'tracelens[ai]'", file=sys.stderr)
+        return 2
+    res = agent.run(before_traces=args.before or None)
+    print(f"TraceLens {__version__} | fix {res.workload} ({res.context}, {res.runs} runs per side)")
+    for a in res.attempts:
+        print(f"  attempt {a.n}: {a.stage} {'OK' if a.ok else 'failed'}"
+              + (f" - {a.verdict['verdict']}" if a.verdict else (f" - {a.detail[:120]}" if a.detail else "")))
+    print(f"  STATUS: {res.status}" + (" (quick check: fewer than 5 runs)" if res.quick else ""))
+    print(f"  evidence bundle: {res.bundle}")
+    return {"VERIFIED": 0, "NOTHING TO FIX": 0, "INCONCLUSIVE": EXIT_LOSSY, "ERROR": 2}.get(res.status, 1)
+
+
 def _cmd_dump(args: argparse.Namespace) -> int:
     from .ingest.traceprinter import parse_file
     trace = parse_file(args.trace)
@@ -283,6 +323,27 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
     v.add_argument("--json", help="write the verdict as JSON here")
     v.set_defaults(func=_cmd_compare)
+
+    f = sub.add_parser("fix", help="Claude patches a workload; qcc, run on QNX, re-trace, verdict")
+    f.add_argument("workload", help="workload directory, e.g. bugzoo/z1_infusion_pump")
+    f.add_argument("workload_args", nargs=argparse.REMAINDER, help="arguments for the workload, after --")
+    f.add_argument("-c", "--config", help="tracelens.toml (deadlines, [target])")
+    f.add_argument("--host")
+    f.add_argument("--user")
+    f.add_argument("--port", type=int)
+    f.add_argument("--key")
+    f.add_argument("--runs", type=int, default=5, help="captures per side (>= 5 for a verified claim)")
+    f.add_argument("--seconds", type=int, default=4)
+    f.add_argument("--max-attempts", type=int, default=4)
+    f.add_argument("--context", choices=["full", "source-only"], default="full",
+                   help="source-only hides findings and traces from the model (ablation)")
+    f.add_argument("--kind", action="append", help="finding kind the fix must remove")
+    f.add_argument("--before", nargs="+", metavar="TRACE", help="reuse existing 'before' traces")
+    f.add_argument("--include", action="append", default=[], help="read-only include dir (default: ../common)")
+    f.add_argument("--model", default="claude-opus-5-5")
+    f.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
+    f.add_argument("--out", help="evidence bundle folder (default: fixes/<workload>-<context>)")
+    f.set_defaults(func=_cmd_fix)
 
     d = sub.add_parser("dump", help="print the normalized event stream as JSONL")
     d.add_argument("trace")
