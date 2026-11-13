@@ -3,8 +3,7 @@
  *
  * Four worker threads (prio 20, CPUs 0-1) each process one tile of a frame
  * every 4 ms (releases staggered by 100 us) and publish it into a shared frame
- * store. Frame budget: 1.5 ms per worker. The frame store is protected by one
- * global mutex.
+ * store. Frame budget: 1.5 ms per worker.
  */
 #include "tl.h"
 

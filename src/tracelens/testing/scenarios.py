@@ -37,8 +37,10 @@ def z0_clean() -> str:
         b.run(base + 500, 0, H)
         b.user(base + 505, 0, "TL_JOB_START name=control")
         b.call(base + 505, 0, "SYNC_MUTEX_LOCK", sync="0x00008040", count=0)
+        b.set_prio(L, 50)                                     # priority inheritance boost
         b.block(base + 505, 0, "MUTEX", next_key=L)          # L inherits prio 50, runs
         b.call(base + 700, 0, "SYNC_MUTEX_UNLOCK", sync="0x00008040")
+        b.set_prio(L, 10)                                     # boost ends at unlock
         b.run(base + 701, 0, H)
         b.user(base + 800, 0, "TL_JOB_END name=control")
         b.block(base + 850, 0, "NANOSLEEP", next_key=M)
@@ -80,11 +82,13 @@ def z2_fixed_prio_channel() -> str:
     b.proc(0, 220, "arbiter")
     b.proc(0, 230, "diagnostics")
     b.meta(0, 0, A, "arbiter", 10)
+    b.set_prio(D, 30)
+    b.set_prio(C, 60)
     b.call(1, 0, "CHANNEL_CREATE", flags="0x00000010")  # _NTO_CHF_FIXED_PRIORITY (verify value)
     b.block(1, 0, "RECEIVE", next_key=D)
-    b.user(2, 0, "TL_META name=diagnostics prio=30")
+    b.user(2, 0, "TL_META name=diagnostics")
     b.block(3, 0, "NANOSLEEP", next_key=C)
-    b.user(3, 0, "TL_META name=brake_ctrl prio=60")
+    b.user(3, 0, "TL_META name=brake_ctrl")
     b.call(4, 0, "CONNECT_ATTACH", nd=0, pid=220, chid=1, index=0, flags=0)
     b.ret(5, 0, "CONNECT_ATTACH", ret_val=3)
     b.block(6, 0, "NANOSLEEP")

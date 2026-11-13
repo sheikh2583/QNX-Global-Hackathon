@@ -21,16 +21,16 @@
 It reads a QNX kernel event trace, **finds** the timing bug deterministically, **explains** it in plain English with evidence, **writes the fix**, rebuilds with `qcc`, redeploys to the QNX target, **re-traces, and proves the bug is gone** — then guards against its return in CI.
 
 **Pitch (say this in the first 10 seconds of the video):**
-> *"Real-time bugs on QNX are found today by an engineer staring at a timeline. TraceLens finds them automatically, fixes them, and proves the fix on the real QNX kernel — in under a minute."*
+> *"Real-time bugs on QNX are found today by an engineer staring at a timeline. TraceLens finds them automatically, fixes them, and proves the fix by re-tracing on the real QNX kernel."* (No duration claim until the loop is timed end to end on the target.)
 
 **Why this wins** — one sentence per judging criterion:
 
 | Criterion | Our answer |
 |---|---|
-| Technological implementation | Built on QNX-only internals: kernel event tracing (`tracelogger`/`.kev`), microkernel message passing (Send/Receive/Reply), thread states, priority inheritance semantics, `qcc`, `procnto-smp-instr`. Cannot be built for Linux. |
+| Technological implementation | Built on QNX-only internals: kernel event tracing (`tracelogger`/`.kev`), microkernel message passing (Send/Receive/Reply), thread states, priority inheritance semantics, `qcc`, `procnto-smp-instr`. The detectors encode QNX semantics that Linux tooling (sched_switch, PI futexes) does not model: ownerless semaphores, `_NTO_CHF_FIXED_PRIORITY` channels, IST interrupt masking, Send/Receive/Reply chains. |
 | Design (complete product) | CLI + HTML report + CI gate + MCP server + Perfetto export + tutorial + one-command demo. Installs with `pip`. |
-| Potential impact | QNX runs in 255M+ vehicles **(verify latest figure)**, medical devices, robots. Timing bugs there are safety bugs. QNX's own System Profiler only *visualizes*; nothing detects, explains, fixes, or gates in CI. |
-| Innovation & AI creativity | Closed-loop agent: AI proposes, **the real QNX kernel verifies**. AI never invents findings — detectors are deterministic, AI explanations must cite trace event IDs or they're rejected. |
+| Potential impact | QNX runs in 255M+ vehicles **(verify latest figure)**, medical devices, robots. Timing bugs there are safety bugs. Claim about System Profiler's analysis views **(verify in Momentics before saying anything)**; our pitch is the closed loop and the CI gate, not "nobody else analyzes". |
+| Innovation & AI creativity | Closed-loop agent: AI proposes, **the real QNX kernel verifies**. AI never invents findings — detectors are deterministic; explanations may only cite events from their evidence pack (checked), and typed claim checks (thread/state/object per citation) are on the backlog — until then say "citations checked", not "verified". |
 
 ---
 
@@ -55,7 +55,7 @@ Every item maps to a Devpost requirement or a judging criterion. Nothing ships u
 - [ ] Public GitHub repo, **MIT license visible in the About panel**
 - [ ] README names **QNX SDP 8.0, target QEMU x86_64, toolchain qcc / gcc 12 (verify exact)**, with build + run steps that a judge can follow
 - [ ] README "**Evidence of QNX use**" section pointing at exact files, APIs and sample output
-- [ ] `tracelens analyze` detects all 5 bug-zoo bugs, **0 false positives** on the clean baseline
+- [ ] `tracelens analyze` detects all 5 bug-zoo bugs **on real QNX captures** (committed as fixtures), **0 false positives** on the reference fixes and on a negative corpus of healthy QNX programs (sshd, io-sock, `pidin` loop). Synthetic traces are unit tests only, never headline numbers.
 - [ ] `tracelens fix` autonomously fixes ≥ 4 of 5 bug-zoo bugs, each **verified by re-trace on QNX**
 - [ ] HTML report, JSON output, CI exit codes, `tracelens diff`
 - [ ] GitHub Actions workflow green on committed fixture traces
@@ -300,6 +300,32 @@ Recording: screen capture (OBS) + AI or user voiceover. User uploads to YouTube.
 | 2026-11-13 | **Bug zoo + CI.** `bugzoo/`: shared `common/tl.h` (runmask pinning, SCHED_FIFO, TraceEvent markers, cycle-accurate spin), 5 buggy workloads (Z1 semaphore inversion, Z2 `_NTO_CHF_FIXED_PRIORITY` channel, Z3 mutual MsgSend deadlock w/ 1 s TimerTimeout, Z4 global-mutex contention, Z5 IST work before InterruptUnmask) + 5 reference fixes (`bugzoo/reference/`, hidden from the fix agent), Makefile (qcc, x86_64 default), `run_traced.sh` (tracelogger -w), `tracelens.toml` deadlines. All 10 C files pass `gcc -fsyntax-only -Wall -Wextra` against QNX API stubs. **Detector upgrade:** deadlocks now found anywhere in the trace (time-overlapping wait-for cycles), incl. ones broken by timeouts. `.github/workflows/ci.yml`: tests on py3.11–3.13, fixture drift check, trace gate (clean passes, every bug fails), report artifacts. Gate simulated locally: all correct. 15/15 tests. | Not yet compiled with `qcc` or run on QNX; Z5 needs a suitable IRQ on QEMU **(verify)**; CI not yet run on GitHub (no repo yet) | P0 install → first real capture of Z1; then P3 explain (Claude) |
 | 2026-11-13 | **Reference-fix timing audit + repo.** Checked each reference fix against the detector thresholds; three would not have produced a clean trace on QNX and are fixed: Z1 logger held the PI mutex 600 µs → control waited ~300 µs every period (200 waits / 2 s = `mutex_contention`) → snapshot under lock, flash write outside; Z4 4×1.4 ms of work on 2 CPUs → workers 3–4 finish ~2.6 ms after release even when fixed → work cut to 0.6 ms, `frame` budget 1.5 ms (buggy still misses: serialized 2.4 ms/period, ~75% contention share); Z5 pulse sent with priority -1 carried the IST's prio 60 to a worker on the IST's own CPU → 2 ms recompute would delay the next IRQ → explicit pulse prio 20, worker on CPU 1, coalesced pulses. Makefile rebuilt (`out/`, `ARCH=`, `hostcheck`); QNX API stubs committed in `bugzoo/hostcheck/`, new CI job type-checks all 10 C files (`-Wall -Wextra -Werror`, passes locally). git repo initialised, first commit. 15/15 tests. | Same as before: not compiled with `qcc` or run on QNX; pulse-priority semantics **(verify)**; synthetic Z4 twin still models 1.4 ms holds (shape only) | User: myQNX account + QNX Everywhere license → P0 install (WSL2 Ubuntu on X:, SDP 8.0, QEMU), first real Z1 capture. Meanwhile: P3 explain (Claude + citation validator) on synthetic traces |
 | 2026-11-13 | **P0 host up + P3 explain built.** WSL2 Ubuntu 24.04 installed at `X:\WSL\Ubuntu-24.04` (WSL 2.7.3, `/dev/kvm` present, 24 vCPU, 7 GB RAM); `scripts/wsl_prep.sh` installed QEMU 8.2.2, libvirt, bridge-utils, JRE + SWT (Software Center GUI), build tools. `tracelens explain`: evidence packs (detector events + neighbours, tagged `[E<id>]`), `claude-opus-5-5` with JSON-schema output, cached system prompt, server-side refusal fallbacks; citation validator (ids must be in the pack, every causal step cites, at least one detector event) with one corrective retry; unverified explanations are shown and flagged, never hidden; disk cache by prompt hash. HTML report shows the explanation with clickable citations to the exact event lines; JSON carries it. 22/22 tests (fake client, no network). Not yet run against the real API. | User: myQNX account + QNX Everywhere license; QNX Software Center (Linux .run) inside WSL, install SDP 8.0 + `com.qnx.qnx800.quickstart.qemu`; create the WSL default user (own password); set `ANTHROPIC_API_KEY`. WSL RAM 7 GB vs VM default 4 GB **(verify enough)** | After install: `mkqnximage --run`, ssh in, check `procnto-smp-instr` + `tracelogger`, first real Z1 trace, tune parser. Meanwhile: run explain on all 5 synthetic bugs once a key is set, review output, tag v0.1 |
+| 2026-11-13 | **Judge-roast hardening (fix order 1–4 + more).** Parser: stable time sort, wrap detection on any real backwards step (1.5 s gap across a wrap now parses as 1500 ms), CONTROL TIME high bits, missing clock rate is an error (`--cycles-per-sec` override), scheduler state-machine checks (thread on two CPUs, CPU switching without the old thread leaving) → lossy trace = exit 3 INCONCLUSIVE (`--allow-lossy`). Model: per-thread priority timeline from kernel THREAD/SCHED_SET events (+ snapshot seed); TL_META carries names only. Inversion: M counts only while RUNNING on L's CPUs with L READY, union of intervals (ratio ≤ 1), priorities compared at that instant (traced inheritance boost = no finding), semaphore lock vs signal. Contention: union share + p99, not absolute counts (2 s of the clean pattern = 0 findings). Deadlines: release-based (period grid or TL_RELEASE), jitter, overruns, skipped periods. Shared IRQ vectors. Explain: only verified results cached; context from same thread/object/CPU. Bug-zoo comments neutralised. 37/37 tests incl. 15 adversarial regressions. Overclaims removed from PLAN §1/§3. | Real-trace field names for every (verify); everything still synthetic | Same as before (user's QNX install), then the judge-roast backlog below |
+
+### Judge-roast backlog (2026-11-13)
+
+A technical roast ran 7 adversarial traces; 6 broke v0. Items 1–4 of its fix order are done (status log
+row of 2026-11-13); the rest, in prize-money-per-hour order:
+
+- [x] Parser: stable sort, any-backwards-step wrap detection + CONTROL TIME high bits **(verify field names)**,
+      missing CYCLES_PER_SEC is an error, scheduler state-machine checks → lossy traces exit 3 (no verdict)
+- [x] SMP-correct inversion (M RUNNING on L's CPUs while L READY, union of intervals); semaphore lock vs signal
+- [x] Priority timeline from kernel events (THREAD `prio`, SCHED_SET) + optional snapshot; TL_META = names only
+- [x] Rate/p99-based mutex contention with union share; release-based deadlines (period grid / TL_RELEASE),
+      skipped periods, overruns; shared IRQ vectors
+- [x] Bug-zoo sources neutralised (no comment names the bug); reference fixes stay hidden
+- [ ] **Real-trace check of every (verify)**: THREAD event `prio` field in wide mode, SCHED_SET args, CONTROL TIME
+      fields, COMM event names; capture a `pidin` thread snapshot at trace start (`TraceModel(snapshot=...)`)
+- [ ] Fix-rate **ablation**: source only vs source + findings + trace (needs P4 fix agent); publish the table
+- [ ] **N-run statistical verdict**: ≥5 captures before/after, compare p99 distributions (Mann-Whitney U);
+      measure the reference fixes' noise floor under WSL2→KVM→QEMU and set thresholds above it
+- [ ] Typed-claim citation checks: each causal step = {thread, state, object, event_id}, checked against the model
+- [ ] IPC pairing from COMM events (SND/REC/REPLY_MESSAGE with rcvid) at thread level per channel, so
+      connections made before the capture and server pools are handled
+- [ ] Z5 interrupt source: dedicated QEMU serial port (stop its devc-ser driver), host streams bytes at a fixed rate;
+      check whether QNX 8.0 prefers InterruptAttachThread() **(verify)**
+- [ ] Negative corpus of healthy QNX programs, committed as real fixtures; must yield zero findings
+- [ ] Time the fix loop end to end before any duration claim
 
 ---
 
@@ -321,3 +347,6 @@ Recording: screen capture (OBS) + AI or user voiceover. User uploads to YouTube.
 | 2026-11-13 | Ubuntu 24.04 (not 22.04) as the WSL host | Supported SDP 8.0.2+ host and listed by the QEMU quick-start docs; newest LTS |
 | 2026-11-13 | Explain uses `claude-opus-5-5` (effort medium) for every finding, cached | Explanations are short; the best model makes the demo; cache keeps reruns free |
 | 2026-11-13 | Unverified explanations are rendered with a red 'NOT verified' tag instead of dropped | Honesty is the trust story; judges see the validator working |
+| 2026-11-13 | Priorities come only from kernel events or a pidin snapshot, never from workload markers | Real programs don't print TL_META; inheritance is a priority change over time |
+| 2026-11-13 | A lossy trace gets exit 3 (inconclusive), not pass/fail | A dropped event fakes a long wait; a wrong verdict on camera is worse than none |
+| 2026-11-13 | Synthetic traces are unit tests only; headline accuracy comes from real captures + a negative corpus | Self-generated traces only prove the code agrees with our own model of QNX |

@@ -29,8 +29,9 @@ class Deadline:
 class Thresholds:
     inversion_min_block_us: float = 1000
     inversion_min_interference_us: float = 500
-    contention_min_total_wait_us: float = 2000
-    contention_min_waits: int = 5
+    contention_min_waits: int = 5  # need at least this many waits to call it a pattern
+    contention_min_share: float = 0.05  # union of wait time / trace length
+    contention_p99_wait_us: float = 1000  # ...or a p99 wait this long
     irq_max_latency_us: float = 200
     irq_max_handler_us: float = 500
     deadlock_min_blocked_us: float = 50_000

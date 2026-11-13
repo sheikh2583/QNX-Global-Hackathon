@@ -39,9 +39,9 @@ def analyze_model(model: TraceModel, cfg: Config | None = None) -> Analysis:
     return Analysis(model=model, findings=findings, config=cfg, errors=errors)
 
 
-def analyze_file(path: str | Path, cfg: Config | None = None) -> Analysis:
-    return analyze_model(TraceModel(parse_file(path)), cfg)
+def analyze_file(path: str | Path, cfg: Config | None = None, cycles_per_sec: int | None = None) -> Analysis:
+    return analyze_model(TraceModel(parse_file(path, cycles_per_sec)), cfg)
 
 
-def analyze_text(text: str, cfg: Config | None = None) -> Analysis:
-    return analyze_model(TraceModel(parse_text(text)), cfg)
+def analyze_text(text: str, cfg: Config | None = None, cycles_per_sec: int | None = None) -> Analysis:
+    return analyze_model(TraceModel(parse_text(text, cycles_per_sec=cycles_per_sec)), cfg)

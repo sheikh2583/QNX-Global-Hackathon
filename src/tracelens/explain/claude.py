@@ -138,7 +138,7 @@ class Explainer:
             return None
 
     def _cache_put(self, key: str, result: Explanation) -> None:
-        if self.cache_dir is None or result.data is None:
-            return
+        if self.cache_dir is None or not result.verified:
+            return  # only verified explanations are reused; failures are retried on the next run
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         (self.cache_dir / f"{key}.json").write_text(json.dumps(result.to_dict(), indent=2), encoding="utf-8")

@@ -5,8 +5,6 @@
  *   control    prio 50  every 10 ms: read the buffer, compute the dose (deadline 1 ms)
  *   telemetry  prio 20  every 10 ms: compress and upload readings (8 ms of CPU)
  *   logger     prio 10  every 10 ms: append the buffer to the black-box log
- *
- * The sensor buffer is guarded by a POSIX semaphore used as a lock.
  */
 #include <semaphore.h>
 #include "tl.h"
@@ -59,7 +57,6 @@ static void *logger(void *arg)
     (void)arg;
     tl_thread_init("logger", 10, 0x1);
     for (unsigned k = 0; k < periods(); k++) {
-        /* Starts just before the control period so it holds the buffer when control wakes. */
         tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US - 300 * TL_NS_PER_US);
         sem_wait(&buf_lock);
         sensor_buf.n = 64;

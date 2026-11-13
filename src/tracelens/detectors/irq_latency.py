@@ -20,34 +20,31 @@ QNX_NOTE = ("The interrupt stays masked until the handler thread calls Interrupt
 
 def detect(model: TraceModel, cfg: Config) -> list[Finding]:
     t = cfg.thresholds
-    handlers: dict[int, tuple] = {}
+    handlers: dict[int, list] = {}  # vector -> every thread attached to it (shared IRQs)
     for th in model.threads.values():
         for e in th.calls:
             if e.kind.startswith("INTERRUPT_ATTACH"):
                 vec = e.arg_int("intr")
-                if vec is not None:
-                    handlers[vec] = th.key
+                if vec is not None and th.key not in handlers.setdefault(vec, []):
+                    handlers[vec].append(th.key)
 
-    samples: dict[int, list] = {}
+    samples: dict[tuple, list] = {}
     for irq in model.irq_entries:
         try:
             vec = int(irq.kind)
         except ValueError:
             continue
-        key = handlers.get(vec)
-        if key is None:
-            continue
-        th = model.threads[key]
-        wake = model.next_exit_after(th, irq.t_ns, ("INTERRUPT_WAIT",))
-        if wake is None:
-            continue
-        done = model.next_call_after(th, wake.t_ns, ("INTERRUPT_UNMASK", "INTERRUPT_WAIT"))
-        work = (done.t_ns - wake.t_ns) if done else None
-        samples.setdefault(vec, []).append((irq, wake, done, wake.t_ns - irq.t_ns, work))
+        for key in handlers.get(vec, ()):
+            th = model.threads[key]
+            wake = model.next_exit_after(th, irq.t_ns, ("INTERRUPT_WAIT",))
+            if wake is None:
+                continue
+            done = model.next_call_after(th, wake.t_ns, ("INTERRUPT_UNMASK", "INTERRUPT_WAIT"))
+            work = (done.t_ns - wake.t_ns) if done else None
+            samples.setdefault((vec, key), []).append((irq, wake, done, wake.t_ns - irq.t_ns, work))
 
     findings = []
-    for vec, items in samples.items():
-        key = handlers[vec]
+    for (vec, key), items in samples.items():
         lat = [s[3] for s in items]
         work = [s[4] for s in items if s[4] is not None]
         p99_lat = percentile(lat, 99)

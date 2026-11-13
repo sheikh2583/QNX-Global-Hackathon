@@ -18,6 +18,7 @@ class TraceBuilder:
         self._events: list[tuple[float, int, str]] = []
         self._seq = 0
         self.cur: dict[int, Key] = {}
+        self.prio: dict[Key, int] = {}  # effective priority, emitted on every THREAD event
 
     # ---------------------------------------------------------------- low level
     def _emit(self, t_us: float, cpu: int, cls: str, body: str) -> None:
@@ -30,7 +31,8 @@ class TraceBuilder:
         return (1, cpu + 1)
 
     def state(self, t_us: float, key: Key, state: str, cpu: int = 0) -> None:
-        self._emit(t_us, cpu, "THREAD", f"TH{state:<12} pid:{key[0]} tid:{key[1]}")
+        prio = f" prio:{self.prio[key]}" if key in self.prio else ""
+        self._emit(t_us, cpu, "THREAD", f"TH{state:<12} pid:{key[0]} tid:{key[1]}{prio}")
 
     def call(self, t_us: float, cpu: int, name: str, num: int = 0, **args) -> None:
         body = " ".join(f"{k}:{v}" for k, v in args.items())
@@ -70,8 +72,15 @@ class TraceBuilder:
         self.cur[cpu] = nxt
 
     def meta(self, t_us: float, cpu: int, key: Key, name: str, prio: int) -> None:
+        """Thread starts at kernel priority ``prio`` and names itself (TL_META carries the name only)."""
+        self.prio[key] = prio
         self.run(t_us, cpu, key)
-        self.user(t_us, cpu, f"TL_META name={name} prio={prio}")
+        self.user(t_us, cpu, f"TL_META name={name}")
+
+    def set_prio(self, key: Key, prio: int) -> None:
+        """Change ``key``'s effective priority (e.g. a priority-inheritance boost); later THREAD
+        events carry the new value, as wide-mode kernel events do (verify on QNX 8.0)."""
+        self.prio[key] = prio
 
     # ------------------------------------------------------------------- output
     def text(self) -> str:

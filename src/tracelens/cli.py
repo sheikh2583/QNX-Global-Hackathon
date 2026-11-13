@@ -3,7 +3,9 @@
 Exit codes (CI contract):
   0  no findings at or above --fail-on
   1  findings at or above --fail-on
-  2  usage or input error
+  2  usage or input error (including a trace without a clock rate)
+  3  inconclusive: the trace is lossy (scheduler state machine broken, usually dropped
+     events), so no verdict is given; rerun the capture or pass --allow-lossy
 """
 
 from __future__ import annotations
@@ -17,6 +19,9 @@ from . import __version__
 from .analyze import analyze_file
 from .config import load_config
 from .findings import at_least
+from .ingest.traceprinter import TraceFormatError
+
+EXIT_LOSSY = 3
 
 SEV_TAG = {"critical": "CRITICAL", "high": "HIGH", "medium": "MEDIUM", "low": "LOW"}
 
@@ -33,7 +38,7 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     cfg = load_config(args.config)
     if args.fail_on:
         cfg.fail_on = args.fail_on
-    a = analyze_file(args.trace, cfg)
+    a = analyze_file(args.trace, cfg, cycles_per_sec=args.cycles_per_sec)
     m = a.model
 
     if args.json:
@@ -49,6 +54,10 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
         print(f"  {len(m.events):,} events, {len(m.threads)} threads, {dur:.1f} ms traced")
         if m.trace.unparsed_lines:
             print(f"  warning: {m.trace.unparsed_lines} lines not recognised")
+        for issue in m.trace.issues:
+            print(f"  note: {issue}")
+        for issue in m.integrity:
+            print(f"  TRACE INTEGRITY: {issue}")
         print()
         for f in a.findings:
             print(f"  [{SEV_TAG.get(f.severity, f.severity)}] {f.id} {f.title}")
@@ -62,6 +71,14 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
         print(f"  {len(a.findings)} findings, {failing} at or above '{cfg.fail_on}'"
               + (f" | report: {args.html}" if args.html else ""))
 
+    return _verdict(a, cfg, args.allow_lossy)
+
+
+def _verdict(a, cfg, allow_lossy: bool) -> int:
+    if a.model.lossy and not allow_lossy:
+        print("  verdict: INCONCLUSIVE - the trace looks lossy (see TRACE INTEGRITY); findings above "
+              "may be artefacts of dropped events. Recapture, or pass --allow-lossy.", file=sys.stderr)
+        return EXIT_LOSSY
     return 1 if any(at_least(f.severity, cfg.fail_on) for f in a.findings) else 0
 
 
@@ -77,7 +94,7 @@ def _cmd_explain(args: argparse.Namespace) -> int:
     cfg = load_config(args.config)
     if args.fail_on:
         cfg.fail_on = args.fail_on
-    a = analyze_file(args.trace, cfg)
+    a = analyze_file(args.trace, cfg, cycles_per_sec=args.cycles_per_sec)
     sources = {Path(s).name: Path(s).read_text(encoding="utf-8", errors="replace") for s in args.source}
 
     print(f"TraceLens {__version__} | explaining {min(len(a.findings), args.limit or 10**9)} "
@@ -106,7 +123,7 @@ def _cmd_explain(args: argparse.Namespace) -> int:
         from .report.html import render
         Path(args.html).write_text(render(a, expl), encoding="utf-8")
         print(f"  report: {args.html}")
-    return 1 if any(at_least(f.severity, cfg.fail_on) for f in a.findings) else 0
+    return _verdict(a, cfg, args.allow_lossy)
 
 
 def _cmd_dump(args: argparse.Namespace) -> int:
@@ -152,6 +169,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     a = sub.add_parser("analyze", help="detect real-time issues in a traceprinter dump")
     a.add_argument("trace")
+    a.add_argument("--cycles-per-sec", type=int, help="clock rate if the trace header lacks CYCLES_PER_SEC")
+    a.add_argument("--allow-lossy", action="store_true", help="give a verdict even on a lossy trace")
     a.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines)")
     a.add_argument("--json", help="write JSON findings here")
     a.add_argument("--html", help="write the HTML report here")
@@ -161,6 +180,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     x = sub.add_parser("explain", help="analyze, then explain each finding with Claude (validated citations)")
     x.add_argument("trace")
+    x.add_argument("--cycles-per-sec", type=int, help="clock rate if the trace header lacks CYCLES_PER_SEC")
+    x.add_argument("--allow-lossy", action="store_true", help="give a verdict even on a lossy trace")
     x.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines)")
     x.add_argument("--source", action="append", default=[], metavar="FILE",
                    help="workload source to show Claude (repeatable)")
@@ -197,7 +218,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, TraceFormatError) as exc:
         print(f"tracelens: {exc}", file=sys.stderr)
         return 2
 

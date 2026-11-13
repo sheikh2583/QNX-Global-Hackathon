@@ -4,9 +4,8 @@
  *   fusion_a  owns the IMU estimate; sends camera-fusion requests to fusion_b
  *   fusion_b  owns the camera estimate; sends IMU-sync requests to fusion_a
  *
- * Each server normally sits in MsgReceive() serving the other. Once per run a
- * recalibration makes both sides call the other at the same moment.
- * A 1 s TimerTimeout() keeps the demo from hanging forever.
+ * Each server sits in MsgReceive() serving the other. Once per run each side
+ * recalibrates against its peer's current estimate.
  */
 #include <signal.h>
 #include <sys/wait.h>
@@ -17,7 +16,7 @@ struct fusion_msg { uint32_t kind; float value; };
 static uint64_t t0;
 static unsigned run_s;
 
-/* Synchronous request to the peer, with a safety timeout so the demo terminates. */
+/* Request the peer's current estimate. */
 static int request(int coid, uint32_t kind, float *out)
 {
     struct fusion_msg msg = { kind, 0.0f };

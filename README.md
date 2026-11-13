@@ -20,15 +20,15 @@ The core has **no dependencies** beyond Python 3.11.
 
 | Detector | QNX-specific angle |
 |---|---|
-| Priority inversion | Knows QNX mutexes inherit priority by default; flags the inversions that still happen on QNX (semaphores, `_NTO_CHF_FIXED_PRIORITY` channels) |
+| Priority inversion | Priorities come from kernel events over time, so traced inheritance boosts suppress false alarms; counts medium-priority work only while it held the low thread's CPU; tells a semaphore used as a lock from one used as a signal; covers `_NTO_CHF_FIXED_PRIORITY` channels |
 | Send/Reply deadlock & chains | Wait-for graph built from QNX message passing, servers resolved via `ConnectAttach()` coids |
-| Mutex contention | Every `MUTEX`-state interval is real contention: uncontended QNX mutexes never enter the kernel |
+| Mutex contention | Every `MUTEX`-state interval is real contention (uncontended QNX mutexes never enter the kernel); judged by share of time and p99 wait, not raw counts |
 | IRQ latency / handler overrun | `InterruptAttachEvent()` → `InterruptWait()` → `InterruptUnmask()` timing |
-| Deadline misses | `TraceEvent()` job markers + budgets in `tracelens.toml` |
+| Deadline misses | Measured from the job's release (period grid or `TL_RELEASE` marker), so wake-up jitter counts; also overruns and skipped periods |
 
 ## CI contract
 
-`tracelens analyze` exits `0` when clean, `1` when findings reach `--fail-on` (default `high`), `2` on usage errors.
+`tracelens analyze` exits `0` when clean, `1` when findings reach `--fail-on` (default `high`), `2` on usage or input errors (including a trace without a clock rate), and `3` when the trace is lossy (the scheduler state machine is broken, which usually means dropped events): no verdict is better than a wrong one.
 
 ## Target
 

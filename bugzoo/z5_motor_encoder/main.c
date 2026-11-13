@@ -3,13 +3,10 @@
  *
  * Attaches to an interrupt with InterruptAttachEvent() and services it from a
  * high-priority thread (prio 60, CPU 0). For each interrupt the thread reads
- * the encoder, then recomputes the motor velocity profile (2 ms of CPU), then
- * unmasks the interrupt.
+ * the encoder and updates the motor velocity profile.
  *
  * Usage: z5_motor_encoder -i <irq> [-d seconds]
- *   Pick a device interrupt that fires regularly in the QEMU guest, e.g. the
- *   virtio/e1000 NIC IRQ from `pidin irqs`, and drive it with `ping -f` from
- *   the host. (verify the best choice on the QEMU image)
+ *   <irq> is the encoder's interrupt line (see bugzoo/README.md for the QEMU setup).
  */
 #include "tl.h"
 
@@ -47,8 +44,8 @@ int main(int argc, char **argv)
     while (tl_now_ns() < end) {
         if (InterruptWait(0, NULL) == -1)
             tl_die("InterruptWait");
-        count++;                       /* read + ack the encoder (fast) */
-        recompute_velocity_profile();  /* heavy work while the IRQ is still masked */
+        count++; /* read + ack the encoder */
+        recompute_velocity_profile();
         InterruptUnmask(irq, id);
     }
     InterruptDetach(id);

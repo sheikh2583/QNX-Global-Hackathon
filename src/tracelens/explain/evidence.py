@@ -31,18 +31,39 @@ class EvidencePack:
 
 
 def build_pack(model: TraceModel, finding: Finding, context: int = 3, max_events: int = 120) -> EvidencePack:
-    index = {e.id: i for i, e in enumerate(model.events)}
-    chosen: dict[int, Event] = {}
-    core = [i for i in finding.evidence if i in index]
-    for eid in core:
-        chosen[eid] = model.by_id[eid]
-    # Context around each evidence event, nearest first, until the budget is used.
+    """Detector evidence plus context that is causally related to it: the neighbouring events
+    of the same thread, on the same sync object, and on the same CPU (an 8-CPU trace's global
+    neighbours are mostly unrelated noise)."""
+    core = [i for i in finding.evidence if i in model.by_id]
+    chosen: dict[int, Event] = {i: model.by_id[i] for i in core}
+    streams: dict[tuple, list[Event]] = {}
+
+    def stream(kind: str, value) -> list[Event]:
+        key = (kind, value)
+        if key not in streams:
+            if kind == "thread":
+                streams[key] = [e for e in model.events if e.key == value]
+            elif kind == "sync":
+                streams[key] = list(model.sync_ops.get(value, ()))
+            else:
+                streams[key] = [e for e in model.events if e.cpu == value]
+        return streams[key]
+
     for radius in range(1, context + 1):
         for eid in core:
-            for j in (index[eid] - radius, index[eid] + radius):
-                if 0 <= j < len(model.events) and len(chosen) < max_events:
-                    e = model.events[j]
-                    chosen.setdefault(e.id, e)
+            e = model.by_id[eid]
+            related = [("thread", e.key)] if e.key is not None else []
+            if (addr := e.args.get("sync")) is not None:
+                related.append(("sync", addr))
+            related.append(("cpu", e.cpu))
+            for kind, value in related:
+                evs = stream(kind, value)
+                pos = next((i for i, x in enumerate(evs) if x.id == eid), None)
+                if pos is None:
+                    continue
+                for j in (pos - radius, pos + radius):
+                    if 0 <= j < len(evs) and len(chosen) < max_events:
+                        chosen.setdefault(evs[j].id, evs[j])
     events = sorted(chosen.values(), key=lambda e: (e.t_ns, e.id))
     return EvidencePack(finding=finding, events=events)
 

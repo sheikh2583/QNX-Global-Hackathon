@@ -5,9 +5,7 @@
  *   arbiter      (process, prio 10)  receives requests, validates them (200 us), replies
  *   diagnostics  (arbiter process, prio 30)  6 ms of CPU every 10 ms
  *
- * All threads are pinned to CPU 0. The arbiter's channel is created with
- * _NTO_CHF_FIXED_PRIORITY, so its server thread keeps its own priority while
- * serving a request.
+ * All threads are pinned to CPU 0.
  */
 #include <signal.h>
 #include <sys/wait.h>

@@ -20,7 +20,11 @@ Design choices:
   and extra fields survive instead of breaking the parser.
 * Events that do not name a thread (kernel calls, user events, interrupts)
   are attributed to whichever thread was last seen RUNNING on that CPU.
-* 32-bit cycle counters are unwrapped into a monotonic 64-bit timeline.
+* 32-bit cycle counters are unwrapped into a monotonic 64-bit timeline: any
+  backwards step larger than cross-CPU reordering is a wrap; CONTROL TIME
+  events, when present, supply the high bits directly.
+* Events are stably sorted by time (per-CPU buffers interleave).
+* A trace without a clock rate is rejected rather than assumed to be 1 GHz.
 """
 
 from __future__ import annotations
@@ -40,11 +44,14 @@ CONT_RE = re.compile(r"^\s+(?P<k>[A-Za-z_]\w*):\s*(?P<v>.*?)\s*$")
 ARG_RE = re.compile(r"([A-Za-z_]\w*):\s*(\S+)")
 STR_RE = re.compile(r"\b(?:STR|str|string):\s?(?P<s>.*)$")
 
-DEFAULT_CYCLES_PER_SEC = 1_000_000_000
 _WRAP = 1 << 32
 
 # Event classes whose pid/tid fields identify the thread the event is about.
 _SELF_IDENTIFYING = {"THREAD"}
+
+
+class TraceFormatError(ValueError):
+    """The trace cannot be interpreted safely (e.g. no clock rate)."""
 
 
 @dataclass
@@ -52,8 +59,12 @@ class ParsedTrace:
     source: str
     header: dict[str, str] = field(default_factory=dict)
     events: list[Event] = field(default_factory=list)
-    cycles_per_sec: int = DEFAULT_CYCLES_PER_SEC
+    cycles_per_sec: int = 0
     unparsed_lines: int = 0
+    wraps: int = 0  # 32-bit counter wraps unwrapped
+    reordered: int = 0  # events that arrived out of time order (cross-CPU) and were sorted
+    max_reorder_ns: int = 0
+    issues: list[str] = field(default_factory=list)  # human-readable parse warnings
 
     @property
     def duration_ns(self) -> int:
@@ -62,13 +73,28 @@ class ParsedTrace:
         return self.events[-1].t_ns - self.events[0].t_ns
 
 
-def parse_file(path: str | Path) -> ParsedTrace:
+def parse_file(path: str | Path, cycles_per_sec: int | None = None) -> ParsedTrace:
     path = Path(path)
     with path.open("r", encoding="utf-8", errors="replace") as fh:
-        return parse_text(fh, source=str(path))
+        return parse_text(fh, source=str(path), cycles_per_sec=cycles_per_sec)
 
 
-def parse_text(lines: str | Iterable[str], source: str = "<memory>") -> ParsedTrace:
+def _header_cps(header: dict[str, str]) -> int | None:
+    text = header.get("CYCLES_PER_SEC", "").split()
+    try:
+        value = int(text[0]) if text else 0
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def parse_text(lines: str | Iterable[str], source: str = "<memory>",
+               cycles_per_sec: int | None = None) -> ParsedTrace:
+    """Parse traceprinter text.
+
+    ``cycles_per_sec`` overrides the header value; without either the parse
+    fails loudly, because every timing in the trace would be wrong.
+    """
     if isinstance(lines, str):
         lines = lines.splitlines()
 
@@ -76,7 +102,7 @@ def parse_text(lines: str | Iterable[str], source: str = "<memory>") -> ParsedTr
     raw_events: list[tuple[int, Event]] = []  # (cycles, event)
     last: Event | None = None
     wrap_hi = 0
-    prev_low: int | None = None
+    high_low: int | None = None  # highest low-32-bit value seen in the current wrap epoch
     running: dict[int, tuple[int, int]] = {}
 
     for lineno, line in enumerate(lines, start=1):
@@ -97,35 +123,36 @@ def parse_text(lines: str | Iterable[str], source: str = "<memory>") -> ParsedTr
                 trace.unparsed_lines += 1
             continue
 
-        cycles = int(m["t"], 16)
-        if cycles < _WRAP:  # 32-bit counter: unwrap
-            if prev_low is not None and cycles < prev_low and prev_low - cycles > _WRAP // 2:
-                wrap_hi += _WRAP
-            prev_low = cycles
-            cycles += wrap_hi
-
         cpu = int(m["cpu"])
         cls = m["cls"]
         rest = m["rest"].strip()
         kind, payload = _split_kind(cls, rest)
-
         text = ""
         if s := STR_RE.search(payload):
             text = s["s"].strip()
             payload = payload[: s.start()]
         args = dict(ARG_RE.findall(payload))
 
-        ev = Event(
-            id=len(raw_events),
-            t_ns=0,
-            cpu=cpu,
-            cls=cls,
-            kind=kind,
-            args=args,
-            text=text,
-            line=lineno,
-            raw=line,
-        )
+        cycles = int(m["t"], 16)
+        if cls == "CONTROL" and kind == "TIME":
+            # CONTROL TIME events carry the counter's high bits (verify field names on QNX 8.0).
+            msb = _hex(args.get("msb") or args.get("hi") or args.get("high"))
+            if msb is not None:
+                wrap_hi = msb << 32
+                high_low = cycles if cycles < _WRAP else None
+        if cycles < _WRAP:  # 32-bit counter: unwrap
+            cps_now = cycles_per_sec or _header_cps(trace.header) or 1_000_000_000
+            tolerance = max(cps_now // 1000, 1 << 16)  # cross-CPU reordering is far below 1 ms
+            if high_low is not None and cycles < high_low and high_low - cycles > tolerance:
+                wrap_hi += _WRAP  # any real step backwards is a wrap, however long the gap
+                trace.wraps += 1
+                high_low = cycles
+            else:
+                high_low = cycles if high_low is None else max(high_low, cycles)
+            cycles += wrap_hi
+
+        ev = Event(id=len(raw_events), t_ns=0, cpu=cpu, cls=cls, kind=kind, args=args,
+                   text=text, line=lineno, raw=line)
 
         if cls in _SELF_IDENTIFYING:
             ev.pid = ev.arg_int("pid")
@@ -138,19 +165,44 @@ def parse_text(lines: str | Iterable[str], source: str = "<memory>") -> ParsedTr
         raw_events.append((cycles, ev))
         last = ev
 
-    cps_text = trace.header.get("CYCLES_PER_SEC", "")
-    try:
-        trace.cycles_per_sec = int(cps_text.split()[0]) if cps_text else DEFAULT_CYCLES_PER_SEC
-    except ValueError:
-        trace.cycles_per_sec = DEFAULT_CYCLES_PER_SEC
+    cps = cycles_per_sec or _header_cps(trace.header)
+    if cps is None:
+        if raw_events:
+            raise TraceFormatError(
+                f"{source}: no valid CYCLES_PER_SEC in the trace header; refusing to guess the clock "
+                "rate (pass --cycles-per-sec)")
+        cps = 1_000_000_000
+    trace.cycles_per_sec = cps
 
     if raw_events:
+        # Per-CPU buffers interleave: sort by time, keeping file order for ties.
+        latest = raw_events[0][0]
+        for cycles, _ in raw_events:
+            if cycles < latest:
+                trace.reordered += 1
+                trace.max_reorder_ns = max(trace.max_reorder_ns, (latest - cycles) * 1_000_000_000 // cps)
+            latest = max(latest, cycles)
+        raw_events.sort(key=lambda ce: (ce[0], ce[1].id))
         base = raw_events[0][0]
-        cps = trace.cycles_per_sec
         for cycles, ev in raw_events:
             ev.t_ns = (cycles - base) * 1_000_000_000 // cps
             trace.events.append(ev)
+    if trace.reordered:
+        trace.issues.append(f"{trace.reordered} events arrived out of time order "
+                            f"(max {trace.max_reorder_ns / 1000:.1f} us) and were sorted")
+    if trace.wraps:
+        trace.issues.append(f"32-bit cycle counter wrapped {trace.wraps}x; gaps of 2^32 cycles or more "
+                            "cannot be recovered without CONTROL TIME events")
     return trace
+
+
+def _hex(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value.rstrip(","), 0)
+    except ValueError:
+        return None
 
 
 def _split_kind(cls: str, rest: str) -> tuple[str, str]:

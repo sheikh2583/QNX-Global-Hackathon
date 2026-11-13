@@ -29,10 +29,11 @@ traceprinter -f z1_infusion_pump.kev > z1_infusion_pump.txt
 tracelens analyze z1_infusion_pump.txt -c tracelens.toml --html z1.html
 ```
 
-`z5_motor_encoder` needs `-i <irq>`: pick a device interrupt that fires regularly (e.g. the NIC's, from `pidin irqs`) and drive it with `ping -f` from the host. *(verify on the QEMU image)*
+`z5_motor_encoder` needs `-i <irq>`. Plan: give QEMU a dedicated serial port, stop its `devc-ser*` driver on the target, attach to that port's IRQ, and stream bytes into it from the host at a fixed rate. Not the NIC: virtio-net likely uses MSI-X, shares work with io-sock, and WSL2 networking limits the packet rate. *(verify on the QEMU image, and whether QNX 8.0 prefers `InterruptAttachThread()`)*
 
 ## Notes
 
 - Every thread is pinned (`ThreadCtl(_NTO_TCTL_RUNMASK)`) and runs `SCHED_FIFO`, so scheduling is reproducible on the 8-CPU QEMU guest.
-- Workloads announce themselves with `TraceEvent()` user string events (`TL_META`, `TL_JOB_START`, `TL_JOB_END`), which TraceLens uses for thread names, priorities and deadlines.
+- Workloads announce themselves with `TraceEvent()` user string events (`TL_META`, `TL_JOB_START`, `TL_JOB_END`). TraceLens uses them for thread names and deadlines only; priorities always come from kernel events.
+- `main.c` comments describe what each program does, never the bug: the fix agent must find it from the trace.
 - Status: all sources pass a host syntax check (`gcc -fsyntax-only -Wall -Wextra` against QNX API stubs). **Not yet built with `qcc` or run on QNX.**
