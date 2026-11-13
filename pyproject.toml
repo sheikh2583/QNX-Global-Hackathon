@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 dependencies = []  # core is stdlib-only on purpose: judges can run it anywhere
 
 [project.optional-dependencies]
-ai = ["anthropic"]
+ai = ["anthropic>=2.8"]  # needs output_config + server-side fallbacks
 mcp = ["mcp"]
 dev = ["pytest"]
 

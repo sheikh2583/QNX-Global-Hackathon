@@ -22,7 +22,6 @@ SEV_TAG = {"critical": "CRITICAL", "high": "HIGH", "medium": "MEDIUM", "low": "L
 
 PLANNED = {
     "capture": "P1 — run a workload on the QNX target and pull back the .kev trace",
-    "explain": "P3 — Claude explanation of each finding, with validated event citations",
     "fix": "P4 — autonomous fix: patch, qcc build, deploy, re-trace, verify",
     "diff": "P5 — compare two traces and flag timing regressions",
     "export": "P5 — export to Perfetto (ui.perfetto.dev)",
@@ -63,6 +62,50 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
         print(f"  {len(a.findings)} findings, {failing} at or above '{cfg.fail_on}'"
               + (f" | report: {args.html}" if args.html else ""))
 
+    return 1 if any(at_least(f.severity, cfg.fail_on) for f in a.findings) else 0
+
+
+def _cmd_explain(args: argparse.Namespace) -> int:
+    try:
+        from .explain.claude import Explainer
+        explainer = Explainer(model=args.model, effort=args.effort,
+                              cache_dir=None if args.no_cache else args.cache_dir)
+    except ImportError:
+        print("tracelens explain needs the AI extra: pip install 'tracelens[ai]'", file=sys.stderr)
+        return 2
+
+    cfg = load_config(args.config)
+    if args.fail_on:
+        cfg.fail_on = args.fail_on
+    a = analyze_file(args.trace, cfg)
+    sources = {Path(s).name: Path(s).read_text(encoding="utf-8", errors="replace") for s in args.source}
+
+    print(f"TraceLens {__version__} | explaining {min(len(a.findings), args.limit or 10**9)} "
+          f"of {len(a.findings)} findings with {args.model}")
+    expl = {}
+    for f in a.findings[:args.limit]:
+        x = explainer.explain(a, f, sources)
+        expl[f.id] = x
+        if x.data is None:
+            state = f"unavailable ({x.error})"
+        elif x.verified:
+            state = "citations verified" + (" (cached)" if x.cached else f" ({x.attempts} attempt(s))")
+        else:
+            state = "citations NOT verified: " + "; ".join(x.problems)
+        print(f"  {f.id} {f.title}\n      {state}")
+        if x.data is not None and not args.quiet:
+            print(f"      -> {x.data.get('headline', '')}")
+
+    if any("authentication" in x.error.lower() for x in expl.values()):
+        print("  hint: no Claude credentials found - set ANTHROPIC_API_KEY in your shell, then rerun",
+              file=sys.stderr)
+    if args.json:
+        from .report.json_out import dumps
+        Path(args.json).write_text(dumps(a, expl), encoding="utf-8")
+    if args.html:
+        from .report.html import render
+        Path(args.html).write_text(render(a, expl), encoding="utf-8")
+        print(f"  report: {args.html}")
     return 1 if any(at_least(f.severity, cfg.fail_on) for f in a.findings) else 0
 
 
@@ -115,6 +158,22 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
     a.add_argument("-q", "--quiet", action="store_true")
     a.set_defaults(func=_cmd_analyze)
+
+    x = sub.add_parser("explain", help="analyze, then explain each finding with Claude (validated citations)")
+    x.add_argument("trace")
+    x.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines)")
+    x.add_argument("--source", action="append", default=[], metavar="FILE",
+                   help="workload source to show Claude (repeatable)")
+    x.add_argument("--model", default="claude-opus-5-5")
+    x.add_argument("--effort", default="medium", choices=["low", "medium", "high", "xhigh", "max"])
+    x.add_argument("--limit", type=int, help="explain at most N findings (highest severity first)")
+    x.add_argument("--json", help="write JSON findings + explanations here")
+    x.add_argument("--html", help="write the HTML report with explanations here")
+    x.add_argument("--cache-dir", default=".tracelens-cache/explain")
+    x.add_argument("--no-cache", action="store_true")
+    x.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
+    x.add_argument("-q", "--quiet", action="store_true")
+    x.set_defaults(func=_cmd_explain)
 
     d = sub.add_parser("dump", help="print the normalized event stream as JSONL")
     d.add_argument("trace")

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from html import escape
+from typing import Any
 
 from .. import __version__
 from ..analyze import Analysis
@@ -44,6 +46,11 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:
 .tl{width:100%;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px}
 .tl text{fill:var(--fg);font-size:11px}.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted)}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.ai{border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:10px 0}
+.ai h4{margin:0 0 6px;font-size:14px}.ai ol{margin:6px 0;padding-left:20px}.ai li{margin:3px 0}
+.cite{font:12px ui-monospace,Consolas,monospace;color:var(--intr);text-decoration:none;white-space:nowrap}
+.tag{font-size:12px;border-radius:6px;padding:1px 7px;margin-left:6px;border:1px solid var(--line)}
+.tag.ok2{color:var(--run)}.tag.bad{color:var(--crit)}
 .ok{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;color:var(--run);font-weight:600}
 """
 
@@ -87,7 +94,50 @@ def _timeline(m: TraceModel, a: Analysis, max_threads: int = 14) -> str:
     return "".join(parts)
 
 
-def render(a: Analysis) -> str:
+_CITE = re.compile(r"\bE(\d+)\b")
+
+
+def _link(fid: str, eid: int) -> str:
+    return f'<a class=cite href="#{escape(fid)}-E{eid}">E{eid}</a>'
+
+
+def _cite(text: str, fid: str) -> str:
+    return _CITE.sub(lambda m: _link(fid, int(m.group(1))), escape(str(text)))
+
+
+def _cited(x: Any) -> set[int]:
+    if x is None or x.data is None:
+        return set()
+    from ..explain.citations import cited_ids
+    return cited_ids(x.data)
+
+
+def _explanation(x: Any, fid: str) -> str:
+    """Render one explain.claude.Explanation (duck-typed so this module stays import-light)."""
+    if x is None:
+        return ""
+    if x.data is None:
+        return f'<div class=ai><h4>AI explanation</h4><div class=muted>unavailable: {escape(x.error)}</div></div>'
+    d = x.data
+    tag = ('<span class="tag ok2">citations verified</span>' if x.verified
+           else '<span class="tag bad">citations NOT verified</span>')
+    steps = "".join(
+        f"<li>{_cite(s.get('text', ''), fid)} "
+        + " ".join(_link(fid, int(i)) for i in s.get("evidence", []))
+        + "</li>" for s in d.get("causal_chain", []))
+    fix = d.get("fix", {})
+    fix_steps = "".join(f"<li>{_cite(s, fid)}</li>" for s in fix.get("steps", []))
+    problems = ("<div class=muted>validator: " + escape("; ".join(x.problems)) + "</div>") if x.problems else ""
+    return (f'<div class=ai><h4>AI explanation{tag}<span class=tag>{escape(x.model)}</span>'
+            f'<span class=tag>confidence {escape(str(d.get("confidence", "?")))}</span></h4>'
+            f"<div><b>{_cite(d.get('headline', ''), fid)}</b></div><ol>{steps}</ol>"
+            f"<div><b>QNX mechanism.</b> {_cite(d.get('qnx_mechanism', ''), fid)}</div>"
+            f"<div><b>Impact.</b> {_cite(d.get('impact', ''), fid)}</div>"
+            f"<div><b>Fix.</b> {_cite(fix.get('summary', ''), fid)}</div><ol>{fix_steps}</ol>{problems}</div>")
+
+
+def render(a: Analysis, explanations: dict[str, Any] | None = None) -> str:
+    explanations = explanations or {}
     m = a.model
     counts = {s: sum(1 for f in a.findings if f.severity == s) for s in ("critical", "high", "medium", "low")}
     out = [
@@ -119,15 +169,22 @@ def render(a: Analysis) -> str:
     for f in a.findings:
         rows = "".join(f"<tr><td class=muted>{escape(k)}</td><td>{escape(str(v))}</td></tr>"
                        for k, v in f.metrics.items())
-        ev = "\n".join(escape(f"#{e.id:<6} L{e.line:<6} {e.raw}") for i in f.evidence
-                       if (e := m.by_id.get(i)) is not None)
+        x = explanations.get(f.id)
+        core = set(f.evidence)
+        extra = sorted(_cited(x) - core)  # context events the explanation cites
+        ev = "\n".join(
+            f'<span id="{escape(f.id)}-E{e.id}">'
+            + escape(f"{'*' if e.id in core else ' '}E{e.id:<6} L{e.line:<6} {e.raw}") + "</span>"
+            for i in [*f.evidence, *extra] if (e := m.by_id.get(i)) is not None)
         out.append(
             f'<div class=card><h3><span class="badge {SEV_CLASS.get(f.severity, "sev-low")}">'
             f'{escape(f.severity)}</span>{escape(f.id)} · {escape(f.title)}</h3>'
             f"<div>{escape(f.summary)}</div>"
             f'<div class=qnx>{escape(f.qnx_note)}</div>'
             f"<table>{rows}</table>"
-            f"<details><summary>Evidence ({len(f.evidence)} trace events)</summary><pre>{ev}</pre></details>"
+            f"{_explanation(x, f.id)}"
+            f"<details><summary>Evidence ({len(f.evidence)} trace events, * = detector evidence)</summary>"
+            f"<pre>{ev}</pre></details>"
             "</div>"
         )
     if a.errors:

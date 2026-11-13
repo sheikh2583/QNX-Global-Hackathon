@@ -8,3 +8,4 @@ dist/
 reports/
 *.kev.tmp
 bugzoo/out/
+.tracelens-cache/
