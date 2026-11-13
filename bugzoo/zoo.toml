@@ -1,0 +1,36 @@
+# Bug-zoo manifest for `tracelens eval`.
+#
+# expect  : finding kinds the buggy build must produce (the reference build must produce none)
+# args    : workload arguments; {irq} is replaced by --irq (z5 needs an interrupt source, see README)
+# binaries: bugzoo/out/<name> (buggy) and bugzoo/out/<name>_fixed (reference), built by `make -C bugzoo`
+
+[z1_infusion_pump]
+expect = ["priority_inversion", "deadline_miss"]
+args = ["-d", "2"]
+
+[z2_brake_by_wire]
+expect = ["priority_inversion", "deadline_miss"]
+args = ["-d", "2"]
+
+[z3_sensor_fusion]
+expect = ["ipc_deadlock"]
+args = ["-d", "2"]
+
+[z4_camera_pipeline]
+expect = ["mutex_contention", "deadline_miss"]
+args = ["-d", "2"]
+
+[z5_motor_encoder]
+expect = ["irq_handler_overrun"]
+args = ["-d", "2", "-i", "{irq}"]
+needs_irq = true
+
+# Healthy programs already on the target: traced while they run, must produce zero findings.
+[negative.pidin_loop]
+command = "for i in 1 2 3 4 5 6 7 8 9 10; do pidin > /dev/null; done"
+
+[negative.idle_system]
+command = "sleep 2"
+
+[negative.shell_io]
+command = "for i in 1 2 3 4 5; do ls -lR /proc/boot > /dev/null; done"

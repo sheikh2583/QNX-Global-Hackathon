@@ -38,11 +38,12 @@ QNX 8.0 target (QEMU x86_64)                        Host (Linux / WSL2)
 | Command | What it does |
 |---|---|
 | `tracelens target up \| check \| ip \| down` | Boot the QNX QEMU image (`mkqnximage`), preflight it (ssh, instrumented kernel, a 1 s test trace) |
-| `tracelens capture BIN -- args` | Copy a `qcc` binary to the target, snapshot priorities with `pidin`, run it under `tracelogger -w`, fetch and decode the trace |
+| `tracelens capture BIN -- args` | Copy a `qcc` binary to the target, snapshot priorities with `pidin`, run it under `tracelogger -w`, fetch and decode the trace (`--command` traces a program already on the target) |
 | `tracelens analyze TRACE` | Run every detector; terminal summary, `--html`, `--json`, `--sarif`; CI exit codes |
 | `tracelens explain TRACE` | Claude explains each finding; every cited event is checked (thread, state or call) |
 | `tracelens fix WORKLOAD` | Claude patches, `qcc` builds, the target re-runs N times, `compare` decides; evidence bundle |
 | `tracelens compare --before … --after …` | VERIFIED / NOT FIXED / INCONCLUSIVE over ≥ 5 clean runs (Mann-Whitney U on response times) |
+| `tracelens eval detect \| fix` | Bug-zoo evaluation on the target: detection and false-positive table (buggy vs reference builds, healthy programs), and the fix-rate ablation (full context vs source only) |
 | `tracelens export TRACE` | Chrome Trace JSON for [ui.perfetto.dev](https://ui.perfetto.dev): states, markers, IRQs, findings |
 | `tracelens mcp` | MCP server: `claude mcp add tracelens -- tracelens mcp`, then ask Claude Code about your traces |
 | `tracelens threads` / `dump` / `synth` | Per-thread summary, normalized events as JSONL, regenerate the test traces |

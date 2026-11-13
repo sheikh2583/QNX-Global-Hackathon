@@ -143,8 +143,8 @@ def _cmd_capture(args: argparse.Namespace) -> int:
     wargs = args.workload_args[1:] if args.workload_args[:1] == ["--"] else args.workload_args
     try:
         res = capture(target, args.binary, wargs, args.out, seconds=args.seconds, name=args.name,
-                      snapshot=not args.no_snapshot, traceprinter=args.traceprinter)
-    except (TargetError, FileNotFoundError) as exc:
+                      snapshot=not args.no_snapshot, traceprinter=args.traceprinter, command=args.command)
+    except (TargetError, FileNotFoundError, ValueError) as exc:
         print(f"tracelens capture: {exc}", file=sys.stderr)
         return 2
     for line in res.log:
@@ -296,6 +296,54 @@ def _cmd_target(args: argparse.Namespace) -> int:
     return 1 if status == FAIL else 0
 
 
+def _cmd_eval(args: argparse.Namespace) -> int:
+    import os
+    from .evaluation import eval_detect, eval_fix
+    from .target import Target, capture
+
+    cfg = load_config(args.config)
+    host = args.host or os.environ.get("TRACELENS_TARGET") or cfg.target.get("host")
+    if not host:
+        print("tracelens eval: no target host (--host, TRACELENS_TARGET or [target] host)", file=sys.stderr)
+        return 2
+    target = Target(host=host, user=args.user or cfg.target.get("user", "root"), key=args.key or cfg.target.get("key"))
+
+    def cap(label, i, binary, command, wargs, out):
+        if binary is not None and not Path(binary).exists():
+            raise FileNotFoundError(f"{binary} not built: run `make -C {args.zoo}` with the SDP environment")
+        return capture(target, binary, wargs, out, seconds=args.seconds, name=f"{label}-{i}", command=command).text
+
+    only = args.only.split(",") if args.only else None
+    out = Path(args.out)
+    try:
+        if args.eval_cmd == "detect":
+            eval_detect(args.zoo, cfg, cap, out, runs=args.runs, irq=args.irq, only=only)
+            print((out / "detect.md").read_text(encoding="utf-8"))
+            return 0
+        from .fix import FixAgent, QccBuilder
+
+        def make_agent(workload_dir, ctx, agent_out):
+            def fix_cap(binary, _ws, label, i, o):
+                return cap(label, i, binary, None, _zoo_args(args.zoo, Path(workload_dir).name, args.irq), o)
+            return FixAgent(workload_dir, [Path(args.zoo) / "common"], cfg, QccBuilder(), fix_cap, agent_out,
+                            model=args.model, effort=args.effort, runs=args.runs,
+                            max_attempts=args.max_attempts, context=ctx)
+
+        contexts = tuple(c.strip() for c in args.contexts.split(","))
+        eval_fix(args.zoo, cfg, make_agent, cap, out, runs=args.runs, contexts=contexts, irq=args.irq, only=only)
+        print((out / "fix.md").read_text(encoding="utf-8"))
+        return 0
+    except (FileNotFoundError, ImportError) as exc:
+        print(f"tracelens eval: {exc}", file=sys.stderr)
+        return 2
+
+
+def _zoo_args(zoo: str, name: str, irq: int | None) -> list[str]:
+    from .evaluation import load_zoo
+    entry = next(z for z in load_zoo(Path(zoo) / "zoo.toml")[0] if z.name == name)
+    return [a.replace("{irq}", str(irq)) for a in entry.args]
+
+
 def _cmd_dump(args: argparse.Namespace) -> int:
     from .ingest.traceprinter import parse_file
     trace = parse_file(args.trace)
@@ -372,7 +420,7 @@ def build_parser() -> argparse.ArgumentParser:
     x.set_defaults(func=_cmd_explain)
 
     c = sub.add_parser("capture", help="run a workload on the QNX target under a kernel trace and fetch it")
-    c.add_argument("binary", help="workload built with qcc (e.g. bugzoo/out/z1_infusion_pump)")
+    c.add_argument("binary", nargs="?", help="workload built with qcc (e.g. bugzoo/out/z1_infusion_pump)")
     c.add_argument("workload_args", nargs=argparse.REMAINDER, help="arguments for the workload, after --")
     c.add_argument("--host", help="target address (or TRACELENS_TARGET, or [target] host in the config)")
     c.add_argument("--user")
@@ -385,6 +433,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--traceprinter", choices=["auto", "host", "target"], default="auto")
     c.add_argument("-c", "--config", help="tracelens.toml ([target] section, deadlines)")
     c.add_argument("--analyze", action="store_true", help="analyze the trace right after capture")
+    c.add_argument("--command", help="trace a shell command already on the target instead of a binary")
     c.set_defaults(func=_cmd_capture)
 
     v = sub.add_parser("compare", help="before/after verdict over several captures (is the fix real?)")
@@ -437,6 +486,28 @@ def build_parser() -> argparse.ArgumentParser:
     tg.add_argument("--key")
     tg.add_argument("-c", "--config")
     tg.set_defaults(func=_cmd_target)
+
+    ev = sub.add_parser("eval", help="bug-zoo evaluation on the QNX target: detection table, fix ablation")
+    evs = ev.add_subparsers(dest="eval_cmd", required=True)
+    for name, desc in (("detect", "capture buggy + reference builds N times; detection and false-positive table"),
+                       ("fix", "run the fix agent with full context and source only; fix-rate table")):
+        e2 = evs.add_parser(name, help=desc)
+        e2.add_argument("--zoo", default="bugzoo", help="bug-zoo folder with zoo.toml and out/ binaries")
+        e2.add_argument("-c", "--config", default="bugzoo/tracelens.toml")
+        e2.add_argument("--runs", type=int, default=5)
+        e2.add_argument("--seconds", type=int, default=4)
+        e2.add_argument("--irq", type=int, help="interrupt for z5 (skipped without it)")
+        e2.add_argument("--only", help="comma-separated workload names")
+        e2.add_argument("--out", default="docs/results")
+        e2.add_argument("--host")
+        e2.add_argument("--user")
+        e2.add_argument("--key")
+        if name == "fix":
+            e2.add_argument("--contexts", default="full,source-only")
+            e2.add_argument("--model", default="claude-opus-5-5")
+            e2.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
+            e2.add_argument("--max-attempts", type=int, default=4)
+        e2.set_defaults(func=_cmd_eval)
 
     sp = sub.add_parser("mcp", help="run the MCP server on stdio (claude mcp add tracelens -- tracelens mcp)")
     sp.set_defaults(func=_cmd_mcp)

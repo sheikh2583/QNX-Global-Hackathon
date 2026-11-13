@@ -33,34 +33,44 @@ class CaptureResult:
     workload_rc: int | None = None
 
 
-def trace_command(binary: str, args: list[str], kev: str, seconds: int, settle: float = 1.0) -> str:
-    """Shell command that runs ``binary`` inside a time-limited tracelogger capture."""
-    run = " ".join(q(a) for a in [binary, *args])
+def trace_command(binary: str | None, args: list[str], kev: str, seconds: int, settle: float = 1.0,
+                  raw: str | None = None) -> str:
+    """Shell command that runs ``binary`` (or the shell command ``raw``) inside a time-limited
+    tracelogger capture."""
+    run = f"( {raw} )" if raw is not None else " ".join(q(a) for a in [binary, *args])
     return (
         f"tracelogger -w -s {int(seconds)} -f {q(kev)} >/dev/null 2>&1 & "  # -w wide, -s secs, -f file (verify)
         f"TL=$!; sleep {settle}; {run}; RC=$?; wait $TL; echo TRACELENS_RC=$RC"
     )
 
 
-def capture(target: Target, binary: str | Path, args: list[str], out_dir: str | Path,
+def capture(target: Target, binary: str | Path | None, args: list[str], out_dir: str | Path,
             seconds: int = 4, name: str | None = None, snapshot: bool = True,
-            traceprinter: str = "auto", host_runner=None) -> CaptureResult:
+            traceprinter: str = "auto", host_runner=None, command: str | None = None) -> CaptureResult:
     """Run ``binary`` on the target under a trace; return local paths of the results.
 
-    ``traceprinter``: "host", "target", or "auto" (host if ``traceprinter`` is on PATH).
+    ``command``: instead of deploying a binary, trace a shell command already runnable on the
+    target (system programs, the negative corpus). ``traceprinter``: "host", "target", or
+    "auto" (host if ``traceprinter`` is on PATH).
     """
-    binary = Path(binary)
-    name = name or binary.name
+    if binary is None and command is None:
+        raise ValueError("capture needs a binary or a command")
+    name = name or (Path(binary).name if binary is not None else "command")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    remote_bin = f"{REMOTE_DIR}/{binary.name}"
     remote_kev = f"{REMOTE_DIR}/{name}.kev"
     res = CaptureResult(name=name, kev=out / f"{name}.kev", text=None, snapshot=None)
 
     target.run(f"mkdir -p {REMOTE_DIR}")
-    target.put(binary, remote_bin)
-    target.run(f"chmod +x {q(remote_bin)}")
-    res.log.append(f"deployed {binary} -> {remote_bin}")
+    remote_bin = None
+    if binary is not None:
+        binary = Path(binary)
+        remote_bin = f"{REMOTE_DIR}/{binary.name}"
+        target.put(binary, remote_bin)
+        target.run(f"chmod +x {q(remote_bin)}")
+        res.log.append(f"deployed {binary} -> {remote_bin}")
+    else:
+        res.log.append(f"tracing target command: {command}")
 
     if snapshot:
         snap = target.run("pidin", timeout=30, check=False)
@@ -71,7 +81,8 @@ def capture(target: Target, binary: str | Path, args: list[str], out_dir: str | 
         else:
             res.log.append("thread snapshot failed; priorities will come from trace events only")
 
-    cp = target.run(trace_command(remote_bin, args, remote_kev, seconds), timeout=seconds + 60, check=False)
+    cp = target.run(trace_command(remote_bin, args, remote_kev, seconds, raw=command),
+                    timeout=seconds + 60, check=False)
     for line in cp.stdout.splitlines():
         if line.startswith("TRACELENS_RC="):
             try:

@@ -19,7 +19,7 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
 - **Fixes and proves.** The fix agent patches the workload (only its own files), cross-compiles with `qcc`, runs it on the QNX target five times under `tracelogger`, and compares before and after. VERIFIED requires the finding to vanish in every run, no new findings, and statistically faster response times.
 - **Fits the workflow:** HTML/JSON/SARIF reports, CI exit codes (including "inconclusive" for lossy traces), Perfetto export, and an MCP server so Claude Code can query traces.
 
-Results on the bug zoo: `[TBD: detected 5/5 on real captures; 0 findings on reference fixes; fixed and verified N/5; fix rate with vs without the trace (ablation)]`
+Results on the bug zoo: `[TBD: paste docs/results/detect.md and fix.md from tracelens eval detect / eval fix on QNX]`
 
 ## How we built it
 
