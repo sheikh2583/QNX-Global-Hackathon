@@ -51,6 +51,8 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:
 .cite{font:12px ui-monospace,Consolas,monospace;color:var(--intr);text-decoration:none;white-space:nowrap}
 .tag{font-size:12px;border-radius:6px;padding:1px 7px;margin-left:6px;border:1px solid var(--line)}
 .tag.ok2{color:var(--run)}.tag.bad{color:var(--crit)}
+.warnbox{border:1px solid var(--crit);border-radius:10px;padding:10px 14px;margin:12px 0}
+.warnbox b{color:var(--crit)}.notebox{border:1px solid var(--line);border-radius:10px;padding:8px 14px;margin:12px 0;font-size:13px}
 .ok{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;color:var(--run);font-weight:600}
 """
 
@@ -105,6 +107,22 @@ def _cite(text: str, fid: str) -> str:
     return _CITE.sub(lambda m: _link(fid, int(m.group(1))), escape(str(text)))
 
 
+def _integrity(a: Analysis) -> str:
+    m = a.model
+    out = []
+    if m.integrity:
+        items = "".join(f"<li>{escape(i)}</li>" for i in m.integrity)
+        out.append(f'<div class=warnbox><b>Lossy trace: verdict withheld.</b> The scheduler state machine is '
+                   f'broken, which usually means the capture dropped events. Findings below may be artefacts; '
+                   f'recapture with fewer event classes or a larger buffer.<ul>{items}</ul></div>')
+    notes = list(m.trace.issues)
+    if getattr(a, "snapshot_path", None):
+        notes.append(f"base priorities seeded from thread snapshot {a.snapshot_path}")
+    if notes:
+        out.append('<div class=notebox>' + "<br>".join(escape(n) for n in notes) + "</div>")
+    return "".join(out)
+
+
 def _cited(x: Any) -> set[int]:
     if x is None or x.data is None:
         return set()
@@ -154,6 +172,7 @@ def render(a: Analysis, explanations: dict[str, Any] | None = None) -> str:
         f'<div class=stat><b>{len(m.events):,}</b>events</div>',
         f'<div class=stat><b>{len(m.threads)}</b>threads</div>',
         "</div>",
+        _integrity(a),
         "<h2>Timeline</h2>",
         _timeline(m, a),
         '<div class=legend><span><i style="background:var(--run)"></i>running</span>'

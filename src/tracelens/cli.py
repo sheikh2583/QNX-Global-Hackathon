@@ -43,6 +43,9 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     if args.html:
         from .report.html import render
         Path(args.html).write_text(render(a), encoding="utf-8")
+    if args.sarif:
+        from .report.sarif import dumps as sarif_dumps, relative_uri
+        Path(args.sarif).write_text(sarif_dumps(a, relative_uri(args.trace)), encoding="utf-8")
 
     if not args.quiet:
         dur = (m.t_end - m.t_start) / 1e6
@@ -245,6 +248,54 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_target(args: argparse.Namespace) -> int:
+    import os
+    from .target import Target
+    from .target.check import FAIL, preflight, summary_status
+    from .target.qemu import QemuImage
+
+    qemu = QemuImage(args.image_dir)
+    try:
+        if args.action == "up":
+            ip = qemu.up(timeout=args.timeout)
+            for line in qemu.log:
+                print(f"  {line}")
+            print(f"  export TRACELENS_TARGET={ip}")
+            return 0
+        if args.action == "ip":
+            ip = qemu.ip()
+            print(ip or "no running target found")
+            return 0 if ip else 1
+        if args.action == "down":
+            qemu.down()
+            print("  target stopped")
+            return 0
+    except RuntimeError as exc:
+        print(f"tracelens target: {exc}", file=sys.stderr)
+        return 2
+
+    cfg_target = load_config(args.config).target if args.config else {}
+    host = args.host or os.environ.get("TRACELENS_TARGET") or cfg_target.get("host")
+    if not host:
+        try:
+            host = qemu.ip()
+        except RuntimeError:
+            host = None
+    if not host:
+        print("tracelens target check: no target (pass --host, set TRACELENS_TARGET, or start one with "
+              "`tracelens target up`)", file=sys.stderr)
+        return 2
+    t = Target(host=host, user=args.user or cfg_target.get("user", "root"), key=args.key or cfg_target.get("key"))
+    checks = preflight(t)
+    for c in checks:
+        print(f"  [{c.status}] {c.name:<20} {c.detail}")
+        if c.hint and c.status != "PASS":
+            print(f"         -> {c.hint}")
+    status = summary_status(checks)
+    print(f"  target {host}: {status}")
+    return 1 if status == FAIL else 0
+
+
 def _cmd_dump(args: argparse.Namespace) -> int:
     from .ingest.traceprinter import parse_file
     trace = parse_file(args.trace)
@@ -295,6 +346,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines)")
     a.add_argument("--json", help="write JSON findings here")
     a.add_argument("--html", help="write the HTML report here")
+    a.add_argument("--sarif", help="write SARIF 2.1.0 here (GitHub code scanning)")
     a.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
     a.add_argument("-q", "--quiet", action="store_true")
     a.set_defaults(func=_cmd_analyze)
@@ -375,6 +427,16 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--cycles-per-sec", type=int)
     e.add_argument("--no-calls", action="store_true", help="leave out kernel-call instants (smaller file)")
     e.set_defaults(func=_cmd_export)
+
+    tg = sub.add_parser("target", help="QNX QEMU target: up | ip | check | down")
+    tg.add_argument("action", choices=["up", "ip", "check", "down"])
+    tg.add_argument("--image-dir", default="~/qnx800/images/qemu/qemu", help="QEMU quick-start image folder")
+    tg.add_argument("--timeout", type=float, default=180, help="seconds to wait for an IP (up)")
+    tg.add_argument("--host", help="target address for check (default: TRACELENS_TARGET or mkqnximage --getip)")
+    tg.add_argument("--user")
+    tg.add_argument("--key")
+    tg.add_argument("-c", "--config")
+    tg.set_defaults(func=_cmd_target)
 
     sp = sub.add_parser("mcp", help="run the MCP server on stdio (claude mcp add tracelens -- tracelens mcp)")
     sp.set_defaults(func=_cmd_mcp)
