@@ -17,6 +17,7 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
 - **Understands QNX.** QNX mutexes inherit priority by default, so most textbook inversions can't happen. TraceLens looks for the ones that can: ownerless semaphores and `_NTO_CHF_FIXED_PRIORITY` channels. It reads priorities from kernel events over time, so a traced inheritance boost is recognised. Message-passing deadlocks are found per channel. Locks inside procnto are told apart from yours.
 - **Fixes.** Each proven root cause maps to a QNX-specific source transform: a semaphore used as a lock becomes a `PTHREAD_PRIO_INHERIT` mutex; a fixed-priority channel gets its flag dropped; an interrupt thread that works before `InterruptUnmask()` unmasks first and hands the work to a pulse-driven worker at a priority below every interrupt thread in the trace; private work leaves a contended critical section. Each transform checks its safety preconditions in the code (a semaphore used as a signal, a pointer into shared data, an early `return` inside a lock all make it back off) and otherwise gives the exact lines and the fix to make by hand.
 - **Proves.** `tracelens fix` captures the program 5 times, patches a sandbox copy, builds it with `qcc`, runs it 5 more times under `tracelogger`, and compares: VERIFIED requires the finding gone in every run, nothing new, and statistically faster response times (Mann-Whitney U). If the verdict is NOT FIXED, it diagnoses the patched build's own traces and fixes again (one fix often uncovers the next cause).
+- **Try it in a browser:** a hosted demo (`tracelens serve`) shows every real QNX trace analyzed, each fix planned from the trace and the source, the before/after reports proven on the VM, and analyzes uploaded traces live.
 - **Fits the workflow:** HTML/JSON/SARIF reports, exit codes for scripts (including "inconclusive" for lossy traces), Perfetto export, and `tracelens remedy`, which plans the fix from a trace and the source with no target at all.
 
 **Results on real QNX 8.0** (QEMU VM, 4 CPUs, `procnto-smp-instr`):
@@ -70,5 +71,6 @@ QNX SDP 8.0 · QNX Neutrino (`procnto-smp-instr`, `tracelogger`, `traceprinter`,
 ## Links
 
 - Code: https://github.com/sheikh2583/QNX-Global-Hackathon
+- Live demo: `[TBD: Render URL]` (`tracelens serve`: real QNX traces analyzed, fixes planned, uploads)
 - Codelab: `[TBD: GitHub Pages URL]`
 - Video: `[TBD: YouTube URL]`

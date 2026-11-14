@@ -1,0 +1,15 @@
+# Render Blueprint for the TraceLens hosted demo (https://render.com/docs/blueprint-spec).
+# New > Blueprint in the Render dashboard, pick this repository, and Render does the rest.
+services:
+  - type: web
+    name: tracelens-demo
+    runtime: python
+    plan: free
+    # Pre-render the committed real-QNX-trace pages at deploy time (one trace per process: the
+    # largest needs ~380 MB to analyze); the running server then only serves files and uploads.
+    buildCommand: pip install . && tracelens serve --prebuild
+    startCommand: tracelens serve --host 0.0.0.0
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"

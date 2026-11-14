@@ -27,6 +27,25 @@ tracelens remedy  fixtures/real/z1_infusion_pump.txt.gz --source bugzoo/z1_infus
 
 That trace is a real QNX 8.0 capture, committed in [fixtures/real/](fixtures/real/). Or run the whole tour: `demo/run_demo.sh` (Linux/WSL).
 
+## Hosted demo
+
+`tracelens serve` is the demo website: the results, every committed real QNX 8.0 trace analyzed by
+TraceLens with its fix planned from the trace and the C source, the before/after reports proven on
+our QNX VM, and an upload form that analyzes your own `traceprinter` output live (add your C source
+to get a patch). Standard library only, like the rest of TraceLens.
+
+```bash
+tracelens serve --prebuild && tracelens serve        # http://127.0.0.1:8000
+```
+
+**Deploy on Render** (free plan): push this repository to GitHub, then in the Render dashboard choose
+**New → Blueprint** and pick the repository. [render.yaml](render.yaml) builds with `pip install .`,
+pre-renders the committed traces' pages at deploy time (one trace per process: the largest needs about
+380 MB to analyze, under the free plan's 512 MB), and starts `tracelens serve --host 0.0.0.0` on
+Render's `$PORT`. Measured in a simulation of that flow: build 45 s, server 23 MB of memory, pages
+in under 10 ms. The QNX VM stays on your machine, so proving a fix on the kernel is shown from the
+recorded runs; Render's `PYTHON_VERSION` value is **(verify)** on first deploy.
+
 ## How it works
 
 ```
@@ -50,6 +69,7 @@ QNX 8.0 target (QEMU x86_64)                        Host (Linux / WSL2)
 | `tracelens fix-report BUNDLE --before … --after …` | Re-render a bundle's before/after page from its traces |
 | `tracelens compare --before … --after …` | VERIFIED / NOT FIXED / INCONCLUSIVE over ≥ 5 clean runs (Mann-Whitney U on response times) |
 | `tracelens eval detect \| fix` | Bug-zoo evaluation on the target: detection and false-positive table; proven-fix table |
+| `tracelens serve [--prebuild]` | The demo website (see Hosted demo) |
 | `tracelens export TRACE` | Chrome Trace JSON for [ui.perfetto.dev](https://ui.perfetto.dev): states, markers, IRQs, findings |
 | `tracelens threads` / `dump` / `synth` | Per-thread summary, normalized events as JSONL, regenerate the test traces |
 

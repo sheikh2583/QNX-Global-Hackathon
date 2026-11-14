@@ -82,16 +82,50 @@ def _timeline(m: TraceModel, a: Analysis, max_threads: int = 14) -> str:
         y = 18 + i * row_h
         label = escape(m.describe(th.key))
         parts.append(f'<text x="4" y="{y + 12}">{label}</text>')
-        for iv in th.intervals:
-            color = STATE_COLORS.get(iv.state)
-            if color is None or iv.duration <= 0:
-                continue
-            x0, x1 = x(iv.start), x(iv.end)
-            parts.append(f'<rect x="{x0:.2f}" y="{y}" width="{max(0.6, x1 - x0):.2f}" height="15" '
-                         f'rx="2" fill="{color}"><title>{escape(iv.state)} '
-                         f'{iv.duration / 1e6:.3f} ms (event {iv.event_id})</title></rect>')
+        parts += _thread_rects(th, m.t_start, span, left, width - left - 10, y)
     parts.append("</svg>")
     return "".join(parts)
+
+
+def _thread_rects(th, t0: int, span: int, left: float, plot_w: float, y: float, cols: int = 800) -> list[str]:
+    """One thread's states as SVG rects, at most one per pixel column.
+
+    A 4 s trace of an interrupt-heavy program has ~100k intervals per thread; drawing each one made
+    5-7 MB reports. Each column shows the state that held it longest, and runs of columns with the
+    same state merge into one rect, so the picture is the same at the displayed resolution. Short
+    intervals stay visible as long as they dominate a column; long ones keep their exact hover text."""
+    col_ns = span / cols
+    acc: list[dict[str, int]] = [dict() for _ in range(cols)]
+    longest: dict[int, object] = {}
+    for iv in th.intervals:
+        color = STATE_COLORS.get(iv.state)
+        if color is None or iv.duration <= 0:
+            continue
+        a = max(0, int((iv.start - t0) / col_ns))
+        b = min(cols - 1, int((iv.end - t0 - 1) / col_ns))
+        for c in range(a, b + 1):
+            c0, c1 = t0 + c * col_ns, t0 + (c + 1) * col_ns
+            acc[c][iv.state] = acc[c].get(iv.state, 0) + int(min(iv.end, c1) - max(iv.start, c0))
+            if longest.get(c) is None or iv.duration > longest[c].duration:
+                longest[c] = iv
+    out, c = [], 0
+    px = plot_w / cols
+    while c < cols:
+        if not acc[c]:
+            c += 1
+            continue
+        state = max(acc[c], key=acc[c].get)
+        start = c
+        while c + 1 < cols and acc[c + 1] and max(acc[c + 1], key=acc[c + 1].get) == state:
+            c += 1
+        iv = max((longest[k] for k in range(start, c + 1) if longest.get(k) is not None
+                  and longest[k].state == state), key=lambda v: v.duration, default=None)
+        title = (f"{escape(state)} {iv.duration / 1e6:.3f} ms (event {iv.event_id})" if iv is not None
+                 else escape(state))
+        out.append(f'<rect x="{left + start * px:.2f}" y="{y}" width="{max(0.6, (c - start + 1) * px):.2f}" '
+                   f'height="15" rx="2" fill="{STATE_COLORS[state]}"><title>{title}</title></rect>')
+        c += 1
+    return out
 
 
 _CITE = re.compile(r"\bE(\d+)\b")

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -38,6 +39,14 @@ def _run(argv: list[str], cwd: str, timeout: float = 60) -> subprocess.Completed
         return subprocess.run(argv, cwd=cwd, stdin=devnull, capture_output=True, text=True, timeout=timeout)
 
 
+def _ssh_open(ip: str, timeout: float = 2.0) -> bool:
+    try:
+        with socket.create_connection((ip, 22), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 @dataclass
 class QemuImage:
     image_dir: str = DEFAULT_IMAGE_DIR
@@ -45,6 +54,7 @@ class QemuImage:
     sleep: Callable[[float], None] = time.sleep
     leases_path: str = LEASES
     log: list[str] = field(default_factory=list)
+    reachable: Callable[[str], bool] = _ssh_open
 
     @property
     def dir(self) -> str:
@@ -89,6 +99,10 @@ class QemuImage:
         if not Path(self.leases_path).exists():
             raise RuntimeError("libvirt's network is not running (no DHCP): "
                                "sudo virsh net-start default   (if virbr0 is stale: sudo ip link delete virbr0 first)")
+        running = self.lease_ip()
+        if running and self.reachable(running):  # never start a second QEMU on the same disk image
+            self.log.append(f"target already running at {running}")
+            return running
         try:
             cp = self.run(["mkqnximage", "--run=-h", "--noprompt"], self.dir, timeout)
         except FileNotFoundError:

@@ -229,6 +229,17 @@ def _cmd_fix_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    import os
+    from .web import prebuild, serve
+    if args.prebuild:
+        print("rendering the committed traces' pages into .site/ (one trace per process)")
+        return prebuild(args.root)
+    port = args.port or int(os.environ.get("PORT", "8000"))
+    serve(args.host, port, args.root)
+    return 0
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     from .export.perfetto import dumps
     a = analyze_file(args.trace, load_config(args.config), cycles_per_sec=args.cycles_per_sec,
@@ -450,6 +461,14 @@ def build_parser() -> argparse.ArgumentParser:
     fr.add_argument("-c", "--config", help="tracelens.toml (deadlines)")
     fr.add_argument("-o", "--out", help="output file (default: <bundle>/report.html)")
     fr.set_defaults(func=_cmd_fix_report)
+
+    sv = sub.add_parser("serve", help="run the web demo: results, live analysis and fix planning, uploads")
+    sv.add_argument("--host", default="127.0.0.1", help="bind address (0.0.0.0 on a hosting provider)")
+    sv.add_argument("--port", type=int, help="port (default: $PORT, else 8000)")
+    sv.add_argument("--root", default=".", help="repository checkout with fixtures/real and docs/results")
+    sv.add_argument("--prebuild", action="store_true",
+                    help="render the committed traces' pages into <root>/.site and exit (run at deploy time)")
+    sv.set_defaults(func=_cmd_serve)
 
     e = sub.add_parser("export", help="write Chrome Trace JSON for ui.perfetto.dev (states, markers, findings)")
     e.add_argument("trace")

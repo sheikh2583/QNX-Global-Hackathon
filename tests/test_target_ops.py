@@ -93,3 +93,18 @@ def test_qemu_up_explains_the_known_setup_problems(tmp_path):
         q.up()
     with pytest.raises(RuntimeError, match="no VM image"):
         QemuImage(str(tmp_path / "nothing")).up()
+
+
+def test_qemu_up_reuses_a_running_target(tmp_path):
+    """Never start a second QEMU on the same disk: a lease that answers on ssh means it is up."""
+    (tmp_path / "output").mkdir()
+    (tmp_path / "tracelens-qemu.log").write_text("mac=52:54:00:94:22:ff")
+    leases = tmp_path / "virbr0.status"
+    leases.write_text('[{"ip-address": "192.168.122.238", "mac-address": "52:54:00:94:22:ff", "expiry-time": 5}]')
+
+    def run(argv, cwd, timeout):
+        raise AssertionError("must not run mkqnximage again")
+
+    q = QemuImage(str(tmp_path), run=run, leases_path=str(leases), reachable=lambda ip: True)
+    assert q.up() == "192.168.122.238" and "already running" in q.log[0]
+
