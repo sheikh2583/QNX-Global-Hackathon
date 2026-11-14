@@ -168,7 +168,10 @@ def detect(model: TraceModel, cfg: Config) -> list[Finding]:
         iv = worst["iv"]
         ratio = worst["interference"] / iv.duration if iv.duration else 0
         mids = sorted(worst["interferers"], key=lambda x: -x[1])
-        mid_names = ", ".join(model.describe(m.key) for m, _, _ in mids[:3])
+        def during(th):
+            r = th.prio_range(iv.start, iv.end)
+            return f"{model.label(th.key)} (prio {r[1] if r else '?'})"
+        mid_names = ", ".join(during(m) for m, _, _ in mids[:3])
 
         evidence = [e for e in (worst["block"].id if worst["block"] else None, iv.event_id,
                                 worst["wake"].id) if e is not None]

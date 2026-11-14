@@ -57,6 +57,14 @@ jobs:
             -c fixtures/synthetic/tracelens.toml \
             --html reports/z0_clean.html --json reports/z0_clean.json
 
+      - name: Real QNX 8.0 captures (Z1 buggy fails the gate, reference fix passes)
+        run: |
+          set +e
+          tracelens analyze fixtures/real/z1_infusion_pump.txt.gz -c fixtures/real/tracelens.toml             --html reports/real_z1.html --sarif reports/real_z1.sarif
+          [ $? -eq 1 ] || { echo "::error::real Z1 trace should fail the gate"; exit 1; }
+          tracelens analyze fixtures/real/z1_infusion_pump_fixed.txt.gz -c fixtures/real/tracelens.toml             --html reports/real_z1_fixed.html
+          [ $? -eq 0 ] || { echo "::error::real Z1 reference fix should pass the gate"; exit 1; }
+
       - name: Every planted bug is caught
         run: |
           set +e

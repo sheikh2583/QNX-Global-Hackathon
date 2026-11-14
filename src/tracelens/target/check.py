@@ -45,13 +45,13 @@ def preflight(target: Target) -> list[Check]:
     cp = _sh(target, "pidin info")
     cpus = None
     if cp.returncode == 0:
-        m = re.search(r"Processors?\s*\d*\s*[:=]?\s*(\d+)", cp.stdout) or re.search(r"(\d+)\s+(?:CPUs|processors)", cp.stdout)
-        cpus = int(m.group(1)) if m else len(re.findall(r"^\s*Processor\s*\d+", cp.stdout, re.M)) or None
+        # QNX 8.0 (verified): one "ProcessorN: <id> <model> <MHz> FPU" line per CPU.
+        cpus = len(re.findall(r"^\s*Processor\d+\s*:", cp.stdout, re.M)) or None
     if cpus is None:
         out.append(Check("cpus", WARN, "could not read the CPU count from `pidin info` (verify format)"))
     else:
         out.append(Check("cpus", PASS if cpus >= 2 else WARN, f"{cpus} CPUs",
-                         "" if cpus >= 8 else "The bug zoo pins threads to CPUs 0-1; 8 CPUs is the QEMU default."))
+                         "" if cpus >= 2 else "The bug zoo pins threads to CPUs 0-1; build the VM with --cpu=4."))
 
     cp = _sh(target, "ls /proc/boot 2>/dev/null; pidin -p 1 arg 2>/dev/null")
     instr = "instr" in cp.stdout
@@ -70,9 +70,9 @@ def preflight(target: Target) -> list[Check]:
                     if tool == "traceprinter" else f"{tool} is required on the target.")
         out.append(Check(tool, status, cp.stdout.strip() or "not found", hint))
 
-    cp = _sh(target, "rm -f /tmp/tl_check.kev; tracelogger -w -s 1 -f /tmp/tl_check.kev >/dev/null 2>&1; "
-                     "ls -l /tmp/tl_check.kev", timeout=60)
-    m = re.search(r"\s(\d{3,})\s+\w{3}\s", cp.stdout)
+    cp = _sh(target, "rm -f /tmp/tl_check.kev; tracelogger -w -n 0 -s 1 -f /tmp/tl_check.kev >/dev/null 2>&1; "
+                     "wc -c < /tmp/tl_check.kev", timeout=60)
+    m = re.search(r"^\s*(\d+)\s*$", cp.stdout, re.M)
     size = int(m.group(1)) if m else 0
     out.append(Check("trace capture", PASS if size > 0 else FAIL,
                      f"1 s wide-mode trace: {size} bytes" if size else (cp.stdout or cp.stderr).strip()[:200],

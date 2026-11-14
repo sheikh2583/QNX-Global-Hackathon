@@ -69,7 +69,7 @@ def test_pidin_parser():
 
 def test_trace_command_runs_workload_inside_capture_window():
     cmd = trace_command("/tmp/tracelens/z1", ["-d", "2"], "/tmp/tracelens/z1.kev", 4)
-    assert cmd.startswith("tracelogger -w -s 4 -f /tmp/tracelens/z1.kev")
+    assert cmd.startswith("tracelogger -w -n 0 -k 32 -s 4 -f /tmp/tracelens/z1.kev")
     assert "/tmp/tracelens/z1 -d 2" in cmd and "wait $TL" in cmd and "TRACELENS_RC=" in cmd
 
 
@@ -106,3 +106,16 @@ def test_capture_reports_target_failures(tmp_path):
 def test_capture_cli_needs_a_host(tmp_path, monkeypatch):
     monkeypatch.delenv("TRACELENS_TARGET", raising=False)
     assert main(["capture", str(tmp_path / "w")]) == 2
+
+
+def test_cli_options_after_the_binary_are_not_workload_args(tmp_path, monkeypatch):
+    """Found on the real target: `capture BIN --host IP -- -d 2` must give --host to TraceLens."""
+    import tracelens.target as tgt
+    seen = {}
+
+    def fake_capture(target, binary, wargs, out, **kw):
+        seen.update(host=target.host, binary=str(binary), wargs=list(wargs))
+        raise TargetError("stop here")
+    monkeypatch.setattr(tgt, "capture", fake_capture)
+    rc = main(["capture", str(tmp_path / "z1"), "--host", "192.168.122.238", "--seconds", "3", "--", "-d", "2", "--x"])
+    assert rc == 2 and seen == {"host": "192.168.122.238", "binary": str(tmp_path / "z1"), "wargs": ["-d", "2", "--x"]}

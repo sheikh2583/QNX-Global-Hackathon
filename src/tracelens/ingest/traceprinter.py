@@ -40,9 +40,14 @@ LINE_RE = re.compile(
     r"^t:0x(?P<t>[0-9a-fA-F]+)\s+CPU:\s*(?P<cpu>\d+)\s+(?P<cls>[A-Z_]+)\s*:\s*(?P<rest>.*)$"
 )
 HEADER_RE = re.compile(r"^\s*(?P<k>[A-Z_]+)::\s*(?P<v>.*?)\s*$")
-CONT_RE = re.compile(r"^\s+(?P<k>[A-Za-z_]\w*):\s*(?P<v>.*?)\s*$")
+# Continuation lines carry one key:value each; real QNX 8.0 keys include "sig_blocked->bits[0]".
+# traceprinter right-aligns keys, so long ones ("event->sigev_notify_function_p") start at column 0.
+CONT_RE = re.compile(r"^\s*(?P<k>[^\s:][^:]*?):\s*(?P<v>.*?)\s*$")
 ARG_RE = re.compile(r"([A-Za-z_]\w*):\s*(\S+)")
-STR_RE = re.compile(r"\b(?:STR|str|string):\s?(?P<s>.*)$")
+EQ_ARG_RE = re.compile(r"([A-Za-z_]\w*)\s=\s([^,]+)")  # "target_cpu = 2, ipicmd = 0x000001 RESCHED"
+# QNX 8.0 (verified): STR:"TL_META name=x", d0:0x... ; older docs show an unquoted string.
+STR_RE = re.compile(r'\b(?:STR|str|string):\s?(?:"(?P<q>[^"]*)"|(?P<s>.*))')
+ARG_ALIASES = {"sync_p": "sync"}  # QNX 8.0 names the sync object address sync_p
 
 _WRAP = 1 << 32
 
@@ -74,13 +79,19 @@ class ParsedTrace:
 
 
 def parse_file(path: str | Path, cycles_per_sec: int | None = None) -> ParsedTrace:
+    """Parse a traceprinter text file; ``.gz`` files (committed real captures) are read directly."""
     path = Path(path)
+    if path.suffix == ".gz":
+        import gzip
+        with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
+            return parse_text(fh, source=str(path), cycles_per_sec=cycles_per_sec)
     with path.open("r", encoding="utf-8", errors="replace") as fh:
         return parse_text(fh, source=str(path), cycles_per_sec=cycles_per_sec)
 
 
 def _header_cps(header: dict[str, str]) -> int | None:
-    text = header.get("CYCLES_PER_SEC", "").split()
+    # QNX 8.0 traceprinter (verified) writes TRACE_CYCLES_PER_SEC.
+    text = (header.get("TRACE_CYCLES_PER_SEC") or header.get("CYCLES_PER_SEC", "")).split()
     try:
         value = int(text[0]) if text else 0
     except ValueError:
@@ -113,7 +124,10 @@ def parse_text(lines: str | Iterable[str], source: str = "<memory>",
         m = LINE_RE.match(line)
         if m is None:
             if last is not None and (c := CONT_RE.match(line)):
-                last.args[c["k"]] = c["v"]
+                k = c["k"].strip()
+                last.args[k] = c["v"]
+                if k in ARG_ALIASES:
+                    last.args.setdefault(ARG_ALIASES[k], c["v"])
                 last.raw += "\n" + line
                 continue
             if h := HEADER_RE.match(line):
@@ -129,9 +143,14 @@ def parse_text(lines: str | Iterable[str], source: str = "<memory>",
         kind, payload = _split_kind(cls, rest)
         text = ""
         if s := STR_RE.search(payload):
-            text = s["s"].strip()
-            payload = payload[: s.start()]
+            text = (s["q"] if s["q"] is not None else s["s"]).strip()
+            payload = payload[: s.start()] + (payload[s.end():] if s["q"] is not None else "")
         args = dict(ARG_RE.findall(payload))
+        for k, v in EQ_ARG_RE.findall(payload):
+            args.setdefault(k, v.strip())
+        for k, alias in ARG_ALIASES.items():
+            if k in args:
+                args.setdefault(alias, args[k])
 
         cycles = int(m["t"], 16)
         if cls == "CONTROL" and kind == "TIME":

@@ -37,6 +37,7 @@ class ThreadInfo:
     name: str | None = None
     prio: int | None = None  # first known (base) priority; use prio_at() for comparisons
     prio_source: str = ""  # "kernel" (THREAD/SCHED events) or "snapshot" (pidin at capture start)
+    kernel_name: str | None = None  # from PROCTHREAD_NAME events (pthread_setname_np)
     prio_hist: list[tuple[int, int, int]] = field(default_factory=list)  # (t_ns, prio, event id or -1)
     cpus: set[int] = field(default_factory=set)  # CPUs this thread was seen RUNNING on
     intervals: list[Interval] = field(default_factory=list)
@@ -124,7 +125,12 @@ class TraceModel:
         for e in self.events:
             if e.cls == "PROCESS":
                 pid, name = e.arg_int("pid"), e.args.get("name")
-                if pid is not None and name:
+                if e.kind.startswith("PROCTHREAD_NAME"):
+                    # Kernel-recorded thread names (pthread_setname_np), verified on QNX 8.0.
+                    tid = e.arg_int("tid")
+                    if pid is not None and tid is not None and name:
+                        self._thread((pid, tid)).kernel_name = name
+                elif pid is not None and name:
                     self.proc_names[pid] = name.rsplit("/", 1)[-1]
                 continue
             if e.cls == "INT_ENTR":
@@ -214,6 +220,14 @@ class TraceModel:
         for iv in open_iv.values():
             iv.end = self.t_end
             iv.open_at_end = True
+        # Base priority = the one held longest (threads often start at their creator's priority
+        # and raise it right away with pthread_setschedparam; seen on QNX 8.0).
+        for th in self.threads.values():
+            if len(th.prio_hist) > 1:
+                held: dict[int, int] = {}
+                for (t, p, _), nxt in zip(th.prio_hist, th.prio_hist[1:] + [(self.t_end, 0, 0)]):
+                    held[p] = held.get(p, 0) + max(0, nxt[0] - t)
+                th.prio = max(held, key=held.get)
         for kind, n in violations.items():
             e = first_seen[kind]
             self.integrity.append(f"{kind}: {n}x (first at event E{e.id}, line {e.line})")
@@ -226,8 +240,8 @@ class TraceModel:
     # ---------------------------------------------------------------- queries
     def label(self, key: Key) -> str:
         th = self.threads.get(key)
-        if th is not None and th.name:
-            return th.name
+        if th is not None and (th.name or th.kernel_name):
+            return th.name or th.kernel_name
         proc = self.proc_names.get(key[0])
         if proc:
             return f"{proc}[{key[1]}]"

@@ -64,5 +64,6 @@ def load_pidin(path: str | Path) -> ThreadSnapshot:
 def sibling_snapshot(trace_path: str | Path) -> Path | None:
     """``run.txt`` -> ``run.pidin.txt`` if it exists (``tracelens capture`` writes both)."""
     p = Path(trace_path)
-    cand = p.with_name(p.stem + ".pidin.txt")
+    stem = p.name[:-len(".txt.gz")] if p.name.endswith(".txt.gz") else p.stem
+    cand = p.with_name(stem + ".pidin.txt")
     return cand if cand.exists() else None

@@ -140,7 +140,7 @@ def _cmd_capture(args: argparse.Namespace) -> int:
         return 2
     target = Target(host=host, user=args.user or cfg_target.get("user", "root"),
                     port=args.port or int(cfg_target.get("port", 22)), key=args.key or cfg_target.get("key"))
-    wargs = args.workload_args[1:] if args.workload_args[:1] == ["--"] else args.workload_args
+    wargs = args.workload_args
     try:
         res = capture(target, args.binary, wargs, args.out, seconds=args.seconds, name=args.name,
                       snapshot=not args.no_snapshot, traceprinter=args.traceprinter, command=args.command)
@@ -156,7 +156,7 @@ def _cmd_capture(args: argparse.Namespace) -> int:
         return 0
     ns = argparse.Namespace(trace=str(res.text), config=args.config, fail_on=None, json=None,
                             html=str(Path(args.out) / f"{res.name}.html"), quiet=False,
-                            cycles_per_sec=None, allow_lossy=False, snapshot="auto")
+                            cycles_per_sec=None, allow_lossy=False, snapshot="auto", sarif=None)
     return _cmd_analyze(ns)
 
 
@@ -199,7 +199,7 @@ def _cmd_fix(args: argparse.Namespace) -> int:
         return 2
     target = Target(host=host, user=args.user or cfg.target.get("user", "root"),
                     port=args.port or int(cfg.target.get("port", 22)), key=args.key or cfg.target.get("key"))
-    wargs = args.workload_args[1:] if args.workload_args[:1] == ["--"] else args.workload_args
+    wargs = args.workload_args
 
     def capturer(binary, _ws, label, i, out):
         res = capture(target, binary, wargs, Path(out) / "traces", seconds=args.seconds, name=f"{label}-{i}")
@@ -421,7 +421,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     c = sub.add_parser("capture", help="run a workload on the QNX target under a kernel trace and fetch it")
     c.add_argument("binary", nargs="?", help="workload built with qcc (e.g. bugzoo/out/z1_infusion_pump)")
-    c.add_argument("workload_args", nargs=argparse.REMAINDER, help="arguments for the workload, after --")
     c.add_argument("--host", help="target address (or TRACELENS_TARGET, or [target] host in the config)")
     c.add_argument("--user")
     c.add_argument("--port", type=int)
@@ -449,7 +448,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     f = sub.add_parser("fix", help="Claude patches a workload; qcc, run on QNX, re-trace, verdict")
     f.add_argument("workload", help="workload directory, e.g. bugzoo/z1_infusion_pump")
-    f.add_argument("workload_args", nargs=argparse.REMAINDER, help="arguments for the workload, after --")
     f.add_argument("-c", "--config", help="tracelens.toml (deadlines, [target])")
     f.add_argument("--host")
     f.add_argument("--user")
@@ -479,7 +477,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     tg = sub.add_parser("target", help="QNX QEMU target: up | ip | check | down")
     tg.add_argument("action", choices=["up", "ip", "check", "down"])
-    tg.add_argument("--image-dir", default="~/qnx800/images/qemu/qemu", help="QEMU quick-start image folder")
+    tg.add_argument("--image-dir", default="~/qnx-vm", help="folder of a mkqnximage-built VM")
     tg.add_argument("--timeout", type=float, default=180, help="seconds to wait for an IP (up)")
     tg.add_argument("--host", help="target address for check (default: TRACELENS_TARGET or mkqnximage --getip)")
     tg.add_argument("--user")
@@ -531,7 +529,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Everything after a bare "--" belongs to the workload (capture, fix), never to TraceLens,
+    # so TraceLens options may appear anywhere before it.
+    argv = list(sys.argv[1:] if argv is None else argv)
+    workload_args: list[str] = []
+    if "--" in argv:
+        i = argv.index("--")
+        argv, workload_args = argv[:i], argv[i + 1:]
     args = build_parser().parse_args(argv)
+    args.workload_args = workload_args
     try:
         return args.func(args)
     except (FileNotFoundError, TraceFormatError) as exc:

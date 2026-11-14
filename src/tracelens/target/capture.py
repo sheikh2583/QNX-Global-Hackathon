@@ -39,7 +39,9 @@ def trace_command(binary: str | None, args: list[str], kev: str, seconds: int, s
     tracelogger capture."""
     run = f"( {raw} )" if raw is not None else " ".join(q(a) for a in [binary, *args])
     return (
-        f"tracelogger -w -s {int(seconds)} -f {q(kev)} >/dev/null 2>&1 & "  # -w wide, -s secs, -f file (verify)
+        # QNX 8.0 (verified): -w wide events, -n 0 lifts the default 32-iteration cap, -s timed mode,
+        # -k kernel buffers per CPU (default 8): more headroom against dropped events in wide mode.
+        f"tracelogger -w -n 0 -k 32 -s {int(seconds)} -f {q(kev)} >/dev/null 2>&1 & "
         f"TL=$!; sleep {settle}; {run}; RC=$?; wait $TL; echo TRACELENS_RC=$RC"
     )
 

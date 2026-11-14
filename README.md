@@ -76,7 +76,7 @@ Five small QNX C programs with planted, realistic bugs (`bugzoo/`). Hidden refer
 
 | QNX technology | Where |
 |---|---|
-| QNX SDP 8.0, `qcc` cross-compiler (`-Vgcc_ntox86_64`) | [bugzoo/Makefile](bugzoo/Makefile), [src/tracelens/fix/build.py](src/tracelens/fix/build.py) |
+| QNX SDP 8.0, `qcc` cross-compiler (`-Vgcc_ntox86_64`, gcc 12.2.0); all bug-zoo programs build warning-free | [bugzoo/Makefile](bugzoo/Makefile), [src/tracelens/fix/build.py](src/tracelens/fix/build.py) |
 | QEMU Quick Start target image, `mkqnximage --run/--getip/--stop` | [src/tracelens/target/qemu.py](src/tracelens/target/qemu.py) |
 | Instrumented kernel `procnto-smp-instr`, `tracelogger -w`, `traceprinter` | [src/tracelens/target/capture.py](src/tracelens/target/capture.py), [src/tracelens/target/check.py](src/tracelens/target/check.py), [src/tracelens/ingest/traceprinter.py](src/tracelens/ingest/traceprinter.py) |
 | `TraceEvent()` user events (`_NTO_TRACE_INSERTUSRSTREVENT`) | [bugzoo/common/tl.h](bugzoo/common/tl.h) |
@@ -84,7 +84,7 @@ Five small QNX C programs with planted, realistic bugs (`bugzoo/`). Hidden refer
 | `InterruptAttachEvent`, `InterruptWait`, `InterruptUnmask`, `ThreadCtl(_NTO_TCTL_IO)` | [bugzoo/z5_motor_encoder](bugzoo/z5_motor_encoder/main.c), [src/tracelens/detectors/irq_latency.py](src/tracelens/detectors/irq_latency.py) |
 | `ThreadCtl(_NTO_TCTL_RUNMASK)`, SCHED_FIFO, priority inheritance semantics | [bugzoo/common/tl.h](bugzoo/common/tl.h), [src/tracelens/detectors/prio_inversion.py](src/tracelens/detectors/prio_inversion.py) |
 | `pidin` thread snapshot | [src/tracelens/ingest/pidin.py](src/tracelens/ingest/pidin.py) |
-| Real QNX 8.0 captures and fix runs | *(added after the first runs on the target)* |
+| Real QNX 8.0 captures (QEMU VM, 4 CPUs, `procnto-smp-instr`) | [fixtures/real/](fixtures/real/), checked by [tests/test_real_qnx.py](tests/test_real_qnx.py) and the CI gate: Z1 buggy → CRITICAL semaphore inversion (control blocked 8.05 ms while telemetry held logger's CPU), exit 1; Z1 reference fix → clean, exit 0 |
 
 ## Run it on QNX (verify)
 

@@ -3,7 +3,7 @@
  *
  * Every workload:
  *   - pins its threads to explicit CPUs (ThreadCtl _NTO_TCTL_RUNMASK) so the
- *     scheduling behaviour is reproducible on an 8-CPU QEMU guest,
+ *     scheduling behaviour is reproducible on the 4-CPU QEMU guest (mkqnximage --cpu=4),
  *   - runs its threads SCHED_FIFO at fixed priorities,
  *   - emits TraceLens markers as user string events (TraceEvent with
  *     _NTO_TRACE_INSERTUSRSTREVENT) that the analyzer reads:

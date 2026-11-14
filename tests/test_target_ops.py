@@ -18,14 +18,17 @@ class FakeQnx:
 
     def __init__(self, **override):
         self.answers = {
-            "uname -a": cp(out="QNX localhost 8.0.0 2025/01/01-00:00:00EST x86pc x86_64\n"),
-            "pidin info": cp(out="CPU:X86_64 Release:8.0.0  FreeMem:3.5Gb/4Gb BootTime:...\n"
-                                 "Processes: 60, Threads: 250\nProcessors: 8\n"),
+            # Real QNX 8.0 QEMU output (captured 2026-11-14 from a mkqnximage VM).
+            "uname -a": cp(out="QNX tracelens 8.0.0 2026/10/30-09:10:05EDT x86pc x86_64\n"),
+            "pidin info": cp(out="CPU:X86_64 Release:8.0.0  FreeMem:1861MB/2047MB BootTime:Nov 14 06:05:10 UTC 2026\n"
+                                 "Processes: 22, Threads: 143\n"
+                                 + "".join(f"Processor{i}: 721582 Intel 686 F6M183S1 2419MHz FPU \n"
+                                           for i in range(1, 5))),
             "ls /proc/boot": cp(out="procnto-smp-instr\nlibc.so.6\n"),
-            "command -v tracelogger": cp(out="/usr/bin/tracelogger\n"),
-            "command -v pidin": cp(out="/bin/pidin\n"),
+            "command -v tracelogger": cp(out="/system/bin/tracelogger\n"),
+            "command -v pidin": cp(out="/proc/boot/pidin\n"),
             "command -v traceprinter": cp(1, ""),
-            "rm -f /tmp/tl_check.kev": cp(out="-rw-r--r--  1 root root  482304 Nov 13 21:00 /tmp/tl_check.kev\n"),
+            "rm -f /tmp/tl_check.kev": cp(out="120611\n"),
         }
         self.answers.update(override)
 
@@ -41,10 +44,10 @@ class FakeQnx:
 
 def test_preflight_on_a_healthy_target():
     checks = {c.name: c for c in preflight(Target("10.0.2.15", runner=FakeQnx()))}
-    assert checks["os"].status == PASS and checks["cpus"].detail == "8 CPUs"
+    assert checks["os"].status == PASS and checks["cpus"].detail == "4 CPUs"
     assert checks["instrumented kernel"].status == PASS
     assert checks["tracelogger"].status == PASS and checks["traceprinter"].status == WARN
-    assert checks["trace capture"].status == PASS and "482304" in checks["trace capture"].detail
+    assert checks["trace capture"].status == PASS and "120611" in checks["trace capture"].detail
     assert summary_status(list(checks.values())) == WARN  # traceprinter decodes on the host instead
 
 
@@ -55,21 +58,38 @@ def test_preflight_fails_fast_without_ssh_and_on_empty_trace():
     assert empty["trace capture"].status == FAIL
 
 
-def test_qemu_up_waits_for_an_ip(tmp_path):
-    ips = iter([None, None, "inet 192.168.122.57\n"])
-    spawned = []
+def test_qemu_up_waits_for_a_dhcp_lease(tmp_path):
+    """Mirrors the verified flow: mkqnximage --run=-h, then the IP from libvirt's lease file by MAC."""
+    (tmp_path / "output").mkdir()
+    leases = tmp_path / "virbr0.status"
+    leases.write_text("[]")
+    polls = []
 
-    def run(argv, cwd):
-        out = next(ips) if argv[-1] == "--getip" else ""
-        return cp(0 if out else 1, out or "")
+    def run(argv, cwd, timeout):
+        assert argv == ["mkqnximage", "--run=-h", "--noprompt"]
+        return cp(0, "QEMU Command: qemu-system-x86_64 ... -device virtio-net-pci,netdev=net0,mac=52:54:00:94:22:ff")
 
-    q = QemuImage(str(tmp_path), run=run, spawn=lambda argv, cwd, log: spawned.append(argv) or 4242,
-                  sleep=lambda s: None)
-    assert q.up(timeout=30, poll=3) == "192.168.122.57"
-    assert spawned == [["mkqnximage", "--run"]] and any("192.168.122.57" in l for l in q.log)
+    def sleep(s):
+        polls.append(s)
+        if len(polls) == 2:
+            leases.write_text('[{"ip-address": "10.9.9.9", "mac-address": "52:54:00:00:00:01", "expiry-time": 9},'
+                              ' {"ip-address": "192.168.122.238", "mac-address": "52:54:00:94:22:ff", "expiry-time": 5}]')
+
+    q = QemuImage(str(tmp_path), run=run, sleep=sleep, leases_path=str(leases))
+    assert q.up(timeout=30, poll=3) == "192.168.122.238"  # our MAC, not the other VM's newer lease
+    assert any("192.168.122.238" in line for line in q.log)
 
 
-def test_qemu_up_needs_the_image_folder(tmp_path):
-    q = QemuImage(str(tmp_path / "missing"), run=lambda a, c: cp(1), spawn=lambda *a: 0, sleep=lambda s: None)
-    with pytest.raises(RuntimeError, match="Quick Start"):
+def test_qemu_up_explains_the_known_setup_problems(tmp_path):
+    (tmp_path / "output").mkdir()
+    q = QemuImage(str(tmp_path), run=lambda a, c, t: cp(0), sleep=lambda s: None,
+                  leases_path=str(tmp_path / "missing"))
+    with pytest.raises(RuntimeError, match="virsh net-start default"):
         q.up()
+    (tmp_path / "virbr0.status").write_text("[]")
+    q = QemuImage(str(tmp_path), run=lambda a, c, t: cp(0, "/usr/lib/qemu/qemu-bridge-helper not setuid"),
+                  sleep=lambda s: None, leases_path=str(tmp_path / "virbr0.status"))
+    with pytest.raises(RuntimeError, match=r"chmod u\+s"):
+        q.up()
+    with pytest.raises(RuntimeError, match="no VM image"):
+        QemuImage(str(tmp_path / "nothing")).up()
