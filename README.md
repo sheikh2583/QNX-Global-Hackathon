@@ -29,10 +29,20 @@ That trace is a real QNX 8.0 capture, committed in [fixtures/real/](fixtures/rea
 
 ## Hosted demo
 
-`tracelens serve` is the demo website: the results, every committed real QNX 8.0 trace analyzed by
-TraceLens with its fix planned from the trace and the C source, the before/after reports proven on
-our QNX VM, and an upload form that analyzes your own `traceprinter` output live (add your C source
-to get a patch). Standard library only, like the rest of TraceLens.
+`tracelens serve` is the TraceLens web app, written for people who want their program fixed rather
+than for tool builders:
+
+| Page | What it is |
+|---|---|
+| `/` | What TraceLens solves, the three steps to use it, and the measured before/after chart |
+| `/demo` | **Guided demo for judges:** one real QNX 8.0 recording from bug to proven fix (the program, the raw kernel events, the findings with a zoomed timeline of the moment each happened, the patch, two rounds of proof on the kernel), then reliability across all five programs |
+| `/analyze` | Upload a recording (plus, optionally, C source and deadlines) and get a plain-language report and a patch; how to record a trace on a QNX target |
+| `/examples` | The five real QNX programs, each with its report and its before/after proof |
+| `/guide` | How to read a report: severity, the timeline, patches, when a fix is real |
+
+Reports put each problem in plain words (what happened, why it matters, why QNX behaves that way, what
+to do) with the moment it happened; raw events, metrics and recording diagnostics sit under
+"Technical details". The full engineer's report stays at `/trace/<name>`. Standard library only.
 
 ```bash
 tracelens serve --prebuild && tracelens serve        # http://127.0.0.1:8000
