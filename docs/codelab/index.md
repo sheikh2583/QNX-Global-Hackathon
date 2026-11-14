@@ -2,7 +2,7 @@
 
 **Time:** about 45 minutes · **Level:** you know C and basic OS ideas (threads, priorities, locks); no QNX experience needed.
 
-> **Draft.** Steps marked **(verify)** have not yet been run end to end, in this order, by a new user. Every command and sample output comes from real QNX 8.0 runs on a QEMU VM.
+> Tested end to end in a fresh clone on WSL2 Ubuntu 24.04 with QNX SDP 8.0 (November 2026). Every command and sample output comes from real QNX 8.0 runs.
 
 You will run a small infusion-pump controller on QNX 8.0 in a virtual machine, watch it miss its deadlines, find out why from a kernel trace, let TraceLens rewrite the code, and prove the fix on the real kernel. No API keys, no cloud: everything runs on your machine and the QNX target. Along the way you'll learn the one QNX rule behind the bug: **semaphores have no owner, so the kernel cannot lend them priority.**
 
@@ -18,11 +18,11 @@ You will run a small infusion-pump controller on QNX 8.0 in a virtual machine, w
 
 ## No QNX yet? Start at step 5
 
-TraceLens ships with sample traces. If you just want to see the analysis, install TraceLens (step 2) and jump to step 5 using `fixtures/synthetic/z1_prio_inversion.txt`.
+TraceLens ships with real QNX 8.0 traces. Install TraceLens (step 2), then use `fixtures/real/z1_infusion_pump.txt.gz` wherever the steps say `captures/z1_infusion_pump.txt`: steps 4, 5 and 7 (the fix, without a target) all work offline.
 
 ---
 
-## 1. Boot QNX 8.0 in QEMU (15 min) **(verify)**
+## 1. Boot QNX 8.0 in QEMU (15 min)
 
 You need a Linux host with KVM. On Windows, use WSL2 with Ubuntu 24.04.
 
@@ -53,7 +53,7 @@ cd tracelens
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e .
 source ~/qnx800/qnxsdp-env.sh
-make -C bugzoo            # out/z1_infusion_pump ... built with qcc   (verify)
+make -C bugzoo            # out/z1_infusion_pump ... built with qcc
 ```
 
 `bugzoo/z1_infusion_pump/main.c` is the program you'll debug. It has three threads, all pinned to CPU 0:
@@ -66,7 +66,7 @@ make -C bugzoo            # out/z1_infusion_pump ... built with qcc   (verify)
 
 Read `main.c` now. Can you spot the bug? Don't worry if not: the trace will show it.
 
-## 3. Capture a kernel trace (5 min) **(verify)**
+## 3. Capture a kernel trace (5 min)
 
 ```bash
 tracelens capture bugzoo/out/z1_infusion_pump --host $QNX -c bugzoo/tracelens.toml -- -d 2
@@ -187,16 +187,21 @@ The fix loop, with no model anywhere:
    significantly faster (Mann-Whitney U test);
 6. if the verdict is NOT FIXED, diagnoses the *new* traces and fixes again (up to 3 rounds).
 
-On our QEMU VM this ends **VERIFIED** after one round: the inversion is gone in 5 of 5 runs and
-`control`'s p99 response drops from 5.74 ms to 1.29 ms (budget 2 ms). Read
-`fixes/z1_infusion_pump/SUMMARY.md` for the diagnosis, the patch and the verdict
-([ours](../results/fixes/z1_infusion_pump/SUMMARY.md)).
+When we ran this codelab in a fresh clone, step 6 mattered:
 
-**Try it:** set `budget_us = 1000` for `control` in `bugzoo/tracelens.toml` and run the fix again.
-Now the mutex alone is not enough: the re-trace shows `control` waiting about 1 ms every period,
-because `logger` holds the lock during its 2.5 ms flash write. Round 2 diagnoses that from the new
-trace and moves the work that touches no shared data out of both critical sections. (On a virtual
-machine, a 1 ms budget is close to the platform's own jitter, so expect the odd late job.)
+| Round | What TraceLens changed | `control` p99 (budget 2 ms) | Verdict |
+|---|---|---|---|
+| 1 | semaphore → priority-inheriting mutex | 7.18 → 2.48 ms; inversion gone in 5/5 runs | NOT FIXED |
+| 2 | moved the logger's flash write (and the dose computation) out of the lock | 7.18 → 0.54 ms; 0 misses | **VERIFIED** |
+
+The mutex removed the inversion, and the re-trace showed the next cause: `control` still waited for
+the logger, which held the lock through its 2.5 ms flash write. Round 2 found that in the new traces
+and moved the work that touches no shared data out of both critical sections. On another run the
+first round alone was enough (p99 1.29 ms): timing on a virtual machine varies, which is exactly why
+the verdict uses several runs. ([Our two-round run](../results/fixes/z1_infusion_pump_codelab_2_rounds/SUMMARY.md).)
+
+Open `fixes/z1_infusion_pump/report.html` in a browser: the pump's threads before and after, on the
+same time scale, with the verdict numbers and the patch. `SUMMARY.md` has the same in text.
 
 ## 9. Keep it fixed (5 min)
 

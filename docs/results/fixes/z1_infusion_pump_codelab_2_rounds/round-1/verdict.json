@@ -1,0 +1,36 @@
+{
+  "verdict": "NOT FIXED",
+  "reasons": [
+    "deadline_miss still present in 100% of 'after' runs",
+    "deadline 'control': after p99 over budget"
+  ],
+  "runs": {
+    "before": 5,
+    "after": 5,
+    "lossy_skipped": 0
+  },
+  "targets": {
+    "deadline_miss": {
+      "before_rate": 1.0,
+      "after_rate": 1.0
+    },
+    "priority_inversion": {
+      "before_rate": 1.0,
+      "after_rate": 0.0
+    }
+  },
+  "new_kinds": [],
+  "deadlines": [
+    {
+      "name": "control",
+      "budget_ns": 2000000,
+      "before_p99": 7177954,
+      "after_p99": 2483048,
+      "before_misses": 953,
+      "after_misses": 17,
+      "p_value": 4.199213293511512e-272,
+      "ok": false,
+      "reason": "after p99 over budget"
+    }
+  ]
+}

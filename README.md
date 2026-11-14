@@ -46,7 +46,8 @@ QNX 8.0 target (QEMU x86_64)                        Host (Linux / WSL2)
 | `tracelens capture BIN -- args` | Copy a `qcc` binary to the target, snapshot priorities with `pidin`, run it under `tracelogger -w`, fetch and decode the trace (`--command` traces a program already on the target) |
 | `tracelens analyze TRACE` | Run every detector; terminal summary, `--html`, `--json`, `--sarif`; exit codes for scripts |
 | `tracelens remedy TRACE --source DIR` | The QNX fix for each proven root cause, with source locations; writes a patch. No target needed |
-| `tracelens fix WORKLOAD` | Find, fix and prove: before-runs, remedy, `qcc`, after-runs, `compare`; re-diagnose and fix again if needed (up to 3 rounds); evidence bundle |
+| `tracelens fix WORKLOAD` | Find, fix and prove: before-runs, remedy, `qcc`, after-runs, `compare`; re-diagnose and fix again if needed (up to 3 rounds); evidence bundle with a before/after `report.html` |
+| `tracelens fix-report BUNDLE --before … --after …` | Re-render a bundle's before/after page from its traces |
 | `tracelens compare --before … --after …` | VERIFIED / NOT FIXED / INCONCLUSIVE over ≥ 5 clean runs (Mann-Whitney U on response times) |
 | `tracelens eval detect \| fix` | Bug-zoo evaluation on the target: detection and false-positive table; proven-fix table |
 | `tracelens export TRACE` | Chrome Trace JSON for [ui.perfetto.dev](https://ui.perfetto.dev): states, markers, IRQs, findings |
@@ -108,6 +109,12 @@ are in its evidence bundle.
 | Z5 motor encoder | 2 ms of work before `InterruptUnmask()` | unmask first; work moved to a pulse-driven worker at priority 20, below every interrupt thread in the trace ([patch](docs/results/fixes/z5_motor_encoder/patch.diff)) | **VERIFIED** | overrun 5/5 → 0/5; p99 time masked 2.41 → 0.24 ms; p99 response 2.08 → 0.57 ms |
 
 **4 of 5 planted bugs fixed automatically and verified on the target; the fifth gets exact guidance.**
+Each bundle has a `report.html`: the program's threads before and after the fix on the same time
+scale, the verdict numbers, why the remedy applies on QNX, and the patch (download and open it in a
+browser). In the [codelab](docs/codelab/index.md)'s fresh-clone run the infusion pump needed two
+rounds ([bundle](docs/results/fixes/z1_infusion_pump_codelab_2_rounds/SUMMARY.md)): the mutex removed
+the inversion (p99 7.18 → 2.48 ms, still over budget), and round 2 moved the logger's flash write out of
+the lock (p99 0.54 ms, VERIFIED).
 Every patch compiles warning-free with `qcc -Wall -Wextra`. The fix engine never reads the
 hand-written reference fixes. Z1's budget is 2 ms, not the original 1 ms: its 0.12 ms job left
 less than the 2 ms of slack the bug zoo keeps over measured VM noise (PLAN.md §15), and at 1 ms a

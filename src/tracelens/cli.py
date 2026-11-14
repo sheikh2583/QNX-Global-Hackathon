@@ -218,8 +218,15 @@ def _cmd_fix(args: argparse.Namespace) -> int:
         for k, t in res.verdict["targets"].items():
             print(f"  {k:<22} before {t['before_rate']:>4.0%} of runs  ->  after {t['after_rate']:>4.0%}")
     print(f"  STATUS: {res.status}" + (" (quick check: fewer than 5 runs)" if res.quick else ""))
-    print(f"  evidence bundle: {res.bundle} (SUMMARY.md, patch.diff, before/, after/)")
+    print(f"  evidence bundle: {res.bundle} (report.html, SUMMARY.md, patch.diff, round-N/)")
     return {"VERIFIED": 0, "NOTHING TO FIX": 0, "GUIDED": 0, "INCONCLUSIVE": EXIT_LOSSY}.get(res.status, 1)
+
+
+def _cmd_fix_report(args: argparse.Namespace) -> int:
+    from .report.fix_html import write_fix_report
+    out = write_fix_report(args.bundle, args.before, args.after or [], load_config(args.config), args.out)
+    print(f"wrote {out}")
+    return 0
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
@@ -435,6 +442,14 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--include", action="append", default=[], help="read-only include dir (default: ../common)")
     f.add_argument("--out", help="evidence bundle folder (default: fixes/<workload>)")
     f.set_defaults(func=_cmd_fix)
+
+    fr = sub.add_parser("fix-report", help="before/after HTML page for a fix bundle (from its traces)")
+    fr.add_argument("bundle", help="fix bundle folder (result.json, patch.diff)")
+    fr.add_argument("--before", nargs="+", required=True, metavar="TRACE")
+    fr.add_argument("--after", nargs="+", metavar="TRACE")
+    fr.add_argument("-c", "--config", help="tracelens.toml (deadlines)")
+    fr.add_argument("-o", "--out", help="output file (default: <bundle>/report.html)")
+    fr.set_defaults(func=_cmd_fix_report)
 
     e = sub.add_parser("export", help="write Chrome Trace JSON for ui.perfetto.dev (states, markers, findings)")
     e.add_argument("trace")

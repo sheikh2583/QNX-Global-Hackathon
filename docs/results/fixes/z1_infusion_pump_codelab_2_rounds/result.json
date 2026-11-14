@@ -1,0 +1,137 @@
+{
+  "status": "VERIFIED",
+  "workload": "z1_infusion_pump",
+  "runs": 5,
+  "targets": [
+    "deadline_miss",
+    "priority_inversion"
+  ],
+  "remedies": [
+    {
+      "rule": "semaphore-as-lock",
+      "finding_id": "TL-001",
+      "finding_kind": "priority_inversion",
+      "title": "Replace semaphore 'buf_lock' (used as a lock) with a priority-inheriting mutex",
+      "automatic": true,
+      "rationale": "A POSIX semaphore has no owner, so the QNX kernel cannot raise the priority of the thread that holds it: a medium-priority thread preempts the holder and the high-priority waiter waits for both. A pthread mutex has an owner; with PTHREAD_PRIO_INHERIT (the QNX default) the holder runs at the waiter's priority until it unlocks.",
+      "locations": [
+        [
+          "main.c",
+          36,
+          "sem_wait(&buf_lock);"
+        ],
+        [
+          "main.c",
+          41,
+          "sem_post(&buf_lock);"
+        ],
+        [
+          "main.c",
+          65,
+          "sem_wait(&buf_lock);"
+        ],
+        [
+          "main.c",
+          70,
+          "sem_post(&buf_lock);"
+        ]
+      ],
+      "guidance": [],
+      "notes": [],
+      "files": [
+        "main.c"
+      ],
+      "round": 1
+    },
+    {
+      "rule": "symptom",
+      "finding_id": "TL-002",
+      "finding_kind": "deadline_miss",
+      "title": "Deadline misses in 'control': a symptom",
+      "automatic": false,
+      "rationale": "deadline miss is the visible effect; the trace also shows its cause (priority_inversion). It is expected to clear with that fix, and the re-trace checks that it does.",
+      "locations": [],
+      "guidance": [],
+      "notes": [],
+      "files": [],
+      "round": 1
+    },
+    {
+      "rule": "shrink-critical-section",
+      "finding_id": "TL-002",
+      "finding_kind": "mutex_contention",
+      "title": "Shrink the 'buf_lock' critical section: move tl_spin_us outside the lock",
+      "automatic": true,
+      "rationale": "Every MUTEX wait in a QNX trace is real contention (uncontended mutexes never enter the kernel). The lock only needs to cover statements that read or write the data it protects; computation on private buffers inside it serialises the threads for nothing.",
+      "locations": [
+        [
+          "main.c",
+          53,
+          "pthread_mutex_lock(&buf_lock);"
+        ],
+        [
+          "main.c",
+          82,
+          "pthread_mutex_lock(&buf_lock);"
+        ]
+      ],
+      "guidance": [],
+      "notes": [],
+      "files": [
+        "main.c"
+      ],
+      "round": 2
+    },
+    {
+      "rule": "symptom",
+      "finding_id": "TL-001",
+      "finding_kind": "deadline_miss",
+      "title": "Deadline misses in 'control': a symptom",
+      "automatic": false,
+      "rationale": "deadline miss is the visible effect; the trace also shows its cause (mutex_contention). It is expected to clear with that fix, and the re-trace checks that it does.",
+      "locations": [],
+      "guidance": [],
+      "notes": [],
+      "files": [],
+      "round": 2
+    }
+  ],
+  "diff": "--- a/main.c\n+++ b/main.c\n@@ -10,8 +10,25 @@\n  * control at 0. Timers fire on tick boundaries, so a spacing of whole ticks fixes the\n  * order on every run regardless of the tick's phase.\n  */\n+#include <errno.h>\n+#include <pthread.h>\n #include <semaphore.h>\n #include \"tl.h\"\n+\n+/* --- TraceLens remedy: priority-inheriting mutex (replaces a semaphore used as a lock) --- */\n+static int tracelens_pi_mutex_init(pthread_mutex_t *m)\n+{\n+    pthread_mutexattr_t a;\n+    int rc = pthread_mutexattr_init(&a);\n+    if (rc == 0)\n+        rc = pthread_mutexattr_setprotocol(&a, PTHREAD_PRIO_INHERIT);\n+    if (rc == 0)\n+        rc = pthread_mutex_init(m, &a);\n+    pthread_mutexattr_destroy(&a);\n+    if (rc != 0)\n+        errno = rc;\n+    return rc;\n+}\n \n #define PERIOD_US 10000\n \n@@ -20,7 +37,7 @@\n     unsigned n;\n } sensor_buf;\n \n-static sem_t buf_lock;\n+static pthread_mutex_t buf_lock;\n static uint64_t t0;\n static unsigned run_s;\n \n@@ -33,12 +50,12 @@\n     for (unsigned k = 0; k < periods(); k++) {\n         tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US);\n         tl_job_start(\"control\");\n-        sem_wait(&buf_lock);\n         double dose = 0;\n+        pthread_mutex_lock(&buf_lock);\n         for (unsigned i = 0; i < sensor_buf.n; i++)\n             dose += sensor_buf.samples[i];\n+        pthread_mutex_unlock(&buf_lock);\n         tl_spin_us(100); /* dose computation */\n-        sem_post(&buf_lock);\n         (void)dose;\n         tl_job_end(\"control\");\n     }\n@@ -62,12 +79,12 @@\n     tl_thread_init(\"logger\", 10, 0x1);\n     for (unsigned k = 0; k < periods(); k++) {\n         tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US - 2000 * TL_NS_PER_US);\n-        sem_wait(&buf_lock);\n+        pthread_mutex_lock(&buf_lock);\n         sensor_buf.n = 64;\n         for (unsigned i = 0; i < sensor_buf.n; i++)\n             sensor_buf.samples[i] = (double)(k + i);\n+        pthread_mutex_unlock(&buf_lock);\n         tl_spin_us(2500); /* write to flash */\n-        sem_post(&buf_lock);\n     }\n     return NULL;\n }\n@@ -75,12 +92,12 @@\n int main(int argc, char **argv)\n {\n     t0 = tl_parse_args(argc, argv, &run_s);\n-    if (sem_init(&buf_lock, 0, 1) == -1)\n+    if (tracelens_pi_mutex_init(&buf_lock) != 0)\n         tl_die(\"sem_init\");\n \n     pthread_t th[3] = { tl_spawn(logger, NULL), tl_spawn(telemetry, NULL), tl_spawn(control, NULL) };\n     for (int i = 0; i < 3; i++)\n         pthread_join(th[i], NULL);\n-    sem_destroy(&buf_lock);\n+    pthread_mutex_destroy(&buf_lock);\n     return 0;\n }\n",
+  "verdict": {
+    "verdict": "VERIFIED",
+    "reasons": [],
+    "runs": {
+      "before": 5,
+      "after": 5,
+      "lossy_skipped": 0
+    },
+    "targets": {
+      "deadline_miss": {
+        "before_rate": 1.0,
+        "after_rate": 0.0
+      },
+      "priority_inversion": {
+        "before_rate": 1.0,
+        "after_rate": 0.0
+      }
+    },
+    "new_kinds": [],
+    "deadlines": [
+      {
+        "name": "control",
+        "budget_ns": 2000000,
+        "before_p99": 7177954,
+        "after_p99": 540236,
+        "before_misses": 953,
+        "after_misses": 0,
+        "p_value": 7.1213317812713e-310,
+        "ok": true,
+        "reason": "significantly faster (p=7.1e-310)"
+      }
+    ]
+  },
+  "bundle": "fixes/z1_infusion_pump",
+  "note": "",
+  "rounds": 2,
+  "quick": false
+}

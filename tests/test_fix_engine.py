@@ -61,6 +61,10 @@ def test_semaphore_inversion_is_fixed_and_proven(cfg, tmp_path):
     assert (bundle / "patch.diff").exists() and (bundle / "verdict.json").exists()
     summary = (bundle / "SUMMARY.md").read_text(encoding="utf-8")
     assert "Status: **VERIFIED**" in summary and "main.c:" in summary
+    report = (bundle / "report.html").read_text(encoding="utf-8")
+    assert "VERIFIED" in report and "pthread_mutex_lock(&amp;buf_lock)" in report  # the patch, escaped
+    assert report.count('<svg class="tl"') == 2  # before and after timelines
+    assert "priority inversion: runs with the finding" in report
     # the workload itself was never modified
     assert "sem_wait(&buf_lock)" in (ROOT / "bugzoo" / "z1_infusion_pump" / "main.c").read_text(encoding="utf-8")
 

@@ -71,6 +71,7 @@ class FixEngine:
         original = Workspace.create(self.workload_dir, self.out / "original", self.include_dirs).files()
 
         before, analyses = self._before(name, before_traces)
+        self._before_an, self._after_an = analyses, []
         clean = [a for s, a in zip(before, analyses) if not s.lossy]
         if not clean:
             res.note = "every 'before' trace is lossy; recapture"
@@ -113,6 +114,7 @@ class FixEngine:
                 break
 
             after, after_an = self._runs(build.binary, ws.root, "after", rdir / "after")
+            self._after_an = after_an
             v = compare_runs(before, after, self.cfg, target_kinds=targets, min_runs=min(self.runs, 5),
                              alpha=self.alpha)
             res.status, res.verdict, res.rounds = v.verdict, v.to_dict(), rnd
@@ -155,8 +157,25 @@ class FixEngine:
 
     def _finish(self, res: FixResult, remedies: list[Remedy]) -> FixResult:
         (self.out / "result.json").write_text(json.dumps(res.to_dict(), indent=2), encoding="utf-8")
+        self._report(res)
         (self.out / "SUMMARY.md").write_text(summary_markdown(res, remedies), encoding="utf-8")
         return res
+
+
+    def _report(self, res: FixResult) -> None:
+        """report.html: the workload's threads before and after, the remedy, the patch."""
+        def worst(an):
+            an = [a for a in an if not a.model.lossy] or an
+            return max(an, key=lambda a: sum(1 for f in a.findings if f.kind in res.targets)) if an else None
+        b = worst(getattr(self, "_before_an", []))
+        if b is None:
+            return
+        try:
+            from ..report.fix_html import render_fix
+            html = render_fix(res.to_dict(), res.diff, b, worst(getattr(self, "_after_an", [])))
+        except Exception as exc:  # the report must never cost the verdict
+            html = f"<p>report failed: {type(exc).__name__}: {exc}</p>"
+        (self.out / "report.html").write_text(html, encoding="utf-8")
 
 
 def _majority_kinds(runs: list[RunSummary], share: float = 0.6) -> list[str]:

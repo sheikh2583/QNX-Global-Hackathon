@@ -1,0 +1,141 @@
+<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>TraceLens fix: z1_infusion_pump</title><style>
+:root{--bg:#f7f7f5;--card:#fff;--fg:#1d1d1b;--muted:#6b6b66;--line:#e3e2dd;
+--run:#2f9e44;--ready:#f2b33d;--block:#e03131;--ipc:#7048e8;--intr:#1c7ed6;
+--crit:#c92a2a;--high:#e8590c;--med:#f08c00;--low:#868e96;--band:rgba(224,49,49,.10)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#141413;--card:#1e1e1c;
+--fg:#ecebe6;--muted:#a3a29b;--line:#33332f;--band:rgba(255,107,107,.14)}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
+font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:32px 0 12px}
+.muted{color:var(--muted)}.stats{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:120px}
+.stat b{display:block;font-size:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:12px 0}
+.card h3{margin:0 0 6px;font-size:16px}.badge{display:inline-block;border-radius:6px;padding:1px 8px;
+font-size:12px;font-weight:600;color:#fff;margin-right:8px;text-transform:uppercase;letter-spacing:.03em}
+.sev-crit{background:var(--crit)}.sev-high{background:var(--high)}.sev-med{background:var(--med)}.sev-low{background:var(--low)}
+.qnx{border-left:3px solid var(--intr);padding:6px 12px;margin:10px 0;color:var(--muted)}
+table{border-collapse:collapse;font-size:13px;margin:8px 0}td{padding:2px 14px 2px 0;vertical-align:top}
+details{margin-top:8px}summary{cursor:pointer;color:var(--muted)}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;overflow-x:auto;font-size:12px}
+.tl{width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px}
+.tl text{fill:var(--fg);font-size:11px}.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.cite{font:12px ui-monospace,Consolas,monospace;color:var(--intr);text-decoration:none;white-space:nowrap}
+.tag{font-size:12px;border-radius:6px;padding:1px 7px;margin-left:6px;border:1px solid var(--line)}
+.tag.ok2{color:var(--run)}.tag.bad{color:var(--crit)}
+.warnbox{border:1px solid var(--crit);border-radius:10px;padding:10px 14px;margin:12px 0}
+.warnbox b{color:var(--crit)}.notebox{border:1px solid var(--line);border-radius:10px;padding:8px 14px;margin:12px 0;font-size:13px}
+.ok{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;color:var(--run);font-weight:600}
+
+.verdict{display:inline-block;padding:4px 12px;border-radius:999px;font-weight:700;margin-left:8px}
+.v-ok{background:rgba(47,158,68,.15);color:var(--run)}.v-bad{background:rgba(224,49,49,.14);color:var(--block)}
+.v-guide{background:rgba(28,126,214,.14);color:var(--intr)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:14px 0}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.kpi b{display:block;font-size:20px}.kpi .arrow{color:var(--muted)}.kpi small{color:var(--muted)}
+.pair{display:grid;grid-template-columns:minmax(0,1fr);gap:6px}.pair h3{margin:10px 0 4px}
+pre.diff{font-size:12px;overflow:auto;background:var(--card);border:1px solid var(--line);
+border-radius:10px;padding:10px}
+.add{color:var(--run)}.del{color:var(--block)}.hunk{color:var(--intr)}
+.rem{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:10px 0}
+.rem code{font-size:12px}.tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;
+border:1px solid var(--line);margin-left:6px;color:var(--muted)}
+</style></head><body><main>
+<h1>z1_infusion_pump<span class="verdict v-ok">VERIFIED</span></h1>
+<div class=muted>Found in the trace, fixed in the source, proven on QNX: 5 runs before, 5 after, 2 rounds. TraceLens 0.1.0.dev0, no model involved.</div>
+<div class=kpis><div class=kpi><small>deadline miss: runs with the finding</small><b>100% <span class=arrow>→</span> 0%</b></div><div class=kpi><small>priority inversion: runs with the finding</small><b>100% <span class=arrow>→</span> 0%</b></div><div class=kpi><small>'control' p99 response (budget 2.0 ms)</small><b>7.18 <span class=arrow>→</span> 0.54 ms</b><small>misses 953 → 0; significantly faster (p=7.1e-310)</small></div></div>
+<h2>What TraceLens changed, and why</h2>
+<div class=rem><b>Replace semaphore &#x27;buf_lock&#x27; (used as a lock) with a priority-inheriting mutex</b><span class=tag>automatic</span><span class=tag>rule semaphore-as-lock</span><span class=tag>round 1</span><p>A POSIX semaphore has no owner, so the QNX kernel cannot raise the priority of the thread that holds it: a medium-priority thread preempts the holder and the high-priority waiter waits for both. A pthread mutex has an owner; with PTHREAD_PRIO_INHERIT (the QNX default) the holder runs at the waiter&#x27;s priority until it unlocks.</p><div class=muted>Source locations</div><ul><li><code>main.c:36</code> <code>sem_wait(&amp;buf_lock);</code></li><li><code>main.c:41</code> <code>sem_post(&amp;buf_lock);</code></li><li><code>main.c:65</code> <code>sem_wait(&amp;buf_lock);</code></li><li><code>main.c:70</code> <code>sem_post(&amp;buf_lock);</code></li></ul></div>
+<div class=rem><b>Shrink the &#x27;buf_lock&#x27; critical section: move tl_spin_us outside the lock</b><span class=tag>automatic</span><span class=tag>rule shrink-critical-section</span><span class=tag>round 2</span><p>Every MUTEX wait in a QNX trace is real contention (uncontended mutexes never enter the kernel). The lock only needs to cover statements that read or write the data it protects; computation on private buffers inside it serialises the threads for nothing.</p><div class=muted>Source locations</div><ul><li><code>main.c:53</code> <code>pthread_mutex_lock(&amp;buf_lock);</code></li><li><code>main.c:82</code> <code>pthread_mutex_lock(&amp;buf_lock);</code></li></ul></div>
+<h2>The workload's threads, before and after</h2>
+<div class=legend><span><i style="background:var(--run)"></i>running</span><span><i style="background:var(--ready)"></i>ready (preempted)</span><span><i style="background:var(--block)"></i>blocked on sync</span><span><i style="background:var(--ipc)"></i>send/reply blocked</span><span><i style="background:var(--intr)"></i>waiting for interrupt</span><span><i style="background:var(--band)"></i>finding</span></div>
+<div class=pair><h3>Before the fix <span class=muted>(before-0.txt, 25 ms from the middle of the run)</span></h3><svg class="tl" viewBox="0 0 960 118" role="img" aria-label="Thread timeline"><line x1="170.0" y1="14" x2="170.0" y2="118" stroke="var(--line)"/><text x="172.0" y="11" class="muted">0 ms</text><line x1="326.0" y1="14" x2="326.0" y2="118" stroke="var(--line)"/><text x="328.0" y="11" class="muted">5 ms</text><line x1="482.0" y1="14" x2="482.0" y2="118" stroke="var(--line)"/><text x="484.0" y="11" class="muted">10 ms</text><line x1="638.0" y1="14" x2="638.0" y2="118" stroke="var(--line)"/><text x="640.0" y="11" class="muted">15 ms</text><line x1="794.0" y1="14" x2="794.0" y2="118" stroke="var(--line)"/><text x="796.0" y="11" class="muted">20 ms</text><line x1="950.0" y1="14" x2="950.0" y2="118" stroke="var(--line)"/><text x="952.0" y="11" class="muted">25 ms</text><text x="4" y="32">control (prio 50)</text><rect x="214.69" y="20" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.022 ms</title></rect><rect x="215.36" y="20" width="0.99" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.032 ms</title></rect><rect x="216.35" y="20" width="161.29" height="15" rx="2" fill="var(--block)"><title>SEM 5.170 ms</title></rect><rect x="377.64" y="20" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.002 ms</title></rect><rect x="377.70" y="20" width="3.54" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.114 ms</title></rect><rect x="521.27" y="20" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.014 ms</title></rect><rect x="521.70" y="20" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.023 ms</title></rect><rect x="522.43" y="20" width="171.35" height="15" rx="2" fill="var(--block)"><title>SEM 5.492 ms</title></rect><rect x="693.78" y="20" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.002 ms</title></rect><rect x="693.84" y="20" width="3.59" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.115 ms</title></rect><rect x="835.70" y="20" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.024 ms</title></rect><rect x="836.43" y="20" width="1.18" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.038 ms</title></rect><rect x="837.61" y="20" width="112.39" height="15" rx="2" fill="var(--block)"><title>SEM 5.354 ms</title></rect><text x="4" y="54">telemetry (prio 20)</text><rect x="184.54" y="42" width="2.00" height="15" rx="2" fill="var(--ready)"><title>READY 0.064 ms</title></rect><rect x="186.54" y="42" width="25.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.827 ms</title></rect><rect x="212.34" y="42" width="4.02" height="15" rx="2" fill="var(--ready)"><title>READY 0.129 ms</title></rect><rect x="216.36" y="42" width="160.67" height="15" rx="2" fill="var(--run)"><title>RUNNING 5.150 ms</title></rect><rect x="494.73" y="42" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.023 ms</title></rect><rect x="495.43" y="42" width="24.20" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.776 ms</title></rect><rect x="519.63" y="42" width="2.81" height="15" rx="2" fill="var(--ready)"><title>READY 0.090 ms</title></rect><rect x="522.44" y="42" width="170.64" height="15" rx="2" fill="var(--run)"><title>RUNNING 5.469 ms</title></rect><rect x="811.16" y="42" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.026 ms</title></rect><rect x="811.96" y="42" width="20.97" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.672 ms</title></rect><rect x="832.93" y="42" width="4.70" height="15" rx="2" fill="var(--ready)"><title>READY 0.151 ms</title></rect><rect x="837.63" y="42" width="112.37" height="15" rx="2" fill="var(--run)"><title>RUNNING 5.327 ms</title></rect><text x="4" y="76">z1_infusion_pump[1] (prio 10)</text><text x="4" y="98">logger (prio 10)</text><rect x="170.00" y="86" width="11.88" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.743 ms</title></rect><rect x="181.88" y="86" width="195.21" height="15" rx="2" fill="var(--ready)"><title>READY 6.257 ms</title></rect><rect x="377.08" y="86" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.019 ms</title></rect><rect x="377.69" y="86" width="3.56" height="15" rx="2" fill="var(--ready)"><title>READY 0.114 ms</title></rect><rect x="381.25" y="86" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.013 ms</title></rect><rect x="463.79" y="86" width="3.96" height="15" rx="2" fill="var(--ready)"><title>READY 0.127 ms</title></rect><rect x="467.75" y="86" width="24.62" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.789 ms</title></rect><rect x="492.37" y="86" width="200.77" height="15" rx="2" fill="var(--ready)"><title>READY 6.435 ms</title></rect><rect x="693.14" y="86" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.022 ms</title></rect><rect x="693.83" y="86" width="3.61" height="15" rx="2" fill="var(--ready)"><title>READY 0.116 ms</title></rect><rect x="697.44" y="86" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.020 ms</title></rect><rect x="780.40" y="86" width="3.97" height="15" rx="2" fill="var(--ready)"><title>READY 0.127 ms</title></rect><rect x="784.38" y="86" width="23.64" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.758 ms</title></rect><rect x="808.02" y="86" width="141.98" height="15" rx="2" fill="var(--ready)"><title>READY 6.278 ms</title></rect></svg>
+<h3>After the fix <span class=muted>(after-0.txt, 25 ms from the middle of the run)</span></h3><svg class="tl" viewBox="0 0 960 118" role="img" aria-label="Thread timeline"><line x1="170.0" y1="14" x2="170.0" y2="118" stroke="var(--line)"/><text x="172.0" y="11" class="muted">0 ms</text><line x1="326.0" y1="14" x2="326.0" y2="118" stroke="var(--line)"/><text x="328.0" y="11" class="muted">5 ms</text><line x1="482.0" y1="14" x2="482.0" y2="118" stroke="var(--line)"/><text x="484.0" y="11" class="muted">10 ms</text><line x1="638.0" y1="14" x2="638.0" y2="118" stroke="var(--line)"/><text x="640.0" y="11" class="muted">15 ms</text><line x1="794.0" y1="14" x2="794.0" y2="118" stroke="var(--line)"/><text x="796.0" y="11" class="muted">20 ms</text><line x1="950.0" y1="14" x2="950.0" y2="118" stroke="var(--line)"/><text x="952.0" y="11" class="muted">25 ms</text><text x="4" y="32">control (prio 50)</text><rect x="430.90" y="20" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.024 ms</title></rect><rect x="431.66" y="20" width="5.12" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.164 ms</title></rect><rect x="739.32" y="20" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.016 ms</title></rect><rect x="739.83" y="20" width="4.34" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.139 ms</title></rect><text x="4" y="54">telemetry (prio 20)</text><rect x="170.00" y="42" width="101.94" height="15" rx="2" fill="var(--run)"><title>RUNNING 4.896 ms</title></rect><rect x="397.76" y="42" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.024 ms</title></rect><rect x="398.52" y="42" width="27.77" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.890 ms</title></rect><rect x="426.29" y="42" width="10.50" height="15" rx="2" fill="var(--ready)"><title>READY 0.337 ms</title></rect><rect x="436.79" y="42" width="156.89" height="15" rx="2" fill="var(--run)"><title>RUNNING 5.029 ms</title></rect><rect x="708.19" y="42" width="3.10" height="15" rx="2" fill="var(--ready)"><title>READY 0.099 ms</title></rect><rect x="711.30" y="42" width="26.00" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.833 ms</title></rect><rect x="737.29" y="42" width="6.88" height="15" rx="2" fill="var(--ready)"><title>READY 0.221 ms</title></rect><rect x="744.17" y="42" width="157.28" height="15" rx="2" fill="var(--run)"><title>RUNNING 5.041 ms</title></rect><text x="4" y="76">z1_infusion_pump[1] (prio 10)</text><text x="4" y="98">logger (prio 10)</text><rect x="170.00" y="86" width="101.97" height="15" rx="2" fill="var(--ready)"><title>READY 6.094 ms</title></rect><rect x="271.97" y="86" width="0.85" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.027 ms</title></rect><rect x="367.66" y="86" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.018 ms</title></rect><rect x="368.23" y="86" width="26.73" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.857 ms</title></rect><rect x="394.96" y="86" width="198.82" height="15" rx="2" fill="var(--ready)"><title>READY 6.372 ms</title></rect><rect x="593.77" y="86" width="1.96" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.063 ms</title></rect><rect x="679.04" y="86" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.016 ms</title></rect><rect x="679.53" y="86" width="26.98" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.865 ms</title></rect><rect x="706.51" y="86" width="194.99" height="15" rx="2" fill="var(--ready)"><title>READY 6.250 ms</title></rect><rect x="901.50" y="86" width="1.18" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.038 ms</title></rect></svg>
+</div>
+<h2>The patch</h2><pre class=diff>--- a/main.c
++++ b/main.c
+<span class="hunk">@@ -10,8 +10,25 @@</span>
+  * control at 0. Timers fire on tick boundaries, so a spacing of whole ticks fixes the
+  * order on every run regardless of the tick&#x27;s phase.
+  */
+<span class="add">+#include &lt;errno.h&gt;</span>
+<span class="add">+#include &lt;pthread.h&gt;</span>
+ #include &lt;semaphore.h&gt;
+ #include &quot;tl.h&quot;
+<span class="add">+</span>
+<span class="add">+/* --- TraceLens remedy: priority-inheriting mutex (replaces a semaphore used as a lock) --- */</span>
+<span class="add">+static int tracelens_pi_mutex_init(pthread_mutex_t *m)</span>
+<span class="add">+{</span>
+<span class="add">+    pthread_mutexattr_t a;</span>
+<span class="add">+    int rc = pthread_mutexattr_init(&amp;a);</span>
+<span class="add">+    if (rc == 0)</span>
+<span class="add">+        rc = pthread_mutexattr_setprotocol(&amp;a, PTHREAD_PRIO_INHERIT);</span>
+<span class="add">+    if (rc == 0)</span>
+<span class="add">+        rc = pthread_mutex_init(m, &amp;a);</span>
+<span class="add">+    pthread_mutexattr_destroy(&amp;a);</span>
+<span class="add">+    if (rc != 0)</span>
+<span class="add">+        errno = rc;</span>
+<span class="add">+    return rc;</span>
+<span class="add">+}</span>
+ 
+ #define PERIOD_US 10000
+ 
+<span class="hunk">@@ -20,7 +37,7 @@</span>
+     unsigned n;
+ } sensor_buf;
+ 
+<span class="del">-static sem_t buf_lock;</span>
+<span class="add">+static pthread_mutex_t buf_lock;</span>
+ static uint64_t t0;
+ static unsigned run_s;
+ 
+<span class="hunk">@@ -33,12 +50,12 @@</span>
+     for (unsigned k = 0; k &lt; periods(); k++) {
+         tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US);
+         tl_job_start(&quot;control&quot;);
+<span class="del">-        sem_wait(&amp;buf_lock);</span>
+         double dose = 0;
+<span class="add">+        pthread_mutex_lock(&amp;buf_lock);</span>
+         for (unsigned i = 0; i &lt; sensor_buf.n; i++)
+             dose += sensor_buf.samples[i];
+<span class="add">+        pthread_mutex_unlock(&amp;buf_lock);</span>
+         tl_spin_us(100); /* dose computation */
+<span class="del">-        sem_post(&amp;buf_lock);</span>
+         (void)dose;
+         tl_job_end(&quot;control&quot;);
+     }
+<span class="hunk">@@ -62,12 +79,12 @@</span>
+     tl_thread_init(&quot;logger&quot;, 10, 0x1);
+     for (unsigned k = 0; k &lt; periods(); k++) {
+         tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US - 2000 * TL_NS_PER_US);
+<span class="del">-        sem_wait(&amp;buf_lock);</span>
+<span class="add">+        pthread_mutex_lock(&amp;buf_lock);</span>
+         sensor_buf.n = 64;
+         for (unsigned i = 0; i &lt; sensor_buf.n; i++)
+             sensor_buf.samples[i] = (double)(k + i);
+<span class="add">+        pthread_mutex_unlock(&amp;buf_lock);</span>
+         tl_spin_us(2500); /* write to flash */
+<span class="del">-        sem_post(&amp;buf_lock);</span>
+     }
+     return NULL;
+ }
+<span class="hunk">@@ -75,12 +92,12 @@</span>
+ int main(int argc, char **argv)
+ {
+     t0 = tl_parse_args(argc, argv, &amp;run_s);
+<span class="del">-    if (sem_init(&amp;buf_lock, 0, 1) == -1)</span>
+<span class="add">+    if (tracelens_pi_mutex_init(&amp;buf_lock) != 0)</span>
+         tl_die(&quot;sem_init&quot;);
+ 
+     pthread_t th[3] = { tl_spawn(logger, NULL), tl_spawn(telemetry, NULL), tl_spawn(control, NULL) };
+     for (int i = 0; i &lt; 3; i++)
+         pthread_join(th[i], NULL);
+<span class="del">-    sem_destroy(&amp;buf_lock);</span>
+<span class="add">+    pthread_mutex_destroy(&amp;buf_lock);</span>
+     return 0;
+ }</pre>
+</main></body></html>

@@ -1,0 +1,33 @@
+{
+  "verdict": "VERIFIED",
+  "reasons": [],
+  "runs": {
+    "before": 5,
+    "after": 5,
+    "lossy_skipped": 0
+  },
+  "targets": {
+    "deadline_miss": {
+      "before_rate": 1.0,
+      "after_rate": 0.0
+    },
+    "priority_inversion": {
+      "before_rate": 1.0,
+      "after_rate": 0.0
+    }
+  },
+  "new_kinds": [],
+  "deadlines": [
+    {
+      "name": "control",
+      "budget_ns": 2000000,
+      "before_p99": 7177954,
+      "after_p99": 540236,
+      "before_misses": 953,
+      "after_misses": 0,
+      "p_value": 7.1213317812713e-310,
+      "ok": true,
+      "reason": "significantly faster (p=7.1e-310)"
+    }
+  ]
+}
