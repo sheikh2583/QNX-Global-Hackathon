@@ -2,6 +2,7 @@
 #
 # expect  : finding kinds the buggy build must produce (the reference build must produce none)
 # args    : workload arguments; {irq} is replaced by --irq (z5 needs an interrupt source, see README)
+# background: shell command run on the target during each capture (drives z5's interrupt)
 # binaries: bugzoo/out/<name> (buggy) and bugzoo/out/<name>_fixed (reference), built by `make -C bugzoo`
 
 [z1_infusion_pump]
@@ -24,6 +25,9 @@ args = ["-d", "2"]
 expect = ["irq_handler_overrun"]
 args = ["-d", "2", "-i", "{irq}"]
 needs_irq = true
+# Verified on the mkqnximage QEMU VM: the console UART is IRQ 4 (/dev/ser1); writing to it raises
+# ~2,700 interrupts/s. Use: tracelens eval detect --irq 4
+background = "while :; do echo 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef; done > /dev/ser1"
 
 # Healthy programs already on the target: traced while they run, must produce zero findings.
 [negative.pidin_loop]

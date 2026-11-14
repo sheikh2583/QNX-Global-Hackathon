@@ -186,8 +186,11 @@ def z4_mutex_contention() -> str:
     return b.text()
 
 
-def z5_irq_overrun() -> str:
-    """Motor encoder: the interrupt service thread does heavy work before unmasking."""
+def z5_irq_overrun(work_us: list[int] | None = None) -> str:
+    """Motor encoder: the interrupt service thread does heavy work before unmasking.
+
+    ``work_us``: handler time per interrupt (default: ten interrupts of 2 ms each)."""
+    work_us = work_us if work_us is not None else [2000] * 10
     b = TraceBuilder(name="z5_irq_overrun.kev")
     H = (500, 1)
     b.proc(0, 500, "motor_ctrl")
@@ -196,14 +199,14 @@ def z5_irq_overrun() -> str:
     b.ret(11, 0, "INTERRUPT_ATTACH_EVENT", ret_val=1)
     b.call(20, 0, "INTERRUPT_WAIT", flags=0)
     b.block(20, 0, "INTR")
-    for k in range(10):
+    for k, w in enumerate(work_us):
         t = 1000 + k * 5000
         b.irq(t, 0, 9)
         b.run(t + 30, 0, H)
         b.ret(t + 31, 0, "INTERRUPT_WAIT", ret_val=0)
-        b.call(t + 2031, 0, "INTERRUPT_UNMASK", intr=9, id=1)
-        b.call(t + 2040, 0, "INTERRUPT_WAIT", flags=0)
-        b.block(t + 2040, 0, "INTR")
+        b.call(t + 31 + w, 0, "INTERRUPT_UNMASK", intr=9, id=1)
+        b.call(t + 40 + w, 0, "INTERRUPT_WAIT", flags=0)
+        b.block(t + 40 + w, 0, "INTR")
     return b.text()
 
 

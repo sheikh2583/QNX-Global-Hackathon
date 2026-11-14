@@ -34,10 +34,13 @@ class CaptureResult:
 
 
 def trace_command(binary: str | None, args: list[str], kev: str, seconds: int, settle: float = 1.0,
-                  raw: str | None = None) -> str:
+                  raw: str | None = None, background: str | None = None) -> str:
     """Shell command that runs ``binary`` (or the shell command ``raw``) inside a time-limited
-    tracelogger capture."""
+    tracelogger capture. ``background`` (e.g. a load that drives an interrupt) runs alongside the
+    workload and is stopped when it exits."""
     run = f"( {raw} )" if raw is not None else " ".join(q(a) for a in [binary, *args])
+    if background:
+        run = f"( {background} ) >/dev/null 2>&1 & BG=$!; {run}; RC=$?; kill $BG 2>/dev/null; (exit $RC)"
     return (
         # QNX 8.0 (verified): -w wide events, -n 0 lifts the default 32-iteration cap, -s timed mode,
         # -k kernel buffers per CPU (default 8): more headroom against dropped events in wide mode.
@@ -48,7 +51,8 @@ def trace_command(binary: str | None, args: list[str], kev: str, seconds: int, s
 
 def capture(target: Target, binary: str | Path | None, args: list[str], out_dir: str | Path,
             seconds: int = 4, name: str | None = None, snapshot: bool = True,
-            traceprinter: str = "auto", host_runner=None, command: str | None = None) -> CaptureResult:
+            traceprinter: str = "auto", host_runner=None, command: str | None = None,
+            background: str | None = None) -> CaptureResult:
     """Run ``binary`` on the target under a trace; return local paths of the results.
 
     ``command``: instead of deploying a binary, trace a shell command already runnable on the
@@ -83,7 +87,7 @@ def capture(target: Target, binary: str | Path | None, args: list[str], out_dir:
         else:
             res.log.append("thread snapshot failed; priorities will come from trace events only")
 
-    cp = target.run(trace_command(remote_bin, args, remote_kev, seconds, raw=command),
+    cp = target.run(trace_command(remote_bin, args, remote_kev, seconds, raw=command, background=background),
                     timeout=seconds + 60, check=False)
     for line in cp.stdout.splitlines():
         if line.startswith("TRACELENS_RC="):
@@ -111,8 +115,21 @@ def capture(target: Target, binary: str | Path | None, args: list[str], out_dir:
         text.write_text(cp.stdout, encoding="utf-8")
     else:
         remote_txt = f"{REMOTE_DIR}/{name}.txt"
-        target.run(f"traceprinter -f {q(remote_kev)} > {q(remote_txt)}", timeout=300)
+        try:
+            target.run(f"traceprinter -f {q(remote_kev)} > {q(remote_txt)}", timeout=300)
+        except TargetError as e:
+            if "traceprinter" not in str(e) or "No such file" not in str(e) and "not found" not in str(e):
+                raise
+            # Minimal images (the mkqnximage QEMU VM, verified) ship tracelogger but not traceprinter.
+            raise TargetError(
+                f"traceprinter is not on the host PATH nor on the target. The raw trace is saved at "
+                f"{res.kev}. Source the SDP environment first (`source ~/qnx800/qnxsdp-env.sh`), or "
+                f"decode it yourself: traceprinter -f {res.kev} > {text}") from e
         target.get(remote_txt, text)
     res.text = text
     res.log.append(f"decoded with traceprinter on the {where} -> {text}")
+    # The QEMU guest's /tmp is a small partition (63 MB on the mkqnximage VM, verified): a 5-run
+    # evaluation filled it. Remove what this capture left on the target once it is safely local.
+    leftovers = [remote_kev, f"{REMOTE_DIR}/{name}.txt"] + ([remote_bin] if remote_bin else [])
+    target.run("rm -f " + " ".join(q(p) for p in leftovers), check=False)
     return res

@@ -135,9 +135,16 @@ def compare_runs(before: list[RunSummary], after: list[RunSummary], cfg: Config,
     failed = False
     if not targets and not target_kinds:
         v.reasons.append("no finding kind is present in most 'before' runs: nothing to verify")
+    reproduced = []
     for k in targets:
         rb, ra = rate(k, clean_b), rate(k, clean_a)
         v.targets[k] = (rb, ra)
+        if rb >= target_share:
+            reproduced.append(k)
+        else:
+            # A fix can only be verified against a bug that showed up before it. Found live: a
+            # workload that deadlocked in 0 of 5 runs made its reference fix look VERIFIED.
+            v.reasons.append(f"{k} reproduced in only {rb:.0%} of 'before' runs (need {target_share:.0%})")
         if ra > 0:
             failed = True
             v.reasons.append(f"{k} still present in {ra:.0%} of 'after' runs")
@@ -167,7 +174,7 @@ def compare_runs(before: list[RunSummary], after: list[RunSummary], cfg: Config,
             failed = True
             v.reasons.append(f"deadline '{name}': {reason}")
 
-    had_problem = bool(targets) or any(d.before_misses for d in v.deadlines)
+    had_problem = bool(reproduced) or any(d.before_misses for d in v.deadlines)
     if failed:
         v.verdict = NOT_FIXED
     elif had_problem:

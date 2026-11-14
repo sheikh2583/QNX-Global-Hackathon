@@ -32,6 +32,11 @@ class Thresholds:
     contention_min_waits: int = 5  # need at least this many waits to call it a pattern
     contention_min_share: float = 0.05  # union of wait time / trace length
     contention_p99_wait_us: float = 1000  # ...or a p99 wait this long
+    # A deadline miss is "marginal" (MEDIUM, not failing the gate) when misses are rarer than this
+    # rate AND the worst response is within this overshoot of the budget. Hard real-time: set
+    # deadline_marginal_rate = 0 and every miss is HIGH.
+    deadline_marginal_rate: float = 0.01
+    deadline_marginal_overshoot: float = 0.25
     irq_max_latency_us: float = 200
     irq_max_handler_us: float = 500
     deadlock_min_blocked_us: float = 50_000

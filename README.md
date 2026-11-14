@@ -72,6 +72,67 @@ Five small QNX C programs with planted, realistic bugs (`bugzoo/`). Hidden refer
 | `z4_camera_pipeline` | 4 workers, one frame store | work inside one global mutex |
 | `z5_motor_encoder` | encoder interrupt service thread | heavy work before `InterruptUnmask()` |
 
+## Results on real QNX 8.0
+
+All numbers are from a QNX SDP 8.0 QEMU x86_64 VM (4 CPUs, KVM, `procnto-smp-instr`).
+
+### Detection: 10 runs per build, held out
+
+`tracelens eval detect --runs 10 --irq 4` captures every buggy build and every reference fix 10 times
+and counts findings at or above `high` (the CI gate). The detectors were calibrated on three earlier
+5-run evaluations; this run was captured afterwards and not used for tuning. Full table:
+[docs/results/detect.md](docs/results/detect.md).
+
+| Workload | Planted bug | Buggy build caught | Reference fix flagged | Before/after verdict |
+|---|---|---|---|---|
+| Z1 infusion pump | `sem_t` used as a lock (no priority inheritance) | **10/10** | 0/10 | VERIFIED |
+| Z2 brake-by-wire | `_NTO_CHF_FIXED_PRIORITY` server channel | **10/10** | 0/10 | VERIFIED |
+| Z3 sensor fusion | two servers `MsgSend` to each other | **10/10** | 0/10 | VERIFIED |
+| Z4 camera pipeline | 4 workers behind one global mutex | **10/10** | 0/10 | VERIFIED |
+| Z5 motor encoder | heavy work before `InterruptUnmask()` | **10/10** | 0/10 | VERIFIED |
+| Healthy system programs (`pidin` loop, idle, `ls -lR`) | none | | 0/30 | |
+
+Lossy captures (a dropped kernel event) are excluded and replaced with a fresh capture, never
+scored: 3 of 133 in this run. VERIFIED means the bug appeared in at least 60% of the "before" runs,
+in none of the "after" runs, nothing new appeared, and response times improved significantly
+(one-sided Mann-Whitney U, p < 0.01).
+
+### One capture per build, in CI
+
+One buggy and one fixed capture of each workload, plus one of each healthy program, is committed in
+[fixtures/real/](fixtures/real/) (8.9 MB) and re-analyzed by CI on every push: every buggy build must
+exit 1, every fix and every healthy program exit 0.
+
+| Workload | Buggy build | Reference fix |
+|---|---|---|
+| Z1 infusion pump | **CRITICAL** priority inversion in 200 of 200 periods: control (50) blocked 5.36 ms while telemetry (20) held logger's CPU; **CRITICAL** deadline misses 200/200 | **0 findings** |
+| Z2 brake-by-wire | **CRITICAL** inversion through the message channel in 200 of 200 periods: brake_ctrl (60) blocked 6.42 ms while the arbiter (10) sat READY behind diagnostics (30) | **0 findings** |
+| Z3 sensor fusion | **CRITICAL** Send/Reply deadlock fusion_a → fusion_b → fusion_a for 1001 ms, broken by the timeout | **0 findings** |
+| Z4 camera pipeline | **HIGH** mutex contention (23% of the time, p99 wait 4.8 ms) + **CRITICAL** deadline misses | only a LOW lock inside procnto (kernel address, not the program's) |
+| Z5 motor encoder, driven on IRQ 4 | **HIGH** handler overrun: IRQ 4 masked up to 2.38 ms; p99 response 2.05 ms | **0 findings** (median response 63 µs) |
+
+### What real QNX taught the tool
+
+Each of these was found on real traces, fixed, and pinned by a regression test:
+
+- **The 1 ms tick decides races.** QNX 8.0 timers fire on tick boundaries (the tick is fixed;
+  `ClockPeriod()` cannot change it), so two releases less than a tick apart wake in a random order.
+  Planted bugs that depended on sub-tick offsets reproduced in 1 to 4 runs out of 5; spaced by whole
+  ticks (or a shared barrier, for Z3) they reproduce every time.
+- **The release grid drifts.** The trace clock and the workload clock drift 0.05% apart on
+  QEMU/KVM; a rigid grid turned that into 127/200 false misses. The grid is now fitted per stream
+  (Theil-Sen), and one job that starts more than half a period late no longer shifts it (that
+  produced 199/200 false misses from a single 5.3 ms host stall).
+- **Not every lock is yours.** Waits on procnto's own mutexes (kernel addresses) are reported at
+  LOW and never fail the gate.
+- **A p99 of 7 samples is the maximum.** Contention, deadline and interrupt-handler severities now
+  require a pattern: rare, small outliers are reported at MEDIUM. `deadline_marginal_rate = 0`
+  restores "any miss is HIGH" for hard real-time.
+- **A late wake-up while only lower-priority threads ran is the platform**, not the program: a
+  lower-priority thread cannot delay a timer wake-up.
+- **The harness must not verify a bug that never happened.** A fix is only VERIFIED if the bug
+  reproduced first.
+
 ## Evidence of QNX use
 
 | QNX technology | Where |
@@ -84,7 +145,7 @@ Five small QNX C programs with planted, realistic bugs (`bugzoo/`). Hidden refer
 | `InterruptAttachEvent`, `InterruptWait`, `InterruptUnmask`, `ThreadCtl(_NTO_TCTL_IO)` | [bugzoo/z5_motor_encoder](bugzoo/z5_motor_encoder/main.c), [src/tracelens/detectors/irq_latency.py](src/tracelens/detectors/irq_latency.py) |
 | `ThreadCtl(_NTO_TCTL_RUNMASK)`, SCHED_FIFO, priority inheritance semantics | [bugzoo/common/tl.h](bugzoo/common/tl.h), [src/tracelens/detectors/prio_inversion.py](src/tracelens/detectors/prio_inversion.py) |
 | `pidin` thread snapshot | [src/tracelens/ingest/pidin.py](src/tracelens/ingest/pidin.py) |
-| Real QNX 8.0 captures (QEMU VM, 4 CPUs, `procnto-smp-instr`) | [fixtures/real/](fixtures/real/), checked by [tests/test_real_qnx.py](tests/test_real_qnx.py) and the CI gate: Z1 buggy → CRITICAL semaphore inversion (control blocked 8.05 ms while telemetry held logger's CPU), exit 1; Z1 reference fix → clean, exit 0 |
+| Real QNX 8.0 captures (QEMU VM, 4 CPUs, `procnto-smp-instr`) | [fixtures/real/](fixtures/real/), checked by [tests/test_real_qnx.py](tests/test_real_qnx.py) and the CI gate: all 5 buggy builds exit 1, all 5 reference fixes exit 0; held-out 10-run evaluation in [docs/results/detect.md](docs/results/detect.md) |
 
 ## Run it on QNX (verify)
 

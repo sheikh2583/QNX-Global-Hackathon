@@ -27,7 +27,7 @@ static void *diagnostics(void *arg)
     (void)arg;
     tl_thread_init("diagnostics", 30, 0x1);
     for (unsigned k = 0; k < periods(); k++) {
-        tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US + 50 * TL_NS_PER_US);
+        tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US - 1000 * TL_NS_PER_US);
         tl_spin_us(6000); /* self-test sweep */
     }
     return NULL;

@@ -30,6 +30,11 @@
 #include <sys/trace.h>
 
 #define TL_USER_EVENT (_NTO_TRACE_USERFIRST + 1)
+
+/* QNX 8.0 (measured 2026-11-14 on a 4-CPU QEMU guest): ThreadCtl(_NTO_TCTL_RUNMASK) accepts a
+ * single CPU or all CPUs, but returns EINVAL for a subset such as 0x3 (CPUs 0-1). Workloads pin
+ * to one CPU, or use TL_ALL_CPUS. */
+#define TL_ALL_CPUS 0xFFFFFFFFu
 #define TL_NS_PER_US 1000ULL
 #define TL_NS_PER_MS 1000000ULL
 #define TL_NS_PER_S 1000000000ULL

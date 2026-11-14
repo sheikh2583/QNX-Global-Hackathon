@@ -2,7 +2,7 @@
 
 **Time:** about 45 minutes · **Level:** you know C and basic OS ideas (threads, priorities, locks); no QNX experience needed.
 
-> **Draft.** Steps marked **(verify)** have not yet been run end to end on a QNX 8.0 target; sample output marked *synthetic* comes from the committed test traces. Both are replaced with real captures before publication.
+> **Draft.** Steps marked **(verify)** have not yet been run end to end on a QNX 8.0 target. Sample output in sections 4 and 5 is from a real QNX 8.0 capture.
 
 You will run a small infusion-pump controller on QNX 8.0 in a virtual machine, watch it miss its deadlines, find out why from a kernel trace, let an AI agent fix it, and prove the fix on the real kernel. Along the way you'll learn the one QNX rule behind the bug: **semaphores have no owner, so the kernel cannot lend them priority.**
 
@@ -62,7 +62,7 @@ make -C bugzoo            # out/z1_infusion_pump ... built with qcc   (verify)
 | Thread | Priority | Every 10 ms |
 |---|---|---|
 | `control` | 50 | reads the sensor buffer and computes the dose; **must finish within 1 ms** |
-| `telemetry` | 20 | compresses and uploads readings (8 ms of CPU) |
+| `telemetry` | 20 | compresses and uploads readings (6 ms of CPU) |
 | `logger` | 10 | appends the buffer to the black-box log |
 
 Read `main.c` now. Can you spot the bug? Don't worry if not: the trace will show it.
@@ -100,16 +100,16 @@ t:0x000003e8 CPU:00 THREAD  :THRUNNING      pid:100 tid:2 prio:20
 Get a per-thread summary:
 
 ```bash
-tracelens threads captures/z1_infusion_pump.txt
+tracelens threads captures/z1_infusion_pump.txt | grep -E 'thread |logger|telemetry|control'
 ```
 
 ```
 thread                       prio   running     ready   blocked
-logger                         10    17.3%    82.7%     0.0%
-telemetry                      20    80.1%     0.0%     0.0%
-control                        50     2.5%     0.0%    82.1%
+logger                         10     4.3%    31.0%     0.0%
+telemetry                      20    29.9%     0.3%     0.0%
+control                        50     0.6%     0.0%    25.2%
 ```
-*(synthetic)* The highest-priority thread spends most of its time **blocked**, and the lowest spends most of its time **ready but not running**. Something is wrong.
+*(real QNX 8.0 capture: [fixtures/real/z1_infusion_pump.txt.gz](../../fixtures/real/z1_infusion_pump.txt.gz); percentages are of the whole 4 s trace, the pump runs for 2 s)* The highest-priority thread spends 40 times longer **blocked** than running, and the lowest spends seven times longer **ready but not running** than running. Something is wrong.
 
 ## 5. Find the bug (5 min)
 
@@ -119,12 +119,13 @@ tracelens analyze captures/z1_infusion_pump.txt -c bugzoo/tracelens.toml --html 
 
 ```
 [CRITICAL] TL-001 Priority inversion: control waited on logger via a semaphore
-    control (prio 50) was blocked 8.20 ms on a semaphore (0x00008040) released by logger (prio 10);
-    for 8.00 ms of that, logger was ready but telemetry (prio 20) held its CPU. Seen 3x.
+    control (prio 50) was blocked 5.36 ms on a semaphore (0x0000005779b88020) released by logger (prio 10);
+    for 5.35 ms of that, logger was ready but telemetry (prio 20) held its CPU. Seen 200x.
 [CRITICAL] TL-002 Deadline misses in 'control'
-    'control' missed its 1000 us budget in 3 of 3 jobs (measured from release); worst response 8.39 ms
+    'control' missed its 1000 us budget in 200 of 200 jobs (measured from release); worst response 5.55 ms
+    (5.6x budget); ... worst job: 0.00 ms late wake-up, 0.00 ms waiting for the CPU, 5.43 ms blocked, 0.12 ms running.
 ```
-*(synthetic)* Open `z1.html`: each finding lists the exact trace events that prove it, and the timeline shows the three threads. For a zoomable view, export to Perfetto and open the file at <https://ui.perfetto.dev>:
+*(real QNX 8.0 capture)* Open `z1.html`: each finding lists the exact trace events that prove it, and the timeline shows the three threads. For a zoomable view, export to Perfetto and open the file at <https://ui.perfetto.dev>:
 
 ```bash
 tracelens export captures/z1_infusion_pump.txt -c bugzoo/tracelens.toml
@@ -136,9 +137,9 @@ The deadline miss is listed after the inversion on purpose: it's the symptom, an
 
 Read the story in the evidence:
 
-1. `logger` (10) takes the semaphore that guards the sensor buffer.
-2. `control` (50) wakes, needs the buffer, and blocks on the semaphore.
-3. `telemetry` (20) wakes. It outranks `logger`, so it runs for 8 ms. `logger` is READY but never gets the CPU, so it can't release the semaphore.
+1. `logger` (10) wakes 2 ms before the period and takes the semaphore that guards the sensor buffer.
+2. `telemetry` (20) wakes 1 ms later. It outranks `logger`, so it runs for 6 ms. `logger` is READY but never gets the CPU, so it can't release the semaphore.
+3. `control` (50) wakes at the period, needs the buffer, and blocks on the semaphore.
 4. `control`, the most urgent thread, effectively waits for `telemetry`, which it outranks. That is a **priority inversion**.
 
 QNX prevents this for **mutexes**: `pthread_mutex_t` uses **priority inheritance by default**. While `control` waits, the kernel raises the owner (`logger`) to priority 50, so `telemetry` can't preempt it, and `control` waits only for the short critical section. A **semaphore** has no owner, so there is nobody to raise. Message-passing servers have the same protection (they run at their client's priority) unless the channel is created with `_NTO_CHF_FIXED_PRIORITY`.

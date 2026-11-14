@@ -1,11 +1,11 @@
 /*
  * Z4 reference fix: do the work on a private tile outside the lock; the lock
- * only protects publishing (a pointer swap), so hold times drop from ~0.6 ms
+ * only protects publishing (a pointer swap), so hold times drop from ~1.5 ms
  * to well under a microsecond.
  */
 #include "tl.h"
 
-#define PERIOD_US 4000
+#define PERIOD_US 10000
 #define WORKERS 4
 #define TILE_BYTES (256 * 1024)
 
@@ -19,7 +19,7 @@ static void *worker(void *arg)
     const unsigned id = (unsigned)(uintptr_t)arg;
     char name[16];
     snprintf(name, sizeof name, "worker%u", id + 1);
-    tl_thread_init(name, 20, 0x3);
+    tl_thread_init(name, 20, TL_ALL_CPUS);
 
     /* Double buffer: fill one tile while the other is published. */
     unsigned char *tiles[2] = { malloc(TILE_BYTES), malloc(TILE_BYTES) };
@@ -32,7 +32,7 @@ static void *worker(void *arg)
         tl_job_start("frame");
         unsigned char *tile = tiles[k & 1];
         memset(tile, (int)(k + id), TILE_BYTES);
-        tl_spin_us(600);
+        tl_spin_us(1500);
         pthread_mutex_lock(&store_lock);
         frame_store[id] = tile; /* publish */
         pthread_mutex_unlock(&store_lock);

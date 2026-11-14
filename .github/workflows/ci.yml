@@ -57,13 +57,22 @@ jobs:
             -c fixtures/synthetic/tracelens.toml \
             --html reports/z0_clean.html --json reports/z0_clean.json
 
-      - name: Real QNX 8.0 captures (Z1 buggy fails the gate, reference fix passes)
+      - name: Real QNX 8.0 captures (every buggy build fails the gate, every reference fix passes)
         run: |
           set +e
-          tracelens analyze fixtures/real/z1_infusion_pump.txt.gz -c fixtures/real/tracelens.toml             --html reports/real_z1.html --sarif reports/real_z1.sarif
-          [ $? -eq 1 ] || { echo "::error::real Z1 trace should fail the gate"; exit 1; }
-          tracelens analyze fixtures/real/z1_infusion_pump_fixed.txt.gz -c fixtures/real/tracelens.toml             --html reports/real_z1_fixed.html
-          [ $? -eq 0 ] || { echo "::error::real Z1 reference fix should pass the gate"; exit 1; }
+          failed=0
+          for t in fixtures/real/z*_fixed.txt.gz; do
+            fixed=$(basename "$t" .txt.gz); buggy=${fixed%_fixed}
+            tracelens analyze "fixtures/real/$buggy.txt.gz" -c fixtures/real/tracelens.toml -q               --html "reports/real_$buggy.html" --sarif "reports/real_$buggy.sarif"
+            [ $? -eq 1 ] || { echo "::error::real $buggy should fail the gate"; failed=1; }
+            tracelens analyze "$t" -c fixtures/real/tracelens.toml -q --html "reports/real_$fixed.html"
+            [ $? -eq 0 ] || { echo "::error::real $fixed should pass the gate"; failed=1; }
+          done
+          for t in fixtures/real/healthy_*.txt.gz; do  # healthy QNX system programs
+            tracelens analyze "$t" -c fixtures/real/tracelens.toml -q
+            [ $? -eq 0 ] || { echo "::error::healthy $(basename "$t") should pass the gate"; failed=1; }
+          done
+          exit $failed
 
       - name: Every planted bug is caught
         run: |

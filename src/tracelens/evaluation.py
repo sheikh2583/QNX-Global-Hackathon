@@ -7,7 +7,8 @@
 ``eval_fix``     Run the fix agent on every workload with the full context and with source only,
                  reusing one set of "before" captures per workload: the ablation table.
 
-Results are written as Markdown and JSON. Lossy runs are counted and excluded, never scored.
+Results are written as Markdown and JSON. Lossy runs are counted and excluded, never scored, and
+replaced by a fresh capture (at most ``runs`` extra per build) so every row has ``runs`` clean runs.
 """
 
 from __future__ import annotations
@@ -23,8 +24,8 @@ from .config import Config
 from .findings import at_least
 from .verdict import compare_runs, summarize
 
-# (label, run index, binary or None, shell command or None, args, out dir) -> decoded trace path
-EvalCapturer = Callable[[str, int, Path | None, str | None, list[str], Path], Path]
+# (label, run index, binary or None, shell command or None, args, out dir, background) -> trace path
+EvalCapturer = Callable[..., Path]
 
 
 @dataclass
@@ -33,6 +34,7 @@ class ZooEntry:
     expect: list[str]
     args: list[str] = field(default_factory=list)
     needs_irq: bool = False
+    background: str | None = None
 
 
 @dataclass
@@ -44,8 +46,8 @@ class NegativeEntry:
 def load_zoo(path: str | Path) -> tuple[list[ZooEntry], list[NegativeEntry]]:
     data = tomllib.loads(Path(path).read_text(encoding="utf-8"))
     neg = [NegativeEntry(k, v["command"]) for k, v in data.pop("negative", {}).items()]
-    zoo = [ZooEntry(k, list(v.get("expect", [])), [str(a) for a in v.get("args", [])], bool(v.get("needs_irq")))
-           for k, v in data.items()]
+    zoo = [ZooEntry(k, list(v.get("expect", [])), [str(a) for a in v.get("args", [])], bool(v.get("needs_irq")),
+                    v.get("background")) for k, v in data.items()]
     return zoo, neg
 
 
@@ -76,14 +78,18 @@ class NegativeResult:
     kinds: list[str] = field(default_factory=list)
 
 
-def _runs(capture: EvalCapturer, label: str, n: int, binary, command, args, out, cfg: Config):
+def _runs(capture: EvalCapturer, label: str, n: int, binary, command, args, out, cfg: Config,
+          background: str | None = None):
     summaries, kinds_per_run = [], []
-    for i in range(n):
-        trace = capture(label, i, binary, command, args, out)
+    clean, i = 0, 0
+    while clean < n and i < 2 * n:  # a lossy capture is excluded and replaced, up to n extra
+        trace = capture(label, i, binary, command, args, out, background=background)
+        i += 1
         a = analyze_file(trace, cfg)
         s = summarize(a, cfg, str(trace))
         summaries.append(s)
         kinds_per_run.append(None if s.lossy else {f.kind for f in a.findings if at_least(f.severity, cfg.fail_on)})
+        clean += not s.lossy
     return summaries, kinds_per_run
 
 
@@ -103,9 +109,10 @@ def eval_detect(zoo_dir: str | Path, cfg: Config, capture: EvalCapturer, out_dir
             continue
         args = [a.replace("{irq}", str(irq)) for a in z.args]
         tdir = out / "traces" / z.name
-        buggy, buggy_kinds = _runs(capture, f"{z.name}-buggy", runs, zoo_dir / "out" / z.name, None, args, tdir, cfg)
+        buggy, buggy_kinds = _runs(capture, f"{z.name}-buggy", runs, zoo_dir / "out" / z.name, None, args, tdir,
+                                   cfg, z.background)
         fixed, fixed_kinds = _runs(capture, f"{z.name}-fixed", runs, zoo_dir / "out" / f"{z.name}_fixed", None,
-                                   args, tdir, cfg)
+                                   args, tdir, cfg, z.background)
         clean_b = [k for k in buggy_kinds if k is not None]
         clean_f = [k for k in fixed_kinds if k is not None]
         r.runs = runs
@@ -128,7 +135,7 @@ def eval_detect(zoo_dir: str | Path, cfg: Config, capture: EvalCapturer, out_dir
         neg_results.append(nr)
         _, kinds = _runs(capture, f"negative-{n.name}", runs, None, n.command, [], out / "traces" / "negative", cfg)
         clean = [k for k in kinds if k is not None]
-        nr.runs, nr.lossy = runs, len(kinds) - len(clean)
+        nr.runs, nr.lossy = len(kinds), len(kinds) - len(clean)
         nr.runs_with_findings = sum(1 for k in clean if k)
         nr.kinds = sorted(set().union(*clean)) if clean else []
 
@@ -180,8 +187,8 @@ def eval_fix(zoo_dir: str | Path, cfg: Config, make_agent: Callable[..., Any], c
             rows.append({"workload": z.name, "skipped": "needs --irq"})
             continue
         args = [a.replace("{irq}", str(irq)) for a in z.args]
-        before = [capture(f"{z.name}-before", i, zoo_dir / "out" / z.name, None, args, out / z.name / "before")
-                  for i in range(runs)]
+        before = [capture(f"{z.name}-before", i, zoo_dir / "out" / z.name, None, args, out / z.name / "before",
+                          background=z.background) for i in range(runs)]
         row: dict[str, Any] = {"workload": z.name, "skipped": ""}
         for ctx in contexts:
             res = make_agent(zoo_dir / z.name, ctx, out / z.name / ctx).run(before_traces=before)

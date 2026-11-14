@@ -5,7 +5,8 @@
  *   arbiter      (process, prio 10)  receives requests, validates them (200 us), replies
  *   diagnostics  (arbiter process, prio 30)  6 ms of CPU every 10 ms
  *
- * All threads are pinned to CPU 0.
+ * All threads are pinned to CPU 0. diagnostics is released one QNX clock tick (1 ms) before
+ * brake_ctrl, so it is already running when the request arrives, on every run.
  */
 #include <signal.h>
 #include <sys/wait.h>
@@ -26,7 +27,7 @@ static void *diagnostics(void *arg)
     (void)arg;
     tl_thread_init("diagnostics", 30, 0x1);
     for (unsigned k = 0; k < periods(); k++) {
-        tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US + 50 * TL_NS_PER_US);
+        tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US - 1000 * TL_NS_PER_US);
         tl_spin_us(6000); /* self-test sweep */
     }
     return NULL;

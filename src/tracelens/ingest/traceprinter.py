@@ -123,6 +123,9 @@ def parse_text(lines: str | Iterable[str], source: str = "<memory>",
 
         m = LINE_RE.match(line)
         if m is None:
+            if last is not None and line.lstrip().startswith('"'):
+                last.raw += "\n" + line  # wrapped tail of a quoted string argument (seen on QNX 8.0)
+                continue
             if last is not None and (c := CONT_RE.match(line)):
                 k = c["k"].strip()
                 last.args[k] = c["v"]

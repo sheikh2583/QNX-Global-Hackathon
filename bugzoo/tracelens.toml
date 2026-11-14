@@ -9,7 +9,9 @@ inversion_min_interference_us = 500
 contention_min_share = 0.05
 contention_p99_wait_us = 1000
 contention_min_waits = 5
-irq_max_latency_us = 200
+# Interrupt-to-handler latency on WSL2 -> KVM -> QEMU measured p99 ~315 us for a correct handler under
+# heavy serial load (2026-11-14), so the bug zoo's budget sits above that noise floor.
+irq_max_latency_us = 1000
 irq_max_handler_us = 500
 deadlock_min_blocked_us = 50000
 
@@ -21,6 +23,8 @@ period_us = 10000
 budget_us = 2000
 period_us = 10000
 
-[deadlines.frame]     # z4 camera pipeline: per-worker tile every 4 ms
-budget_us = 1500
-period_us = 4000
+[deadlines.frame]     # z4 camera pipeline: per-worker tile every 10 ms
+# QNX 8.0 has a fixed 1 ms tick and absolute sleeps wake ~1.1-1.4 ms late (measured), so budgets
+# keep >= 2 ms of slack over the work (1.5 ms) to stay above the platform's noise floor.
+budget_us = 4000
+period_us = 10000

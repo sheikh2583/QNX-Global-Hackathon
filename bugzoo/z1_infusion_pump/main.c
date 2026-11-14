@@ -3,8 +3,12 @@
  *
  * Three threads share a sensor buffer, all pinned to CPU 0:
  *   control    prio 50  every 10 ms: read the buffer, compute the dose (deadline 1 ms)
- *   telemetry  prio 20  every 10 ms: compress and upload readings (8 ms of CPU)
+ *   telemetry  prio 20  every 10 ms: compress and upload readings (6 ms of CPU)
  *   logger     prio 10  every 10 ms: append the buffer to the black-box log
+ *
+ * Releases are one QNX clock tick (1 ms) apart: logger at -2 ms, telemetry at -1 ms,
+ * control at 0. Timers fire on tick boundaries, so a spacing of whole ticks fixes the
+ * order on every run regardless of the tick's phase.
  */
 #include <semaphore.h>
 #include "tl.h"
@@ -46,8 +50,8 @@ static void *telemetry(void *arg)
     (void)arg;
     tl_thread_init("telemetry", 20, 0x1);
     for (unsigned k = 0; k < periods(); k++) {
-        tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US + 20 * TL_NS_PER_US);
-        tl_spin_us(8000); /* compression + upload */
+        tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US - 1000 * TL_NS_PER_US);
+        tl_spin_us(6000); /* compression + upload */
     }
     return NULL;
 }
@@ -57,12 +61,12 @@ static void *logger(void *arg)
     (void)arg;
     tl_thread_init("logger", 10, 0x1);
     for (unsigned k = 0; k < periods(); k++) {
-        tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US - 300 * TL_NS_PER_US);
+        tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US - 2000 * TL_NS_PER_US);
         sem_wait(&buf_lock);
         sensor_buf.n = 64;
         for (unsigned i = 0; i < sensor_buf.n; i++)
             sensor_buf.samples[i] = (double)(k + i);
-        tl_spin_us(600); /* write to flash */
+        tl_spin_us(2500); /* write to flash */
         sem_post(&buf_lock);
     }
     return NULL;

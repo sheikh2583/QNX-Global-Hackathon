@@ -143,7 +143,8 @@ def _cmd_capture(args: argparse.Namespace) -> int:
     wargs = args.workload_args
     try:
         res = capture(target, args.binary, wargs, args.out, seconds=args.seconds, name=args.name,
-                      snapshot=not args.no_snapshot, traceprinter=args.traceprinter, command=args.command)
+                      snapshot=not args.no_snapshot, traceprinter=args.traceprinter, command=args.command,
+                      background=args.background)
     except (TargetError, FileNotFoundError, ValueError) as exc:
         print(f"tracelens capture: {exc}", file=sys.stderr)
         return 2
@@ -308,10 +309,11 @@ def _cmd_eval(args: argparse.Namespace) -> int:
         return 2
     target = Target(host=host, user=args.user or cfg.target.get("user", "root"), key=args.key or cfg.target.get("key"))
 
-    def cap(label, i, binary, command, wargs, out):
+    def cap(label, i, binary, command, wargs, out, background=None):
         if binary is not None and not Path(binary).exists():
             raise FileNotFoundError(f"{binary} not built: run `make -C {args.zoo}` with the SDP environment")
-        return capture(target, binary, wargs, out, seconds=args.seconds, name=f"{label}-{i}", command=command).text
+        return capture(target, binary, wargs, out, seconds=args.seconds, name=f"{label}-{i}", command=command,
+                       background=background).text
 
     only = args.only.split(",") if args.only else None
     out = Path(args.out)
@@ -324,7 +326,9 @@ def _cmd_eval(args: argparse.Namespace) -> int:
 
         def make_agent(workload_dir, ctx, agent_out):
             def fix_cap(binary, _ws, label, i, o):
-                return cap(label, i, binary, None, _zoo_args(args.zoo, Path(workload_dir).name, args.irq), o)
+                entry = _zoo_entry(args.zoo, Path(workload_dir).name)
+                wargs = [a.replace("{irq}", str(args.irq)) for a in entry.args]
+                return cap(label, i, binary, None, wargs, o, background=entry.background)
             return FixAgent(workload_dir, [Path(args.zoo) / "common"], cfg, QccBuilder(), fix_cap, agent_out,
                             model=args.model, effort=args.effort, runs=args.runs,
                             max_attempts=args.max_attempts, context=ctx)
@@ -338,10 +342,9 @@ def _cmd_eval(args: argparse.Namespace) -> int:
         return 2
 
 
-def _zoo_args(zoo: str, name: str, irq: int | None) -> list[str]:
+def _zoo_entry(zoo: str, name: str):
     from .evaluation import load_zoo
-    entry = next(z for z in load_zoo(Path(zoo) / "zoo.toml")[0] if z.name == name)
-    return [a.replace("{irq}", str(irq)) for a in entry.args]
+    return next(z for z in load_zoo(Path(zoo) / "zoo.toml")[0] if z.name == name)
 
 
 def _cmd_dump(args: argparse.Namespace) -> int:
@@ -433,6 +436,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("-c", "--config", help="tracelens.toml ([target] section, deadlines)")
     c.add_argument("--analyze", action="store_true", help="analyze the trace right after capture")
     c.add_argument("--command", help="trace a shell command already on the target instead of a binary")
+    c.add_argument("--background", help="shell command run on the target during the workload (e.g. an interrupt load)")
     c.set_defaults(func=_cmd_capture)
 
     v = sub.add_parser("compare", help="before/after verdict over several captures (is the fix real?)")

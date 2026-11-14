@@ -37,7 +37,7 @@ class FakeTarget:
         self.calls = []
         self.leaky_reference = leaky_reference
 
-    def __call__(self, label, i, binary, command, args, out):
+    def __call__(self, label, i, binary, command, args, out, background=None):
         self.calls.append((label, binary, command, tuple(args)))
         name = label.split("-")[0]
         if command is not None or label.endswith("-fixed") and name != self.leaky_reference:
@@ -127,3 +127,26 @@ def test_fix_ablation_table(zoo, cfg, tmp_path):
     z1 = [b for n, c, b in seen_before if n == "z1_infusion_pump"]
     assert len(z1) == 2 and z1[0] == z1[1] and len(z1[0]) == 5
     assert any(r.get("skipped") for r in rep["rows"])
+
+
+LOSSY = ("TRACEPRINTER version 1.02\n -- HEADER FILE INFORMATION --\n        CYCLES_PER_SEC:: 1000000000\n"
+         " -- KERNEL EVENTS --\nt:0x00000010 CPU:00 THREAD  :THRUNNING pid:1 tid:1\n"
+         "t:0x00000020 CPU:01 THREAD  :THRUNNING pid:1 tid:1\nt:0x00000030 CPU:01 THREAD  :THREADY   pid:1 tid:1\n")
+
+
+def test_a_lossy_run_is_replaced_by_a_fresh_capture(zoo, cfg, tmp_path):
+    """Real QNX: 1 of 5 Z3 captures had a dropped event; with 4 clean runs the verdict was INCONCLUSIVE."""
+    inner = FakeTarget()
+
+    def flaky(label, i, *a, **kw):
+        p = inner(label, i, *a, **kw)
+        if label.endswith("-buggy") and i == 2:
+            p.write_text(LOSSY, encoding="utf-8")
+        return p
+
+    rep = eval_detect(zoo, cfg, flaky, tmp_path / "res", runs=5, only=["z3_sensor_fusion"])
+    w = rep["workloads"][0]
+    assert w["lossy"] == 1 and w["buggy_clean_runs"] == 5 and w["detected_runs"] == 5
+    assert w["reference_verdict"] == "VERIFIED"
+    assert sum(1 for c in inner.calls if c[0] == "z3_sensor_fusion-buggy") == 6
+

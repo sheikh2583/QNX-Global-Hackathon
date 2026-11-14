@@ -7,7 +7,7 @@ Small, realistic QNX 8.0 workloads with **planted real-time bugs**. TraceLens mu
 | `z1_infusion_pump` | 1 kHz-class dose controller sharing a sensor buffer | Semaphore as a lock → priority inversion (no inheritance) | `priority_inversion`, `deadline_miss` |
 | `z2_brake_by_wire` | Brake controller → arbiter server, plus diagnostics | `_NTO_CHF_FIXED_PRIORITY` channel → server runs below its client | `priority_inversion` (message channel), `deadline_miss` |
 | `z3_sensor_fusion` | Two fusion servers that occasionally call each other | Mutual `MsgSend()` → Send/Reply deadlock (broken by a 1 s timeout) | `ipc_deadlock` |
-| `z4_camera_pipeline` | 4 workers publishing tiles every 4 ms | 0.6 ms of work inside one global mutex (4 workers, 2 CPUs) | `mutex_contention`, `deadline_miss` |
+| `z4_camera_pipeline` | 4 workers publishing tiles every 10 ms | 1.5 ms of work inside one global mutex (4 workers, 4 CPUs) | `mutex_contention`, `deadline_miss` |
 | `z5_motor_encoder` | Encoder interrupt service thread | 2 ms of work before `InterruptUnmask()` | `irq_handler_overrun` |
 
 Ground-truth fixes live in [`reference/`](reference/) (hidden from the fix agent).
@@ -29,7 +29,7 @@ traceprinter -f z1_infusion_pump.kev > z1_infusion_pump.txt
 tracelens analyze z1_infusion_pump.txt -c tracelens.toml --html z1.html
 ```
 
-`z5_motor_encoder` needs `-i <irq>`. Plan: give QEMU a dedicated serial port, stop its `devc-ser*` driver on the target, attach to that port's IRQ, and stream bytes into it from the host at a fixed rate. Not the NIC: virtio-net likely uses MSI-X, shares work with io-sock, and WSL2 networking limits the packet rate. *(verify on the QEMU image, and whether QNX 8.0 prefers `InterruptAttachThread()`)*
+`z5_motor_encoder` needs `-i <irq>`. Verified on the mkqnximage QEMU VM: use **IRQ 4**, the console UART (`/dev/ser1`), and drive it by writing to the console during the run (about 2,700 interrupts/s); `tracelens capture … --background '<writer loop>' -- -i 4 -d 2`, or `tracelens eval detect --irq 4` which takes the loop from `zoo.toml`. `/dev/ser2` (IRQ 3) produces no interrupts: QEMU has no second UART backend. The encoder IST shares IRQ 4 with `devc-ser8250`, so masking it also delays the console: the realistic cost of a slow handler.
 
 ## Notes
 

@@ -1,13 +1,13 @@
 /*
  * Z4 - Camera frame pipeline.
  *
- * Four worker threads (prio 20, CPUs 0-1) each process one tile of a frame
- * every 4 ms (releases staggered by 100 us) and publish it into a shared frame
- * store. Frame budget: 1.5 ms per worker.
+ * Four worker threads (prio 20, all CPUs) each process one tile of a frame
+ * every 10 ms (releases staggered by 100 us) and publish it into a shared frame
+ * store. Frame budget: 4 ms per worker.
  */
 #include "tl.h"
 
-#define PERIOD_US 4000
+#define PERIOD_US 10000
 #define WORKERS 4
 #define TILE_BYTES (256 * 1024)
 
@@ -21,7 +21,7 @@ static void *worker(void *arg)
     const unsigned id = (unsigned)(uintptr_t)arg;
     char name[16];
     snprintf(name, sizeof name, "worker%u", id + 1);
-    tl_thread_init(name, 20, 0x3);
+    tl_thread_init(name, 20, TL_ALL_CPUS);
 
     unsigned char *tile = malloc(TILE_BYTES);
     if (tile == NULL)
@@ -34,7 +34,7 @@ static void *worker(void *arg)
         pthread_mutex_lock(&store_lock);
         /* Demosaic + colour-correct the tile, then publish it. */
         memset(tile, (int)(k + id), TILE_BYTES);
-        tl_spin_us(600);
+        tl_spin_us(1500);
         memcpy(frame_store[id], tile, TILE_BYTES);
         pthread_mutex_unlock(&store_lock);
         tl_job_end("frame");

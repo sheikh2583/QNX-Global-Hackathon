@@ -119,3 +119,32 @@ def test_cli_options_after_the_binary_are_not_workload_args(tmp_path, monkeypatc
     monkeypatch.setattr(tgt, "capture", fake_capture)
     rc = main(["capture", str(tmp_path / "z1"), "--host", "192.168.122.238", "--seconds", "3", "--", "-d", "2", "--x"])
     assert rc == 2 and seen == {"host": "192.168.122.238", "binary": str(tmp_path / "z1"), "wargs": ["-d", "2", "--x"]}
+
+
+def test_capture_cleans_up_the_target(tmp_path):
+    """The QEMU guest's /tmp is 63 MB; leftover traces filled it during a 5-run evaluation."""
+    binary = tmp_path / "w"
+    binary.write_bytes(b"x")
+    fake = FakeTarget(z1_without_priorities())
+    capture(Target(host="h", runner=fake), binary, [], tmp_path / "out", traceprinter="target")
+    last = fake.calls[-1][-1]
+    assert last.startswith("rm -f ") and "/tmp/tracelens/w.kev" in last and "/tmp/tracelens/w.txt" in last
+
+
+def test_missing_traceprinter_everywhere_says_how_to_fix_it(tmp_path):
+    """Seen live: the mkqnximage VM has tracelogger but no traceprinter, and the host one needs the SDP env."""
+    binary = tmp_path / "w"
+    binary.write_bytes(b"x")
+
+    class NoPrinter(FakeTarget):
+        def __call__(self, argv, timeout):
+            if argv[0] == "ssh" and argv[-1].startswith("traceprinter"):
+                self.calls.append(argv)
+                return subprocess.CompletedProcess(argv, 126, "", "sh: traceprinter: cannot execute - "
+                                                   "No such file or directory")
+            return super().__call__(argv, timeout)
+
+    with pytest.raises(TargetError, match="qnxsdp-env.sh") as e:
+        capture(Target(host="h", runner=NoPrinter(z1_without_priorities())), binary, [], tmp_path / "out",
+                traceprinter="target")
+    assert str(tmp_path / "out" / "w.kev") in str(e.value)

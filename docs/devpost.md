@@ -19,11 +19,11 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
 - **Fixes and proves.** The fix agent patches the workload (only its own files), cross-compiles with `qcc`, runs it on the QNX target five times under `tracelogger`, and compares before and after. VERIFIED requires the finding to vanish in every run, no new findings, and statistically faster response times.
 - **Fits the workflow:** HTML/JSON/SARIF reports, CI exit codes (including "inconclusive" for lossy traces), Perfetto export, and an MCP server so Claude Code can query traces.
 
-Results on the bug zoo: `[TBD: paste docs/results/detect.md and fix.md from tracelens eval detect / eval fix on QNX]`
+Results on real QNX 8.0 (held-out run, 10 captures per build): every planted bug was caught in **10 of 10** runs, every reference fix was clean in **10 of 10**, and healthy system programs produced **0 findings in 30 runs**. All five fixes VERIFIED. `[TBD: fix-agent table from tracelens eval fix]`
 
 ## How we built it
 
-- **Target:** QNX SDP 8.0, the QEMU x86_64 Quick Start image, `procnto-smp-instr`, `tracelogger` in wide mode, `traceprinter`. Five C workloads with planted bugs, built with `qcc`, with hidden reference fixes.
+- **Target:** QNX SDP 8.0 on a QEMU x86_64 VM built with `mkqnximage` (4 CPUs, KVM, in WSL2), `procnto-smp-instr`, `tracelogger` in wide mode, `traceprinter`. Five C workloads with planted bugs, built with `qcc`, with hidden reference fixes.
 - **Host:** a dependency-free Python core. The parser handles 32-bit counter wraps, cross-CPU reordering and missing clock rates. The model holds per-thread state and priority timelines, message pairing through COMM events, and integrity checks that detect dropped events.
 - **AI:** Claude (`claude-opus-5-5`) through the Anthropic SDK with structured outputs. Detection is never delegated to the model.
 - **Verification:** multi-run before/after comparison with a one-sided Mann-Whitney U test, because one run under nested virtualization proves nothing.
@@ -33,8 +33,8 @@ Results on the bug zoo: `[TBD: paste docs/results/detect.md and fix.md from trac
 
 - Making priority inversion detection correct on multi-core: interference only counts while the medium thread holds the low thread's CPU and the low thread is ready.
 - Telling a semaphore used as a lock from one used as a signal.
-- Not trusting one noisy run: the stack is Windows → WSL2 → KVM → QEMU → QNX. `[TBD: measured noise floor]`
-- `[TBD: whatever the first real traces teach us]`
+- Not trusting one noisy run: the stack is Windows → WSL2 → KVM → QEMU → QNX. Measured noise floor: timer wake-ups 1.1 to 1.4 ms late (the 1 ms tick plus virtualization), interrupt response p99 about 0.3 ms, and rare multi-millisecond host stalls (one 5.3 ms stall in 200 periods).
+- The first real traces broke assumptions the synthetic ones never tested: a 64-bit timestamp format, QNX 8.0's own interrupt events (`INT_DELIVER`, `IST_ATTACH`), a release grid that drifted 0.05% against the trace clock, and planted bugs that only reproduced when the 1 ms tick fell in the right place.
 
 ## Accomplishments
 
@@ -44,7 +44,10 @@ Results on the bug zoo: `[TBD: paste docs/results/detect.md and fix.md from trac
 
 ## What we learned
 
-`[TBD after real runs]`
+- On QNX 8.0, timers fire on tick boundaries, so any race between releases closer than 1 ms is decided by where the tick falls. Reproducible timing bugs need whole-tick spacing.
+- `ThreadCtl(_NTO_TCTL_RUNMASK)` on QNX 8.0 accepts one CPU or all CPUs, not a subset.
+- Statistics need enough samples: a "p99" of seven waits is the maximum, and a rule built on it flagged healthy system programs.
+- An evaluation harness can lie by omission: ours called a fix VERIFIED for a bug that never appeared in the "before" runs. Now the bug must reproduce first.
 
 ## What's next
 

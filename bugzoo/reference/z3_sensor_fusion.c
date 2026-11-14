@@ -6,6 +6,7 @@
  * and fusion_a pulls the data on its next request.
  */
 #include <signal.h>
+#include <sys/mman.h>
 #include <sys/wait.h>
 #include "tl.h"
 
@@ -14,6 +15,9 @@
 struct fusion_msg { uint32_t kind; float value; };
 
 static uint64_t t0;
+/* Recalibration epoch, shared by both processes: each side stops serving, snapshots its
+ * own estimate, then asks the peer for its estimate at the same epoch. */
+static pthread_barrier_t *epoch;
 static unsigned run_s;
 
 static int request(int coid, uint32_t kind, float *out)
@@ -31,13 +35,14 @@ static int request(int coid, uint32_t kind, float *out)
 /* is_upper: fusion_a (sends requests down); otherwise fusion_b (pulses up). */
 static void serve(const char *name, int is_upper, int chid, int peer_coid, uint64_t recalibrate_at)
 {
-    tl_thread_init(name, 30, 0x1 | 0x2);
+    tl_thread_init(name, 30, TL_ALL_CPUS);
     const uint64_t end = t0 + (uint64_t)run_s * TL_NS_PER_S;
     int recalibrated = 0;
 
     while (tl_now_ns() < end) {
         if (!recalibrated && tl_now_ns() >= recalibrate_at) {
             recalibrated = 1;
+            pthread_barrier_wait(epoch);
             tl_mark("TL_NOTE recalibrate from=%s", name);
             if (is_upper) {
                 float peer_state;
@@ -71,6 +76,16 @@ int main(int argc, char **argv)
     int pipefd[2];
     if (pipe(pipefd) == -1)
         tl_die("pipe");
+
+    epoch = mmap(NULL, sizeof *epoch, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, NOFD, 0);
+    if (epoch == MAP_FAILED)
+        tl_die("mmap");
+    pthread_barrierattr_t ba;
+    pthread_barrierattr_init(&ba);
+    pthread_barrierattr_setpshared(&ba, PTHREAD_PROCESS_SHARED);
+    if ((errno = pthread_barrier_init(epoch, &ba, 2)) != 0)
+        tl_die("pthread_barrier_init");
+    pthread_barrierattr_destroy(&ba);
 
     int chid_a = ChannelCreate(0);
     if (chid_a == -1)

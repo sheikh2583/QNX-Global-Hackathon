@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from ..config import Config
 from ..findings import Finding
-from ..model.trace import TraceModel
+from ..model.trace import TraceModel, irq_vector
 from ._util import fmt_ms, ms, percentile, us
 
 QNX_NOTE = ("The interrupt stays masked until the handler thread calls InterruptUnmask(). "
@@ -20,7 +20,7 @@ QNX_NOTE = ("The interrupt stays masked until the handler thread calls Interrupt
 
 def detect(model: TraceModel, cfg: Config) -> list[Finding]:
     t = cfg.thresholds
-    handlers: dict[int, list] = {}  # vector -> every thread attached to it (shared IRQs)
+    handlers: dict[int, list] = {k: list(v) for k, v in model.irq_handlers.items()}  # QNX 8.0 IST_ATTACH
     for th in model.threads.values():
         for e in th.calls:
             if e.kind.startswith("INTERRUPT_ATTACH"):
@@ -30,9 +30,8 @@ def detect(model: TraceModel, cfg: Config) -> list[Finding]:
 
     samples: dict[tuple, list] = {}
     for irq in model.irq_entries:
-        try:
-            vec = int(irq.kind)
-        except ValueError:
+        vec = irq_vector(irq)
+        if vec is None:
             continue
         for key in handlers.get(vec, ()):
             th = model.threads[key]
@@ -73,13 +72,20 @@ def detect(model: TraceModel, cfg: Config) -> list[Finding]:
         if work and us(max_work) > t.irq_max_handler_us:
             worst = max((s for s in items if s[4] is not None), key=lambda s: s[4])
             over = sum(1 for w in work if us(w) > t.irq_max_handler_us)
+            p99_work = percentile(work, 99)
+            # Systematic (p99 over budget) or gross (> 2x budget) overruns fail the gate. A rare,
+            # small one is reported at MEDIUM: on the QEMU VM the reference handler (p99 81 us)
+            # once ran 564 us in 9,686 interrupts, which is vCPU noise, not a code defect (measured).
+            systematic = us(p99_work) > t.irq_max_handler_us or us(max_work) > 2 * t.irq_max_handler_us
             findings.append(Finding(
                 kind="irq_handler_overrun",
-                severity="high",
+                severity="high" if systematic else "medium",
                 title=f"Interrupt handler overrun on IRQ {vec}",
                 summary=(f"Handler {model.describe(key)} kept IRQ {vec} masked for up to "
                          f"{fmt_ms(max_work)} ({over}/{len(work)} interrupts over the "
-                         f"{t.irq_max_handler_us:.0f} us budget)."),
+                         f"{t.irq_max_handler_us:.0f} us budget)."
+                         + ("" if systematic else
+                            f" Isolated: p99 handler time is {us(p99_work):.0f} us, within budget.")),
                 t_start=worst[1].t_ns, t_end=worst[2].t_ns,
                 threads=[model.label(key)],
                 evidence=[worst[0].id, worst[1].id, worst[2].id],

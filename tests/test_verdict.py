@@ -67,6 +67,18 @@ def test_noise_floor_run_has_nothing_to_verify(cfg):
     assert v.verdict == INCONCLUSIVE and any("nothing to verify" in r for r in v.reasons)
 
 
+def test_a_bug_that_never_reproduced_cannot_be_verified_fixed(cfg):
+    """Found live on QNX: Z3 deadlocked in 0 of 5 'before' runs and its fix was reported VERIFIED."""
+    clean = runs(S.z0_clean(), cfg, 5)
+    v = compare_runs(clean, runs(S.z0_clean(), cfg, 5), cfg, target_kinds=["ipc_deadlock"])
+    assert v.verdict == INCONCLUSIVE and any("reproduced in only 0%" in r for r in v.reasons)
+    # 1 of 5 is not enough either; 3 of 5 (the default 60% share) is
+    before = runs(S.z3_ipc_deadlock(), cfg, 1) + runs(S.z0_clean(), cfg, 4)
+    assert compare_runs(before, clean, cfg, target_kinds=["ipc_deadlock"]).verdict == INCONCLUSIVE
+    before = runs(S.z3_ipc_deadlock(), cfg, 3) + runs(S.z0_clean(), cfg, 2)
+    assert compare_runs(before, clean, cfg, target_kinds=["ipc_deadlock"]).verdict == VERIFIED
+
+
 def test_compare_cli_exit_codes(tmp_path, cfg):
     (tmp_path / "t.toml").write_text(S.DEADLINES_TOML)
     b = tmp_path / "b.txt"

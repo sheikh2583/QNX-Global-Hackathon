@@ -10,6 +10,9 @@ from ..ingest.traceprinter import ParsedTrace
 
 Key = tuple[int, int]
 
+LOSSY_MIN_EVENTS = 100_000  # below this, any state-machine violation makes the trace lossy
+LOSSY_RATE = 1e-5  # above it: more than 1 violation per 100,000 events
+
 # QNX thread states in which a thread is waiting on another party.
 SYNC_STATES = {"SEM", "MUTEX", "CONDVAR"}
 IPC_STATES = {"SEND", "REPLY"}
@@ -95,6 +98,7 @@ class TraceModel:
         self.comm_rec: dict[str, list[Event]] = {}  # rcvid -> REC_MESSAGE events
         self.sync_ops: dict[str, list[Event]] = {}  # sync object address -> kernel calls on it
         self.irq_entries: list[Event] = []
+        self.irq_handlers: dict[int, list[Key]] = {}  # interrupt id -> IST threads (SYSTEM :IST_ATTACH)
         self.t_start = self.events[0].t_ns if self.events else 0
         self.t_end = self.events[-1].t_ns if self.events else 0
         self._build()
@@ -133,10 +137,19 @@ class TraceModel:
                 elif pid is not None and name:
                     self.proc_names[pid] = name.rsplit("/", 1)[-1]
                 continue
-            if e.cls == "INT_ENTR":
+            if e.cls == "INT_ENTR" or (e.cls == "INTERRUPT" and e.kind == "INT_DELIVER"):
+                # QNX 8.0 (verified) records INTERRUPT :INT_DELIVER intr_id:0x4(4); older docs: INT_ENTR
                 self.irq_entries.append(e)
                 continue
 
+            if e.cls == "SYSTEM" and e.kind == "IST_ATTACH":
+                # QNX 8.0 (verified): SYSTEM :IST_ATTACH pid:.. tid:.. intr_id:0x4(4) ... ist_prio:254
+                vec, pid, tid = irq_vector(e), e.arg_int("pid"), e.arg_int("tid")
+                if vec is not None and pid is not None and tid is not None:
+                    lst = self.irq_handlers.setdefault(vec, [])
+                    if (pid, tid) not in lst:
+                        lst.append((pid, tid))
+                continue
             key = e.key
             if key is None:
                 continue
@@ -228,14 +241,24 @@ class TraceModel:
                 for (t, p, _), nxt in zip(th.prio_hist, th.prio_hist[1:] + [(self.t_end, 0, 0)]):
                     held[p] = held.get(p, 0) + max(0, nxt[0] - t)
                 th.prio = max(held, key=held.get)
+        self.integrity_violations = sum(violations.values())
         for kind, n in violations.items():
             e = first_seen[kind]
             self.integrity.append(f"{kind}: {n}x (first at event E{e.id}, line {e.line})")
 
     @property
     def lossy(self) -> bool:
-        """True when the scheduler state machine is broken, which usually means dropped events."""
-        return bool(self.integrity)
+        """True when the scheduler state machine is broken often enough to distrust the trace.
+
+        Any violation voids a small trace. In a large one, an isolated violation (seen on QNX 8.0:
+        1 in 245,085 events under ~5,000 interrupts/s) only distorts one interval, so the trace is
+        lossy above LOSSY_RATE violations per event; isolated ones are still reported."""
+        n = getattr(self, "integrity_violations", len(self.integrity))
+        if n == 0:
+            return False
+        if len(self.events) < LOSSY_MIN_EVENTS:
+            return True
+        return n > len(self.events) * LOSSY_RATE
 
     # ---------------------------------------------------------------- queries
     def label(self, key: Key) -> str:
@@ -356,3 +379,17 @@ def _norm(value: str) -> str:
         return str(int(v, 0))
     except ValueError:
         return v
+
+
+def irq_vector(e: Event) -> int | None:
+    """Interrupt number of an INT_ENTR / INT_DELIVER / IST_ATTACH event."""
+    raw = e.args.get("intr_id")
+    if raw is not None:  # "0x4(4)" on QNX 8.0
+        try:
+            return int(raw.split("(")[0], 0)
+        except ValueError:
+            return None
+    try:
+        return int(e.kind)
+    except ValueError:
+        return None
