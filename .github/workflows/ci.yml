@@ -1,4 +1,5 @@
 name: ci
+# Same checks as .circleci/config.yml; the logic lives in scripts/ci.sh so any CI (or a laptop) runs it.
 
 on:
   push:
@@ -21,12 +22,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: pip install -e ".[dev]"
-      - run: pytest -q
-
-      - name: Committed fixtures match the generator
-        run: |
-          tracelens synth --out fixtures/synthetic
-          git diff --exit-code -- fixtures/synthetic
+      - run: scripts/ci.sh tests
 
   bugzoo-hostcheck:
     # Type-checks every bug-zoo workload and reference fix with host gcc against
@@ -35,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: make -C bugzoo hostcheck
+      - run: scripts/ci.sh hostcheck
 
   trace-gate:
     # The CI contract TraceLens offers to QNX projects, demonstrated on the bug zoo:
@@ -48,50 +44,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e .
-
-      - name: Clean baseline passes
-        run: |
-          mkdir -p reports
-          tracelens analyze fixtures/synthetic/z0_clean.txt \
-            -c fixtures/synthetic/tracelens.toml \
-            --html reports/z0_clean.html --json reports/z0_clean.json
-
-      - name: Real QNX 8.0 captures (every buggy build fails the gate, every reference fix passes)
-        run: |
-          set +e
-          failed=0
-          for t in fixtures/real/z*_fixed.txt.gz; do
-            fixed=$(basename "$t" .txt.gz); buggy=${fixed%_fixed}
-            tracelens analyze "fixtures/real/$buggy.txt.gz" -c fixtures/real/tracelens.toml -q               --html "reports/real_$buggy.html" --sarif "reports/real_$buggy.sarif"
-            [ $? -eq 1 ] || { echo "::error::real $buggy should fail the gate"; failed=1; }
-            tracelens analyze "$t" -c fixtures/real/tracelens.toml -q --html "reports/real_$fixed.html"
-            [ $? -eq 0 ] || { echo "::error::real $fixed should pass the gate"; failed=1; }
-          done
-          for t in fixtures/real/healthy_*.txt.gz; do  # healthy QNX system programs
-            tracelens analyze "$t" -c fixtures/real/tracelens.toml -q
-            [ $? -eq 0 ] || { echo "::error::healthy $(basename "$t") should pass the gate"; failed=1; }
-          done
-          exit $failed
-
-      - name: Every planted bug is caught
-        run: |
-          set +e
-          failed=0
-          for t in fixtures/synthetic/z[1-9]*.txt; do
-            name=$(basename "$t" .txt)
-            tracelens analyze "$t" -c fixtures/synthetic/tracelens.toml \
-              --html "reports/$name.html" --json "reports/$name.json"
-            rc=$?
-            if [ "$rc" -ne 1 ]; then
-              echo "::error file=$t::expected TraceLens to flag $name (exit 1), got exit $rc"
-              failed=1
-            else
-              echo "::notice file=$t::$name caught as expected"
-            fi
-          done
-          exit $failed
-
+      - run: pip install -e ".[dev]"
+      - run: scripts/ci.sh gate
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4

@@ -1,4 +1,4 @@
-"""The fix-and-verify loop (PLAN.md §7): Claude patches, the real target judges.
+"""The fix-and-verify loop (PLAN.md §7): a model (Claude or Gemini) patches, the real target judges.
 
   before runs  -> findings F0 (deterministic detectors, N captures)
   Claude       -> complete replacement files for the workload (JSON schema)
@@ -23,12 +23,12 @@ from typing import Any, Callable
 from ..analyze import Analysis, analyze_file
 from ..config import Config
 from ..explain.evidence import build_pack, format_pack
+from ..llm import ClaudeLLM, make_llm
 from ..verdict import INCONCLUSIVE, VERIFIED, RunSummary, compare_runs, summarize
 from .prompts import SCHEMA, SYSTEM, build_failed, first_prompt, scope_failed, verdict_failed
 from .scope import ScopeError, Workspace
 
 DEFAULT_MODEL = "claude-opus-5-5"
-FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 # (binary or None, workspace dir, label, run index, output dir) -> path of the decoded trace text
 Capturer = Callable[[Path | None, Path, str, int, Path], Path]
@@ -66,13 +66,16 @@ class FixResult:
 class FixAgent:
     def __init__(self, workload_dir: str | Path, include_dirs: list[str | Path], cfg: Config,
                  builder: Any, capturer: Capturer, out_dir: str | Path, client: Any | None = None,
-                 model: str = DEFAULT_MODEL, effort: str = "high", runs: int = 5, max_attempts: int = 4,
-                 context: str = "full", target_kinds: list[str] | None = None, alpha: float = 0.01):
+                 model: str | None = None, effort: str = "high", runs: int = 5, max_attempts: int = 4,
+                 context: str = "full", target_kinds: list[str] | None = None, alpha: float = 0.01,
+                 llm: Any | None = None, provider: str | None = None):
         if context not in ("full", "source-only"):
             raise ValueError("context must be 'full' or 'source-only'")
-        if client is None:
-            import anthropic  # optional dependency
-            client = anthropic.Anthropic()
+        if llm is None:
+            llm = (ClaudeLLM(model=model, effort=effort, client=client) if client is not None
+                   else make_llm(provider, model, effort))
+        self.llm = llm
+        model = llm.model
         self.workload_dir = Path(workload_dir)
         self.include_dirs = [Path(d) for d in include_dirs]
         self.cfg, self.builder, self.capturer, self.client = cfg, builder, capturer, client
@@ -191,20 +194,15 @@ class FixAgent:
 
     def _ask(self, messages: list[dict]) -> tuple[dict, Any, str]:
         try:
-            resp = self.client.beta.messages.create(
-                model=self.model, max_tokens=16000, betas=[FALLBACK_BETA], fallbacks="default",
-                system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
-                output_config={"effort": self.effort, "format": {"type": "json_schema", "schema": SCHEMA}},
-                messages=list(messages),  # snapshot: the loop keeps appending to its own list
-            )
+            resp = self.llm.json_call(SYSTEM, list(messages), SCHEMA)  # snapshot: the loop keeps appending
         except Exception as exc:  # network/API errors end the run visibly
             return {}, None, f"{type(exc).__name__}: {exc}"
-        if resp.stop_reason in ("refusal", "max_tokens"):
-            return {}, None, f"model stopped: {resp.stop_reason}"
-        text = next((b.text for b in resp.content if b.type == "text"), "")
-        self.transcript.append({"role": "assistant", "text": text})
+        if resp.stop != "ok":
+            return {}, None, f"model stopped: {resp.stop}"
+        text = resp.text
+        self.transcript.append({"role": "assistant", "model": resp.model, "text": text})
         try:
-            return json.loads(text), resp.content, ""
+            return json.loads(text), text, ""
         except json.JSONDecodeError as exc:
             return {}, None, f"invalid JSON from model: {exc}"
 

@@ -1,12 +1,12 @@
-"""Claude-backed explanations, validated against the evidence they cite.
+"""Model-backed explanations (Claude or Gemini), validated against the evidence they cite.
 
 Flow per finding:
   evidence pack -> prompt -> Claude (JSON schema output) -> citation validator
   -> on failure, one corrective retry with the validator's complaints
   -> result marked verified / unverified, cached on disk by prompt hash.
 
-The ``anthropic`` package is an optional extra (``pip install tracelens[ai]``);
-nothing here is imported by the analysis core.
+The provider comes from ``tracelens.llm`` (Claude via the optional ``anthropic`` extra, or Gemini
+over plain HTTPS); nothing here is imported by the analysis core.
 """
 
 from __future__ import annotations
@@ -19,13 +19,13 @@ from typing import Any
 
 from ..analyze import Analysis
 from ..findings import Finding
+from ..llm import ClaudeLLM, make_llm
 from .citations import validate
 from .evidence import build_pack, format_pack
 from .prompts import SCHEMA, SYSTEM, retry_prompt, user_prompt
 
 DEFAULT_MODEL = "claude-opus-5-5"
 DEFAULT_EFFORT = "medium"
-FALLBACK_BETA = "server-side-fallback-2026-07-01"
 PROMPT_VERSION = "explain-v2-typed-claims"
 
 
@@ -45,14 +45,14 @@ class Explanation:
 
 
 class Explainer:
-    def __init__(self, client: Any | None = None, model: str = DEFAULT_MODEL,
+    def __init__(self, client: Any | None = None, model: str | None = None,
                  effort: str = DEFAULT_EFFORT, cache_dir: str | Path | None = ".tracelens-cache/explain",
-                 max_attempts: int = 2):
-        if client is None:
-            import anthropic  # optional dependency
-            client = anthropic.Anthropic()
-        self.client = client
-        self.model = model
+                 max_attempts: int = 2, llm: Any | None = None, provider: str | None = None):
+        if llm is None:
+            llm = (ClaudeLLM(model=model, effort=effort, client=client) if client is not None
+                   else make_llm(provider, model, effort))
+        self.llm = llm
+        self.model = llm.model
         self.effort = effort
         self.cache_dir = Path(cache_dir) if cache_dir else None
         self.max_attempts = max_attempts
@@ -79,15 +79,15 @@ class Explainer:
         try:
             for attempt in range(1, self.max_attempts + 1):
                 result.attempts = attempt
-                resp = self._call(messages)
-                if resp.stop_reason == "refusal":
+                resp = self.llm.json_call(SYSTEM, messages, SCHEMA)
+                if resp.stop == "refusal":
                     result.error = "model declined to answer"
                     break
-                if resp.stop_reason == "max_tokens":
+                if resp.stop == "max_tokens":
                     result.error = "response truncated (max_tokens)"
                     break
-                text = next((b.text for b in resp.content if b.type == "text"), "")
-                result.model = getattr(resp, "model", self.model)
+                text = resp.text
+                result.model = resp.model
                 try:
                     data = json.loads(text)
                 except json.JSONDecodeError as exc:
@@ -98,7 +98,7 @@ class Explainer:
                 result.verified = not result.problems
                 if result.verified:
                     break
-                messages += [{"role": "assistant", "content": resp.content},
+                messages += [{"role": "assistant", "content": text},
                              {"role": "user", "content": retry_prompt(result.problems)}]
         except Exception as exc:  # API/network errors become a visible, non-fatal result
             result.error = f"{type(exc).__name__}: {exc}"
@@ -107,18 +107,6 @@ class Explainer:
         return result
 
     # --------------------------------------------------------------- private
-    def _call(self, messages: list[dict[str, Any]]):
-        return self.client.beta.messages.create(
-            model=self.model,
-            max_tokens=16000,
-            betas=[FALLBACK_BETA],
-            fallbacks="default",  # re-run on a fallback model if the request is declined
-            system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
-            output_config={"effort": self.effort,
-                           "format": {"type": "json_schema", "schema": SCHEMA}},
-            messages=messages,
-        )
-
     def _key(self, prompt: str) -> str:
         h = hashlib.sha256()
         for part in (PROMPT_VERSION, self.model, self.effort, SYSTEM, json.dumps(SCHEMA, sort_keys=True), prompt):

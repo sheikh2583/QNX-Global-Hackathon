@@ -34,6 +34,9 @@ struct _pulse {
 #define _NTO_TIMEOUT_RECEIVE (1 << 2)
 #define _NTO_TIMEOUT_SEND (1 << 3)
 #define _NTO_TIMEOUT_REPLY (1 << 4)
+#ifndef NOFD
+#define NOFD (-1) /* QNX <sys/mman.h>: no file descriptor (anonymous mapping) */
+#endif
 #define _NTO_INTR_FLAGS_TRK_MSK 0x08u
 #define _PULSE_CODE_MINAVAIL 0
 

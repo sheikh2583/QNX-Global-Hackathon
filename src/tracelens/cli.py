@@ -86,10 +86,15 @@ def _verdict(a, cfg, allow_lossy: bool) -> int:
 def _cmd_explain(args: argparse.Namespace) -> int:
     try:
         from .explain.claude import Explainer
-        explainer = Explainer(model=args.model, effort=args.effort,
+        from .llm import LLMError
+        explainer = Explainer(model=args.model, effort=args.effort, provider=args.provider,
                               cache_dir=None if args.no_cache else args.cache_dir)
     except ImportError:
-        print("tracelens explain needs the AI extra: pip install 'tracelens[ai]'", file=sys.stderr)
+        print("tracelens explain with Claude needs the AI extra: pip install 'tracelens[ai]' "
+              "(or use Gemini: --provider gemini with GEMINI_API_KEY set)", file=sys.stderr)
+        return 2
+    except LLMError as exc:
+        print(f"tracelens explain: {exc}", file=sys.stderr)
         return 2
 
     cfg = load_config(args.config)
@@ -99,7 +104,7 @@ def _cmd_explain(args: argparse.Namespace) -> int:
     sources = {Path(s).name: Path(s).read_text(encoding="utf-8", errors="replace") for s in args.source}
 
     print(f"TraceLens {__version__} | explaining {min(len(a.findings), args.limit or 10**9)} "
-          f"of {len(a.findings)} findings with {args.model}")
+          f"of {len(a.findings)} findings with {explainer.llm.provider}:{explainer.model}")
     expl = {}
     for f in a.findings[:args.limit]:
         x = explainer.explain(a, f, sources)
@@ -114,9 +119,9 @@ def _cmd_explain(args: argparse.Namespace) -> int:
         if x.data is not None and not args.quiet:
             print(f"      -> {x.data.get('headline', '')}")
 
-    if any("authentication" in x.error.lower() for x in expl.values()):
-        print("  hint: no Claude credentials found - set ANTHROPIC_API_KEY in your shell, then rerun",
-              file=sys.stderr)
+    if any("authentication" in x.error.lower() or "api key" in x.error.lower() for x in expl.values()):
+        print("  hint: model credentials rejected - set ANTHROPIC_API_KEY (Claude) or GEMINI_API_KEY "
+              "(Gemini) in your shell, then rerun", file=sys.stderr)
     if args.json:
         from .report.json_out import dumps
         Path(args.json).write_text(dumps(a, expl), encoding="utf-8")
@@ -209,14 +214,20 @@ def _cmd_fix(args: argparse.Namespace) -> int:
     includes = [Path(d) for d in args.include] or [d for d in [workload.parent / "common"] if d.is_dir()]
     out = Path(args.out or f"fixes/{workload.name}-{args.context}")
     try:
+        from .llm import LLMError
         agent = FixAgent(workload, includes, cfg, QccBuilder(), capturer, out, model=args.model,
                          effort=args.effort, runs=args.runs, max_attempts=args.max_attempts,
-                         context=args.context, target_kinds=args.kind or None)
+                         context=args.context, target_kinds=args.kind or None, provider=args.provider)
     except ImportError:
-        print("tracelens fix needs the AI extra: pip install 'tracelens[ai]'", file=sys.stderr)
+        print("tracelens fix with Claude needs the AI extra: pip install 'tracelens[ai]' "
+              "(or use Gemini: --provider gemini with GEMINI_API_KEY set)", file=sys.stderr)
+        return 2
+    except LLMError as exc:
+        print(f"tracelens fix: {exc}", file=sys.stderr)
         return 2
     res = agent.run(before_traces=args.before or None)
-    print(f"TraceLens {__version__} | fix {res.workload} ({res.context}, {res.runs} runs per side)")
+    print(f"TraceLens {__version__} | fix {res.workload} with {agent.llm.provider}:{agent.llm.model} "
+          f"({res.context}, {res.runs} runs per side)")
     for a in res.attempts:
         print(f"  attempt {a.n}: {a.stage} {'OK' if a.ok else 'failed'}"
               + (f" - {a.verdict['verdict']}" if a.verdict else (f" - {a.detail[:120]}" if a.detail else "")))
@@ -331,7 +342,7 @@ def _cmd_eval(args: argparse.Namespace) -> int:
                 return cap(label, i, binary, None, wargs, o, background=entry.background)
             return FixAgent(workload_dir, [Path(args.zoo) / "common"], cfg, QccBuilder(), fix_cap, agent_out,
                             model=args.model, effort=args.effort, runs=args.runs,
-                            max_attempts=args.max_attempts, context=ctx)
+                            max_attempts=args.max_attempts, context=ctx, provider=args.provider)
 
         contexts = tuple(c.strip() for c in args.contexts.split(","))
         eval_fix(args.zoo, cfg, make_agent, cap, out, runs=args.runs, contexts=contexts, irq=args.irq, only=only)
@@ -411,7 +422,9 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines)")
     x.add_argument("--source", action="append", default=[], metavar="FILE",
                    help="workload source to show Claude (repeatable)")
-    x.add_argument("--model", default="claude-opus-5-5")
+    x.add_argument("--provider", choices=["auto", "claude", "gemini"], default=None,
+                   help="model provider (default: TRACELENS_LLM, else whichever API key is set)")
+    x.add_argument("--model", help="model id (default: claude-opus-5-5, or the best Gemini model your key can use)")
     x.add_argument("--effort", default="medium", choices=["low", "medium", "high", "xhigh", "max"])
     x.add_argument("--limit", type=int, help="explain at most N findings (highest severity first)")
     x.add_argument("--json", help="write JSON findings + explanations here")
@@ -465,7 +478,9 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--kind", action="append", help="finding kind the fix must remove")
     f.add_argument("--before", nargs="+", metavar="TRACE", help="reuse existing 'before' traces")
     f.add_argument("--include", action="append", default=[], help="read-only include dir (default: ../common)")
-    f.add_argument("--model", default="claude-opus-5-5")
+    f.add_argument("--provider", choices=["auto", "claude", "gemini"], default=None,
+                   help="model provider (default: TRACELENS_LLM, else whichever API key is set)")
+    f.add_argument("--model", help="model id (default: claude-opus-5-5, or the best Gemini model your key can use)")
     f.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
     f.add_argument("--out", help="evidence bundle folder (default: fixes/<workload>-<context>)")
     f.set_defaults(func=_cmd_fix)
@@ -506,7 +521,9 @@ def build_parser() -> argparse.ArgumentParser:
         e2.add_argument("--key")
         if name == "fix":
             e2.add_argument("--contexts", default="full,source-only")
-            e2.add_argument("--model", default="claude-opus-5-5")
+            e2.add_argument("--provider", choices=["auto", "claude", "gemini"], default=None,
+                            help="model provider (default: TRACELENS_LLM, else whichever API key is set)")
+            e2.add_argument("--model", help="model id (default: claude-opus-5-5, or the best Gemini model your key can use)")
             e2.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
             e2.add_argument("--max-attempts", type=int, default=4)
         e2.set_defaults(func=_cmd_eval)
