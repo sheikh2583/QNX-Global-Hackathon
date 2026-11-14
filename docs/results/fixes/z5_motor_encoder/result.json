@@ -1,0 +1,76 @@
+{
+  "status": "VERIFIED",
+  "workload": "z5_motor_encoder",
+  "runs": 5,
+  "targets": [
+    "irq_handler_overrun",
+    "irq_latency"
+  ],
+  "remedies": [
+    {
+      "rule": "ist-defer-work",
+      "finding_id": "TL-002",
+      "finding_kind": "irq_handler_overrun",
+      "title": "Unmask IRQ first in main() and defer recompute_velocity_profile() to a worker thread",
+      "automatic": true,
+      "rationale": "With InterruptAttachEvent() the kernel masks the interrupt until the thread calls InterruptUnmask(). Work done before that keeps the line masked (later interrupts are delayed or lost) and keeps the highest-priority thread busy. The QNX pattern: acknowledge, unmask, and hand the rest to a lower-priority worker with a pulse.",
+      "locations": [
+        [
+          "main.c",
+          45,
+          "if (InterruptWait(0, NULL) == -1)"
+        ],
+        [
+          "main.c",
+          49,
+          "InterruptUnmask(irq, id);"
+        ]
+      ],
+      "guidance": [],
+      "notes": [],
+      "files": [
+        "main.c"
+      ],
+      "round": 1
+    },
+    {
+      "rule": "symptom",
+      "finding_id": "TL-001",
+      "finding_kind": "irq_latency",
+      "title": "Slow interrupt response on IRQ 4: a symptom",
+      "automatic": false,
+      "rationale": "irq latency is the visible effect; the trace also shows its cause (irq_handler_overrun). It is expected to clear with that fix, and the re-trace checks that it does.",
+      "locations": [],
+      "guidance": [],
+      "notes": [],
+      "files": [],
+      "round": 1
+    }
+  ],
+  "diff": "--- a/main.c\n+++ b/main.c\n@@ -8,12 +8,77 @@\n  * Usage: z5_motor_encoder -i <irq> [-d seconds]\n  *   <irq> is the encoder's interrupt line (see bugzoo/README.md for the QEMU setup).\n  */\n+#include <stdio.h>\n+#include <sys/neutrino.h>\n+#include <pthread.h>\n+#include <stdatomic.h>\n #include \"tl.h\"\n \n static unsigned run_s = 2;\n static int irq = -1;\n \n static void recompute_velocity_profile(void) { tl_spin_us(2000); }\n+\n+/* --- TraceLens remedy: deferred interrupt work --- */\n+/* The interrupt thread only acknowledges, unmasks and pulses; the work it used to do with the\n+ * interrupt masked runs in this worker. Interrupts that arrive while a run is pending are\n+ * coalesced into it. Worker priority 20: below every interrupt thread seen in the trace (lowest: virtio_pci0 irq 256 at 21), so deferred work never delays a driver's interrupt. */\n+#define TRACELENS_IRQ_PULSE (_PULSE_CODE_MINAVAIL + 7)\n+#define TRACELENS_IRQ_WORKER_PRIO 20\n+static int tracelens_irq_chid = -1, tracelens_irq_coid = -1, tracelens_irq_prio = TRACELENS_IRQ_WORKER_PRIO;\n+static atomic_int tracelens_irq_pending, tracelens_irq_running = 1;\n+static pthread_t tracelens_irq_thread;\n+\n+static void tracelens_irq_work(void)\n+{\n+    recompute_velocity_profile();\n+}\n+\n+static void *tracelens_irq_worker(void *arg)\n+{\n+    (void)arg;\n+    struct _pulse p;\n+    while (atomic_load(&tracelens_irq_running)) {\n+        if (MsgReceivePulse(tracelens_irq_chid, &p, sizeof p, NULL) == -1)\n+            break;\n+        if (p.code != TRACELENS_IRQ_PULSE)\n+            continue;\n+        atomic_store(&tracelens_irq_pending, 0);\n+        tracelens_irq_work();\n+    }\n+    return NULL;\n+}\n+\n+static int tracelens_irq_worker_start(void)\n+{\n+    struct sched_param sp;\n+    if ((tracelens_irq_chid = ChannelCreate(0)) == -1)\n+        return -1;\n+    if ((tracelens_irq_coid = ConnectAttach(0, 0, tracelens_irq_chid, _NTO_SIDE_CHANNEL, 0)) == -1)\n+        return -1;\n+    pthread_attr_t a;\n+    pthread_attr_init(&a);\n+    pthread_attr_setinheritsched(&a, PTHREAD_EXPLICIT_SCHED);\n+    pthread_attr_setschedpolicy(&a, SCHED_FIFO);\n+    sp.sched_priority = tracelens_irq_prio;\n+    pthread_attr_setschedparam(&a, &sp);\n+    int rc = pthread_create(&tracelens_irq_thread, &a, tracelens_irq_worker, NULL);\n+    pthread_attr_destroy(&a);\n+    return rc == 0 ? 0 : -1;\n+}\n+\n+static void tracelens_irq_worker_kick(void)\n+{\n+    if (atomic_exchange(&tracelens_irq_pending, 1) == 0)\n+        MsgSendPulse(tracelens_irq_coid, tracelens_irq_prio, TRACELENS_IRQ_PULSE, 0);\n+}\n+\n+static void tracelens_irq_worker_stop(void)\n+{\n+    atomic_store(&tracelens_irq_running, 0);\n+    MsgSendPulse(tracelens_irq_coid, tracelens_irq_prio, TRACELENS_IRQ_PULSE + 1, 0);\n+    pthread_join(tracelens_irq_thread, NULL);\n+}\n \n int main(int argc, char **argv)\n {\n@@ -35,6 +100,8 @@\n \n     struct sigevent ev;\n     SIGEV_INTR_INIT(&ev);\n+    if (tracelens_irq_worker_start() == -1)  /* TraceLens */\n+        perror(\"tracelens_irq_worker_start\");\n     int id = InterruptAttachEvent(irq, &ev, _NTO_INTR_FLAGS_TRK_MSK);\n     if (id == -1)\n         tl_die(\"InterruptAttachEvent\");\n@@ -45,10 +112,11 @@\n         if (InterruptWait(0, NULL) == -1)\n             tl_die(\"InterruptWait\");\n         count++; /* read + ack the encoder */\n-        recompute_velocity_profile();\n-        InterruptUnmask(irq, id);\n+        InterruptUnmask(irq, id);  /* unmask first (TraceLens) */\n+        tracelens_irq_worker_kick();  /* deferred work (TraceLens) */\n     }\n     InterruptDetach(id);\n+    tracelens_irq_worker_stop();  /* TraceLens */\n     printf(\"encoder_ist: %lu interrupts\\n\", count);\n     return 0;\n }\n",
+  "verdict": {
+    "verdict": "VERIFIED",
+    "reasons": [],
+    "runs": {
+      "before": 5,
+      "after": 5,
+      "lossy_skipped": 0
+    },
+    "targets": {
+      "irq_handler_overrun": {
+        "before_rate": 1.0,
+        "after_rate": 0.0
+      },
+      "irq_latency": {
+        "before_rate": 1.0,
+        "after_rate": 0.0
+      }
+    },
+    "new_kinds": [],
+    "deadlines": []
+  },
+  "bundle": "captures/fixeval/z5_motor_encoder",
+  "note": "",
+  "rounds": 1,
+  "quick": false
+}

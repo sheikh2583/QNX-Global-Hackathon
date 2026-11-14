@@ -5,8 +5,7 @@
 #   demo/run_demo.sh --live     live: boot the QNX QEMU target, build with qcc, capture, analyze, fix
 #
 # Output goes to demo/out/. Run from the repo root inside Linux/WSL with TraceLens installed
-# (pip install -e ".[ai,mcp]"). Live mode also needs `source ~/qnx800/qnxsdp-env.sh` and, for
-# the fix step, ANTHROPIC_API_KEY.
+# (pip install -e .). Live mode also needs `source ~/qnx800/qnxsdp-env.sh`. No API keys.
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -39,13 +38,9 @@ offline() {
         --after "$FIX/z0_clean.txt" "$FIX/z0_clean.txt" "$FIX/z0_clean.txt" "$FIX/z0_clean.txt" "$FIX/z0_clean.txt"
     echo "   (identical synthetic copies; real captures vary run to run)"
 
-    if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-        say "5. Claude explains the inversion, with checked citations"
-        tracelens explain "$FIX/z1_prio_inversion.txt" -c "$FIX/tracelens.toml" --limit 1 \
-            --source bugzoo/z1_infusion_pump/main.c --html "$OUT/z1-explained.html"
-    else
-        say "5. (skipped) set ANTHROPIC_API_KEY to see Claude's explanation"
-    fi
+    say "5. The fix, from a real QNX 8.0 trace: no target, no model"
+    tracelens remedy fixtures/real/z1_infusion_pump.txt.gz --source bugzoo/z1_infusion_pump \
+        -c fixtures/real/tracelens.toml --patch "$OUT/z1.patch"
 
     say "Reports in $OUT"
     ls -1 "$OUT"
@@ -67,13 +62,9 @@ live() {
     say "4. Capture and analyze the infusion pump on QNX"
     tracelens capture bugzoo/out/z1_infusion_pump -c bugzoo/tracelens.toml --out "$OUT/captures" --analyze -- -d 2
 
-    if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-        say "5. Fix it: Claude patches, qcc builds, QNX re-runs 5x, compare decides"
-        tracelens fix bugzoo/z1_infusion_pump -c bugzoo/tracelens.toml --out "$OUT/fix-z1" -- -d 2
-        echo "   evidence: $OUT/fix-z1/SUMMARY.md"
-    else
-        say "5. (skipped) set ANTHROPIC_API_KEY to run the fix loop"
-    fi
+    say "5. Fix it: remedy from the trace, qcc builds, QNX re-runs 5x, compare decides"
+    tracelens fix bugzoo/z1_infusion_pump -c bugzoo/tracelens.toml --out "$OUT/fix-z1" -- -d 2
+    echo "   evidence: $OUT/fix-z1/SUMMARY.md"
 }
 
 case "${1:-}" in

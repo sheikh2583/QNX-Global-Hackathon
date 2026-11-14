@@ -1,0 +1,21 @@
+{
+  "verdict": "VERIFIED",
+  "reasons": [],
+  "runs": {
+    "before": 5,
+    "after": 5,
+    "lossy_skipped": 0
+  },
+  "targets": {
+    "irq_handler_overrun": {
+      "before_rate": 1.0,
+      "after_rate": 0.0
+    },
+    "irq_latency": {
+      "before_rate": 1.0,
+      "after_rate": 0.0
+    }
+  },
+  "new_kinds": [],
+  "deadlines": []
+}

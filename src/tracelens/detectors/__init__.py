@@ -1,6 +1,6 @@
 """Deterministic detectors. Each is ``detect(model, cfg) -> list[Finding]``.
 
-AI never creates findings: it only explains and fixes what these rules prove.
+Nothing else creates findings: the remedies and the fix loop act only on what these rules prove.
 """
 
 from . import deadline, ipc_chain, irq_latency, mutex_contention, prio_inversion

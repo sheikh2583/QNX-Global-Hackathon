@@ -1,0 +1,83 @@
+{
+  "status": "VERIFIED",
+  "workload": "z4_camera_pipeline",
+  "runs": 5,
+  "targets": [
+    "deadline_miss",
+    "mutex_contention"
+  ],
+  "remedies": [
+    {
+      "rule": "shrink-critical-section",
+      "finding_id": "TL-002",
+      "finding_kind": "mutex_contention",
+      "title": "Shrink the 'store_lock' critical section: move memset, tl_spin_us outside the lock",
+      "automatic": true,
+      "rationale": "Every MUTEX wait in a QNX trace is real contention (uncontended mutexes never enter the kernel). The lock only needs to cover statements that read or write the data it protects; computation on private buffers inside it serialises the threads for nothing.",
+      "locations": [
+        [
+          "main.c",
+          34,
+          "pthread_mutex_lock(&store_lock);"
+        ]
+      ],
+      "guidance": [],
+      "notes": [],
+      "files": [
+        "main.c"
+      ],
+      "round": 1
+    },
+    {
+      "rule": "symptom",
+      "finding_id": "TL-001",
+      "finding_kind": "deadline_miss",
+      "title": "Deadline misses in 'frame': a symptom",
+      "automatic": false,
+      "rationale": "deadline miss is the visible effect; the trace also shows its cause (mutex_contention). It is expected to clear with that fix, and the re-trace checks that it does.",
+      "locations": [],
+      "guidance": [],
+      "notes": [],
+      "files": [],
+      "round": 1
+    }
+  ],
+  "diff": "--- a/main.c\n+++ b/main.c\n@@ -31,10 +31,10 @@\n     for (unsigned k = 0; k < periods; k++) {\n         tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US + id * 100 * TL_NS_PER_US);\n         tl_job_start(\"frame\");\n-        pthread_mutex_lock(&store_lock);\n         /* Demosaic + colour-correct the tile, then publish it. */\n         memset(tile, (int)(k + id), TILE_BYTES);\n         tl_spin_us(1500);\n+        pthread_mutex_lock(&store_lock);\n         memcpy(frame_store[id], tile, TILE_BYTES);\n         pthread_mutex_unlock(&store_lock);\n         tl_job_end(\"frame\");\n",
+  "verdict": {
+    "verdict": "VERIFIED",
+    "reasons": [],
+    "runs": {
+      "before": 5,
+      "after": 5,
+      "lossy_skipped": 0
+    },
+    "targets": {
+      "deadline_miss": {
+        "before_rate": 1.0,
+        "after_rate": 0.0
+      },
+      "mutex_contention": {
+        "before_rate": 1.0,
+        "after_rate": 0.0
+      }
+    },
+    "new_kinds": [],
+    "deadlines": [
+      {
+        "name": "frame",
+        "budget_ns": 4000000,
+        "before_p99": 7449446,
+        "after_p99": 2988487,
+        "before_misses": 2031,
+        "after_misses": 0,
+        "p_value": 0.0,
+        "ok": true,
+        "reason": "significantly faster (p=0)"
+      }
+    ]
+  },
+  "bundle": "captures/fixeval/z4_camera_pipeline",
+  "note": "",
+  "rounds": 1,
+  "quick": false
+}

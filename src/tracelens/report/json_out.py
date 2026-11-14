@@ -6,9 +6,8 @@ from .. import __version__
 from ..analyze import Analysis
 
 
-def to_dict(a: Analysis, explanations: dict | None = None) -> dict:
+def to_dict(a: Analysis) -> dict:
     m = a.model
-    explanations = explanations or {}
     return {
         "tool": "tracelens",
         "version": __version__,
@@ -26,8 +25,7 @@ def to_dict(a: Analysis, explanations: dict | None = None) -> dict:
         },
         "findings": [
             {**f.to_dict(),
-             "evidence_events": [_ev(m.by_id[i]) for i in f.evidence if i in m.by_id],
-             **({"explanation": explanations[f.id].to_dict()} if f.id in explanations else {})}
+             "evidence_events": [_ev(m.by_id[i]) for i in f.evidence if i in m.by_id]}
             for f in a.findings
         ],
         "errors": a.errors,
@@ -39,5 +37,5 @@ def _ev(e) -> dict:
             "pid": e.pid, "tid": e.tid, "raw": e.raw}
 
 
-def dumps(a: Analysis, explanations: dict | None = None) -> str:
-    return json.dumps(to_dict(a, explanations), indent=2)
+def dumps(a: Analysis) -> str:
+    return json.dumps(to_dict(a), indent=2)

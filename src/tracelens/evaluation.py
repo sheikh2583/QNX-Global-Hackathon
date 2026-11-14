@@ -4,8 +4,8 @@
                  on the target. Report how often each expected finding appears (recall), whether
                  the reference fix stays clean (false positives), and the before/after verdict.
                  Healthy system commands from the manifest form a negative set that must stay clean.
-``eval_fix``     Run the fix agent on every workload with the full context and with source only,
-                 reusing one set of "before" captures per workload: the ablation table.
+``eval_fix``     Run the deterministic fix engine on every workload: remedy chosen from the
+                 trace, patch built with qcc, proven (or not) by re-tracing on the target.
 
 Results are written as Markdown and JSON. Lossy runs are counted and excluded, never scored, and
 replaced by a fresh capture (at most ``runs`` extra per build) so every row has ``runs`` clean runs.
@@ -172,10 +172,9 @@ def detect_markdown(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def eval_fix(zoo_dir: str | Path, cfg: Config, make_agent: Callable[..., Any], capture: EvalCapturer,
-             out_dir: str | Path, runs: int = 5, contexts: tuple[str, ...] = ("full", "source-only"),
-             irq: int | None = None, only: list[str] | None = None) -> dict:
-    """``make_agent(workload_dir, context, out_dir) -> FixAgent`` builds a configured agent."""
+def eval_fix(zoo_dir: str | Path, cfg: Config, make_engine: Callable[..., Any], capture: EvalCapturer,
+             out_dir: str | Path, runs: int = 5, irq: int | None = None, only: list[str] | None = None) -> dict:
+    """``make_engine(workload_dir, out_dir) -> FixEngine`` builds a configured engine."""
     zoo_dir, out = Path(zoo_dir), Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     zoo, _ = load_zoo(zoo_dir / "zoo.toml")
@@ -187,36 +186,48 @@ def eval_fix(zoo_dir: str | Path, cfg: Config, make_agent: Callable[..., Any], c
             rows.append({"workload": z.name, "skipped": "needs --irq"})
             continue
         args = [a.replace("{irq}", str(irq)) for a in z.args]
-        before = [capture(f"{z.name}-before", i, zoo_dir / "out" / z.name, None, args, out / z.name / "before",
-                          background=z.background) for i in range(runs)]
-        row: dict[str, Any] = {"workload": z.name, "skipped": ""}
-        for ctx in contexts:
-            res = make_agent(zoo_dir / z.name, ctx, out / z.name / ctx).run(before_traces=before)
-            row[ctx] = {"status": res.status, "attempts": len(res.attempts), "bundle": res.bundle}
-        rows.append(row)
-    report = {"runs_per_side": runs, "contexts": list(contexts), "rows": rows}
+        before, clean, i = [], 0, 0
+        while clean < runs and i < 2 * runs:  # replace lossy captures, as eval detect does
+            t = capture(f"{z.name}-before", i, zoo_dir / "out" / z.name, None, args, out / z.name / "before",
+                        background=z.background)
+            i += 1
+            before.append(t)
+            clean += not analyze_file(t, cfg).model.lossy
+        res = make_engine(zoo_dir / z.name, out / z.name).run(before_traces=before)
+        rows.append({"workload": z.name, "skipped": "", "status": res.status, "targets": res.targets,
+                     "remedies": [{"rule": r["rule"], "automatic": r["automatic"], "title": r["title"]}
+                                  for r in res.remedies if r["rule"] != "symptom"],
+                     "verdict": res.verdict, "rounds": getattr(res, "rounds", 0), "bundle": res.bundle})
+    report = {"runs_per_side": runs, "rows": rows}
     (out / "fix.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     (out / "fix.md").write_text(fix_markdown(report), encoding="utf-8")
     return report
 
 
 def fix_markdown(report: dict) -> str:
-    ctx = report["contexts"]
-    head = " | ".join(f"{'Source + findings + trace' if c == 'full' else 'Source only'}" for c in ctx)
-    lines = [f"## Autonomous fixes on QNX ({report['runs_per_side']} runs per side)", "",
-             f"| Workload | {head} |", "|---|" + "---|" * len(ctx)]
-    totals = {c: 0 for c in ctx}
-    counted = 0
+    n = report["runs_per_side"]
+    lines = [f"## Deterministic fixes proven on QNX ({n} runs before, {n} after)", "",
+             "| Workload | Remedy (chosen from the trace) | Verdict on the target | Evidence |",
+             "|---|---|---|---|"]
+    verified = automatic = counted = 0
     for r in report["rows"]:
         if r.get("skipped"):
-            lines.append(f"| `{r['workload']}` | " + " | ".join(f"skipped: {r['skipped']}" for _ in ctx) + " |")
+            lines.append(f"| `{r['workload']}` | skipped: {r['skipped']} | | |")
             continue
         counted += 1
-        cells = []
-        for c in ctx:
-            st = r[c]["status"]
-            totals[c] += st == "VERIFIED"
-            cells.append(f"{st} ({r[c]['attempts']} attempt{'s' if r[c]['attempts'] != 1 else ''})")
-        lines.append(f"| `{r['workload']}` | " + " | ".join(cells) + " |")
-    lines.append("| **Verified** | " + " | ".join(f"**{totals[c]}/{counted}**" for c in ctx) + " |")
+        rem = "; ".join(f"{'auto' if x['automatic'] else 'guided'}: {x['title']}" for x in r["remedies"]) or "-"
+        automatic += any(x["automatic"] for x in r["remedies"])
+        verified += r["status"] == "VERIFIED"
+        ev = []
+        v = r.get("verdict") or {}
+        for k, t in v.get("targets", {}).items():
+            ev.append(f"{k} {t['before_rate']:.0%} -> {t['after_rate']:.0%} of runs")
+        for d in v.get("deadlines", []):
+            ev.append(f"'{d['name']}' p99 {d['before_p99'] / 1e6:.2f} -> {d['after_p99'] / 1e6:.2f} ms "
+                      f"(budget {d['budget_ns'] / 1e6:.1f})")
+        rounds = r.get("rounds") or 0
+        status = f"**{r['status']}**" + (f" ({rounds} rounds)" if rounds > 1 else "")
+        lines.append(f"| `{r['workload']}` | {rem} | {status} | {'; '.join(ev) or '-'} |")
+    lines += ["", f"Automatic remedy for {automatic} of {counted} workloads; **{verified} of {counted} "
+              "verified on the target**. Guided remedies list the exact source lines and the QNX fix."]
     return "\n".join(lines) + "\n"

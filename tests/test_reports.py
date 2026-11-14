@@ -1,11 +1,9 @@
-"""Perfetto export, the query service, and the MCP server wiring."""
+"""Perfetto export, SARIF and HTML reports."""
 
-import asyncio
 import json
 
 import pytest
 
-from tracelens import service
 from tracelens.analyze import analyze_text
 from tracelens.cli import main
 from tracelens.export.perfetto import FINDINGS_PID, to_chrome_trace
@@ -44,40 +42,6 @@ def test_export_cli_writes_json(z1, tmp_path):
     assert main(["export", trace, "-c", conf, "-o", str(out), "--no-calls"]) == 0
     d = json.loads(out.read_text())
     assert not any(e.get("cat") == "kernel_call" for e in d["traceEvents"])
-
-
-def test_service_queries(z1):
-    trace, conf = z1
-    s = service.analyze_trace(trace, conf)
-    assert [f["kind"] for f in s["findings"]] == ["priority_inversion", "deadline_miss"] and not s["lossy"]
-    f = service.get_finding(trace, "TL-001", conf)
-    assert f["evidence"] and all("raw" in e and e["line"] > 0 for e in f["evidence"])
-    threads = {t["thread"]: t for t in service.list_threads(trace)}
-    assert threads["control"]["base_prio"] == 50 and threads["telemetry"]["running_pct"] > 50
-    states = service.thread_states(trace, "control", 0, 5)
-    assert states and {"state", "start_ms", "dur_ms"} <= set(states[0])
-    evs = service.events(trace, thread="logger", event_class="KER_CALL")
-    assert evs and all(e["class"] == "KER_CALL" and e["thread"] == "logger" for e in evs)
-    with pytest.raises(KeyError):
-        service.get_finding(trace, "TL-999", conf)
-
-
-def test_mcp_server_lists_and_calls_tools(z1):
-    pytest.importorskip("mcp.server.mcpserver")
-    from tracelens.mcp_server import build_server
-    trace, conf = z1
-    server = build_server()
-
-    async def go():
-        tools = await server.list_tools()
-        result = await server.call_tool("analyze_trace", {"trace_path": trace, "config_path": conf})
-        return tools, result
-
-    tools, result = asyncio.run(go())
-    assert {t.name for t in tools} == {"analyze_trace", "get_finding", "list_threads", "thread_states",
-                                       "events", "compare_traces"}
-    text = json.dumps(result, default=str)
-    assert "priority_inversion" in text
 
 
 def test_sarif_results_point_at_trace_lines(z1, tmp_path):

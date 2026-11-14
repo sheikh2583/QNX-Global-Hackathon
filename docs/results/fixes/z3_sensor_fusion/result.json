@@ -1,0 +1,39 @@
+{
+  "status": "GUIDED",
+  "workload": "z3_sensor_fusion",
+  "runs": 5,
+  "targets": [
+    "ipc_deadlock"
+  ],
+  "remedies": [
+    {
+      "rule": "ipc-cycle",
+      "finding_id": "TL-001",
+      "finding_kind": "ipc_deadlock",
+      "title": "Break the Send/Reply cycle with a send hierarchy",
+      "automatic": false,
+      "rationale": "QNX message passing is synchronous: a thread blocked in MsgSend() cannot receive. If two servers send to each other, each waits for the other to receive. QNX designs avoid this with a send hierarchy: messages only flow one way; the other direction uses non-blocking notifications (MsgSendPulse()/MsgDeliverEvent()) and the notified side pulls the data.",
+      "locations": [
+        [
+          "main.c",
+          31,
+          "if (MsgSend(coid, &msg, sizeof msg, &reply, sizeof reply) == -1)"
+        ]
+      ],
+      "guidance": [
+        "The trace shows the cycle fusion_a -> fusion_b -> fusion_a; these MsgSend() calls are where it closes.",
+        "Pick a direction (usually: the more central server never sends to its clients). On the other side, replace MsgSend() with MsgSendPulse() (or MsgDeliverEvent() from a reply), and let the receiver fetch what it needs with its own MsgSend() down the hierarchy.",
+        "Not automated: the reply carries data, so the new protocol is a design decision."
+      ],
+      "notes": [],
+      "files": [],
+      "round": 1
+    }
+  ],
+  "diff": "",
+  "verdict": null,
+  "bundle": "captures/fixeval/z3_sensor_fusion",
+  "note": "no root cause here has a safe automatic transform; apply the guidance, then compare",
+  "rounds": 0,
+  "quick": false
+}

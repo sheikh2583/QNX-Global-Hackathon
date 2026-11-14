@@ -2,9 +2,9 @@
 
 **Time:** about 45 minutes · **Level:** you know C and basic OS ideas (threads, priorities, locks); no QNX experience needed.
 
-> **Draft.** Steps marked **(verify)** have not yet been run end to end on a QNX 8.0 target. Sample output in sections 4 and 5 is from a real QNX 8.0 capture.
+> **Draft.** Steps marked **(verify)** have not yet been run end to end, in this order, by a new user. Every command and sample output comes from real QNX 8.0 runs on a QEMU VM.
 
-You will run a small infusion-pump controller on QNX 8.0 in a virtual machine, watch it miss its deadlines, find out why from a kernel trace, let an AI agent fix it, and prove the fix on the real kernel. Along the way you'll learn the one QNX rule behind the bug: **semaphores have no owner, so the kernel cannot lend them priority.**
+You will run a small infusion-pump controller on QNX 8.0 in a virtual machine, watch it miss its deadlines, find out why from a kernel trace, let TraceLens rewrite the code, and prove the fix on the real kernel. No API keys, no cloud: everything runs on your machine and the QNX target. Along the way you'll learn the one QNX rule behind the bug: **semaphores have no owner, so the kernel cannot lend them priority.**
 
 ## What you'll learn
 
@@ -12,8 +12,9 @@ You will run a small infusion-pump controller on QNX 8.0 in a virtual machine, w
 - How to capture a trace with `tracelogger` and read it
 - Why a priority inversion happens with `sem_t` but not with a `pthread_mutex_t` on QNX
 - How TraceLens detects the bug deterministically and cites trace events as evidence
+- How TraceLens picks a QNX-specific fix from the trace, and why it refuses unsafe rewrites
 - How the fix loop works: patch, `qcc`, run on QNX, re-trace, verdict over several runs
-- How to stop the bug from coming back with a CI gate
+- How to stop the bug from coming back with a one-line regression check
 
 ## No QNX yet? Start at step 5
 
@@ -21,30 +22,28 @@ TraceLens ships with sample traces. If you just want to see the analysis, instal
 
 ---
 
-## 1. Boot QNX 8.0 in QEMU (10 min) **(verify)**
+## 1. Boot QNX 8.0 in QEMU (15 min) **(verify)**
 
 You need a Linux host with KVM. On Windows, use WSL2 with Ubuntu 24.04.
 
 1. Get the free non-commercial **QNX Everywhere** license at <https://www.qnx.com/products/everywhere/>.
-2. Download **QNX Software Center for Linux Hosts** from your myQNX account and run it:
+2. Install **QNX SDP 8.0** to `~/qnx800` with QNX Software Center (or `scripts/qnx_install.sh`).
+3. One-time host setup (needs sudo):
    ```bash
-   chmod +x qnx-setup-*-linux.run && ./qnx-setup-*-linux.run
-   ~/qnx/qnxsoftwarecenter/qnxsoftwarecenter &
+   sudo apt install -y qemu-system-x86 libvirt-daemon-system
+   sudo chmod u+s /usr/lib/qemu/qemu-bridge-helper     # QEMU may join libvirt's bridge
+   sudo virsh net-start default                         # NAT + DHCP for the VM
    ```
-3. In the Software Center, sign in, add your license key, and install **QNX SDP 8.0** to `~/qnx800`, then **QNX SDP 8.0 Quick Start Target Image for QEMU**.
-4. Boot the target:
+4. Build and boot your own QNX VM with `mkqnximage` (4 CPUs, the instrumented kernel
+   `procnto-smp-instr`, `tracelogger`, `pidin`, `sshd`), and get its address:
    ```bash
-   source ~/qnx800/qnxsdp-env.sh
-   cd ~/qnx800/images/qemu/qemu
-   mkqnximage --run
-   ```
-5. In a second terminal, get its address and log in:
-   ```bash
-   cd ~/qnx800/images/qemu/qemu && export QNX=$(mkqnximage --getip)
+   bash scripts/qnx_vm.sh                               # after step 2 below, from the repo
+   export QNX=$(tracelens target ip)
    ssh root@$QNX uname -a
    ```
 
-**Check:** `uname` prints `QNX`. Also check the kernel can trace: `ssh root@$QNX 'ls /proc/boot | grep instr'` should show `procnto-smp-instr` **(verify)**.
+**Check:** `uname` prints `QNX`, and `tracelens target check` passes: ssh works, the kernel is the
+instrumented one, and a 1-second test trace comes back.
 
 ## 2. Install TraceLens and build the workloads (5 min)
 
@@ -52,7 +51,7 @@ You need a Linux host with KVM. On Windows, use WSL2 with Ubuntu 24.04.
 git clone https://github.com/sheikh2583/QNX-Global-Hackathon.git tracelens
 cd tracelens
 python3 -m venv .venv && . .venv/bin/activate
-pip install -e ".[ai,mcp]"
+pip install -e .
 source ~/qnx800/qnxsdp-env.sh
 make -C bugzoo            # out/z1_infusion_pump ... built with qcc   (verify)
 ```
@@ -61,7 +60,7 @@ make -C bugzoo            # out/z1_infusion_pump ... built with qcc   (verify)
 
 | Thread | Priority | Every 10 ms |
 |---|---|---|
-| `control` | 50 | reads the sensor buffer and computes the dose; **must finish within 1 ms** |
+| `control` | 50 | reads the sensor buffer and computes the dose; **must finish within 2 ms** |
 | `telemetry` | 20 | compresses and uploads readings (6 ms of CPU) |
 | `logger` | 10 | appends the buffer to the black-box log |
 
@@ -122,8 +121,8 @@ tracelens analyze captures/z1_infusion_pump.txt -c bugzoo/tracelens.toml --html 
     control (prio 50) was blocked 5.36 ms on a semaphore (0x0000005779b88020) released by logger (prio 10);
     for 5.35 ms of that, logger was ready but telemetry (prio 20) held its CPU. Seen 200x.
 [CRITICAL] TL-002 Deadline misses in 'control'
-    'control' missed its 1000 us budget in 200 of 200 jobs (measured from release); worst response 5.55 ms
-    (5.6x budget); ... worst job: 0.00 ms late wake-up, 0.00 ms waiting for the CPU, 5.43 ms blocked, 0.12 ms running.
+    'control' missed its 2000 us budget in 200 of 200 jobs (measured from release); worst response 5.55 ms
+    (2.8x budget); ... worst job: 0.00 ms late wake-up, 0.00 ms waiting for the CPU, 5.43 ms blocked, 0.12 ms running.
 ```
 *(real QNX 8.0 capture)* Open `z1.html`: each finding lists the exact trace events that prove it, and the timeline shows the three threads. For a zoomable view, export to Perfetto and open the file at <https://ui.perfetto.dev>:
 
@@ -146,70 +145,80 @@ QNX prevents this for **mutexes**: `pthread_mutex_t` uses **priority inheritance
 
 **Try it:** what would change in the trace with a mutex? (Answer: `logger`'s THREAD events would show `prio:50` while `control` waits, and `telemetry` would stay READY.)
 
-## 7. Let Claude explain it (optional, 3 min)
+## 7. Get the fix, without the target (3 min)
+
+TraceLens maps each root cause it proved to a QNX-specific source change:
 
 ```bash
-export ANTHROPIC_API_KEY=...        # your own key
-tracelens explain captures/z1_infusion_pump.txt -c bugzoo/tracelens.toml \
-    --source bugzoo/z1_infusion_pump/main.c --html z1-explained.html
+tracelens remedy captures/z1_infusion_pump.txt --source bugzoo/z1_infusion_pump \
+    -c bugzoo/tracelens.toml --patch z1.patch
 ```
 
-Claude only *explains*: the bug was already found by deterministic code. Every claim it makes cites trace events as `{event, thread, observed}`, and TraceLens checks each one against the trace. An explanation that cites an event that isn't in its evidence, or misnames one ("logger released the semaphore" pointing at an interrupt), is rejected and retried, and shown as **NOT verified** if it still fails.
+```
+[AUTO] Replace semaphore 'buf_lock' (used as a lock) with a priority-inheriting mutex
+    A POSIX semaphore has no owner, so the QNX kernel cannot raise the priority of the thread that
+    holds it ... with PTHREAD_PRIO_INHERIT (the QNX default) the holder runs at the waiter's priority.
+    main.c:36  sem_wait(&buf_lock);
+    main.c:41  sem_post(&buf_lock);
+    ...
+[SYMPTOM] Deadline misses in 'control': a symptom
+```
 
-## 8. Fix it and prove it (10 min) **(verify)**
+Open `z1.patch`: `sem_t` becomes a `pthread_mutex_t` initialised with `PTHREAD_PRIO_INHERIT`, and
+`sem_wait`/`sem_post` become lock/unlock. TraceLens only rewrites what it has checked is safe: here,
+that the semaphore starts at 1 and every function that waits on it also posts it (it is used as a
+lock, not as a signal). A semaphore used for signalling would get guidance instead of a patch.
+
+## 8. Fix it and prove it (10 min)
 
 ```bash
 tracelens fix bugzoo/z1_infusion_pump -c bugzoo/tracelens.toml --host $QNX -- -d 2
 ```
 
-The agent:
+The fix loop, with no model anywhere:
 
 1. captures the original program 5 times; the findings present in most runs become the targets;
-2. asks Claude for a patch, given the source, the findings and their trace evidence;
-3. applies it to a sandbox copy. It may only change this workload's own `.c`/`.h` files, never the shared header, tests or detectors;
-4. compiles it with `qcc`; compiler errors go back to Claude;
-5. runs the patched program 5 times on QNX and captures each run;
-6. compares before and after with `tracelens compare`: **VERIFIED** only if the inversion is gone in every run, no new findings appear, and `control`'s response times are within budget and significantly faster (Mann-Whitney U test).
+2. applies the remedy for each proven root cause to a sandbox copy (only this workload's own
+   `.c`/`.h` files, never the shared header, tests or detectors);
+3. compiles it with `qcc`;
+4. runs the patched program 5 times on QNX and captures each run;
+5. compares before and after with `tracelens compare`: **VERIFIED** only if the target findings
+   are gone in every run, nothing new appears, and `control`'s response times are within budget and
+   significantly faster (Mann-Whitney U test);
+6. if the verdict is NOT FIXED, diagnoses the *new* traces and fixes again (up to 3 rounds).
 
-Read `fixes/z1_infusion_pump-full/SUMMARY.md` for the diagnosis, the diff and the verdict. One run proves little on a virtual machine, which is why the verdict uses several.
+On our QEMU VM this ends **VERIFIED** after one round: the inversion is gone in 5 of 5 runs and
+`control`'s p99 response drops from 5.74 ms to 1.29 ms (budget 2 ms). Read
+`fixes/z1_infusion_pump/SUMMARY.md` for the diagnosis, the patch and the verdict
+([ours](../results/fixes/z1_infusion_pump/SUMMARY.md)).
 
-## 9. Keep it fixed with a CI gate (5 min)
+**Try it:** set `budget_us = 1000` for `control` in `bugzoo/tracelens.toml` and run the fix again.
+Now the mutex alone is not enough: the re-trace shows `control` waiting about 1 ms every period,
+because `logger` holds the lock during its 2.5 ms flash write. Round 2 diagnoses that from the new
+trace and moves the work that touches no shared data out of both critical sections. (On a virtual
+machine, a 1 ms budget is close to the platform's own jitter, so expect the odd late job.)
 
-Commit a reference trace of the fixed program, and fail the build if a change brings the bug back:
+## 9. Keep it fixed (5 min)
 
-```yaml
-# .github/workflows/realtime.yml
-name: realtime
-on: [push, pull_request]
-jobs:
-  trace-gate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
-      - run: pip install "git+https://github.com/sheikh2583/QNX-Global-Hackathon.git"
-      - run: tracelens analyze traces/pump.txt -c tracelens.toml --fail-on high
-```
-
-Exit codes: `0` clean, `1` findings at or above `--fail-on`, `2` bad input, `3` inconclusive (the trace dropped events, so no verdict).
-
-## 10. Bonus: ask your trace questions from Claude Code
+Commit a trace of the fixed program and check it whenever the code changes, from a Makefile,
+a pre-commit hook or any build script:
 
 ```bash
-claude mcp add tracelens -- tracelens mcp
+tracelens analyze traces/pump.txt -c tracelens.toml --fail-on high
 ```
 
-Then ask: *"In captures/z1_infusion_pump.txt, why did control miss its deadline? Cite the events."* Claude Code calls TraceLens's tools (`analyze_trace`, `get_finding`, `thread_states`...) and answers from the detector output.
+Exit codes: `0` clean, `1` findings at or above `--fail-on`, `2` bad input, `3` inconclusive (the
+trace dropped events, so no verdict).
 
 ## What you learned
 
 - A trace shows *time*: who ran, who waited, and for whom. Timing bugs live there, not in the code alone.
 - On QNX, use a **mutex** (priority inheritance) to protect shared data; a semaphore is for signalling.
 - A fix to a timing bug is only proven by re-measuring on the real kernel, over several runs.
+- One fix can uncover the next cause: re-trace after every change.
 
 ## Clean up
 
 ```bash
-cd ~/qnx800/images/qemu/qemu && mkqnximage --stop
+tracelens target down
 ```

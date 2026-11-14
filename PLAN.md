@@ -17,20 +17,20 @@
 
 ## 1. North Star
 
-**TraceLens is an autonomous real-time debugging agent for QNX.**
-It reads a QNX kernel event trace, **finds** the timing bug deterministically, **explains** it in plain English with evidence, **writes the fix**, rebuilds with `qcc`, redeploys to the QNX target, **re-traces, and proves the bug is gone** — then guards against its return in CI.
+**TraceLens finds, fixes and proves real-time bugs on QNX, with no AI and no API keys** (user decision 2026-11-14).
+It reads a QNX kernel event trace, **finds** the timing bug deterministically, maps the proven root cause to a **QNX-specific source fix** (applied only when its safety preconditions hold, otherwise exact guidance), rebuilds with `qcc`, redeploys to the QNX target, **re-traces, and proves the bug is gone** over several runs, fixing again if the re-trace shows a next cause.
 
 **Pitch (say this in the first 10 seconds of the video):**
-> *"Real-time bugs on QNX are found today by an engineer staring at a timeline. TraceLens finds them automatically, fixes them, and proves the fix by re-tracing on the real QNX kernel."* (No duration claim until the loop is timed end to end on the target.)
+> *"Real-time bugs on QNX are found today by an engineer staring at a timeline. TraceLens finds them, fixes the code, and proves the fix on the real QNX kernel. No AI, no API keys."* (No duration claim until the loop is timed end to end on the target.)
 
 **Why this wins** — one sentence per judging criterion:
 
 | Criterion | Our answer |
 |---|---|
 | Technological implementation | Built on QNX-only internals: kernel event tracing (`tracelogger`/`.kev`), microkernel message passing (Send/Receive/Reply), thread states, priority inheritance semantics, `qcc`, `procnto-smp-instr`. The detectors encode QNX semantics that Linux tooling (sched_switch, PI futexes) does not model: ownerless semaphores, `_NTO_CHF_FIXED_PRIORITY` channels, IST interrupt masking, Send/Receive/Reply chains. |
-| Design (complete product) | CLI + HTML report + CI gate + MCP server + Perfetto export + tutorial + one-command demo. Installs with `pip`. |
+| Design (complete product) | CLI + HTML/JSON/SARIF reports + exit codes + Perfetto export + `remedy` (fix without a target) + tutorial + one-command demo. Installs with `pip`, stdlib only. |
 | Potential impact | QNX runs in 255M+ vehicles **(verify latest figure)**, medical devices, robots. Timing bugs there are safety bugs. Claim about System Profiler's analysis views **(verify in Momentics before saying anything)**; our pitch is the closed loop and the CI gate, not "nobody else analyzes". |
-| Innovation & AI creativity | Closed-loop agent: AI proposes, **the real QNX kernel verifies**. AI never invents findings — detectors are deterministic; explanations may only cite events from their evidence pack (checked), and typed claim checks (thread/state/object per citation) are on the backlog — until then say "citations checked", not "verified". |
+| Innovation | A closed loop with no model in it: the trace proves the cause, a QNX-specific rewrite fixes it (preconditions checked in the code), and **the real QNX kernel decides** over several runs. Real result: 4/5 planted bugs fixed automatically and VERIFIED on QNX 8.0; the 5th gets exact guidance. |
 
 ---
 
@@ -170,25 +170,31 @@ Validation: each detector has unit tests on fixture traces; Z0 baseline must sta
 
 ---
 
-## 7. AI Design (trust is the feature)
+## 7. Fix design (trust is the feature)
 
-**Explain**
-- Input: one Finding + ±N surrounding events + relevant source snippet (if available).
-- Output (JSON schema): `root_cause`, `mechanism`, `impact`, `fix_suggestion`, `citations[]` (event IDs).
-- **Citation validator:** every cited ID must exist and be in the finding's evidence window; uncited causal claims → rejected and retried once, then marked "low confidence".
+> Superseded the AI design on 2026-11-14 (user: "I don't want to depend on an API key ... solve real problems").
+> Claude/Gemini explain + fix, the MCP server and the CI configs were deleted.
 
-**Fix agent loop** (`tracelens fix --workload Z1`)
+**Remedies** (`src/tracelens/remedy/`): one rule per root cause the detectors prove. Automatic only when
+the rule has checked its preconditions in the source; otherwise guidance with exact file:line.
+
+| Root cause | Remedy | Automatic when |
+|---|---|---|
+| semaphore used as a lock | `sem_t` → `PTHREAD_PRIO_INHERIT` mutex | init 1, wait+post in the same functions, no other uses |
+| `_NTO_CHF_FIXED_PRIORITY` | drop the flag | flag in a `ChannelCreate()` expression |
+| IST work before `InterruptUnmask()` | unmask first; pulse-driven worker below every interrupt thread in the trace; start before attach, stop after detach | work uses no locals, no device access after it |
+| private work in a contended lock | move statements touching no shared data (incl. aliasing pointers) out | no return/break/goto; static data only |
+| mutual `MsgSend()` | guided: send hierarchy | never (protocol change) |
+
+**Fix loop** (`tracelens fix`, `src/tracelens/fix/engine.py`)
 ```
-1. analyze  → findings F0
-2. Claude   → unified diff restricted to bugzoo/<workload>/  (guardrail)
-3. qcc build on host (cross-compile)          → fail? feed compiler errors back (max 3 tries)
-4. deploy via scp, run workload on QNX, tracelogger capture
-5. analyze  → findings F1
-6. verdict: VERIFIED if target finding gone AND no new findings AND deadlines met
-            else iterate (max 3), else REPORT-ONLY
-7. emit evidence bundle: before/after report, diff, before/after metrics
+1. N before-captures → targets = finding kinds in >= 60% of runs
+2. remedies on a sandbox copy (only the workload's own .c/.h)
+3. qcc build
+4. N after-captures → compare: VERIFIED / NOT FIXED / INCONCLUSIVE
+5. NOT FIXED → diagnose the patched build's traces (incl. MEDIUM findings), fix again (max 3 rounds)
+6. evidence bundle: per-round patch.diff, build.log, verdict.json, before/after traces, SUMMARY.md
 ```
-Guardrails: patch scope allow-list, no changes to tests/detectors, max iterations, max tokens, full transcript saved for the video.
 
 ---
 
@@ -312,6 +318,7 @@ Recording: screen capture (OBS) + AI or user voiceover. User uploads to YouTube.
 | 2026-11-14 | **Real Z2–Z4 (user chose to stay on the mkqnximage VM over the Quick Start image).** **QNX 8.0 findings:** `ThreadCtl(_NTO_TCTL_RUNMASK)` accepts one CPU or all CPUs, EINVAL for subsets (0x3, 0x6; also via GET_AND_SET_INHERIT) → Z3/Z4 use `TL_ALL_CPUS`; clock tick fixed at 1 ms (`ClockPeriod` set → Not supported) and absolute sleeps wake ~1.1–1.4 ms late → Z4 redesigned to 10 ms period, 1.5 ms work, 4 ms budget. **Tool bugs found on real data and fixed:** release grid now per (job name, thread) stream (four Z4 workers share 'frame'; one grid gave 1996/2000 false misses); wrapped quoted-string lines; deadlock title uses thread names when forked processes share a name; stale-binary trap (`make -B`). **Results (1 run each):** Z2 buggy CRITICAL inversion via message channel 200/200 + deadline, fix 0 findings; Z3 buggy CRITICAL deadlock 1001 ms (timeout-broken), fix 0 findings; Z4 buggy HIGH contention + CRITICAL deadline, fix only a MEDIUM kernel-space mutex. All 8 real pairs: buggy exit 1, fix exit 0, 0 unparsed lines. Fixtures `fixtures/real/` (2.1 MB gz), 12 real tests, CI loops all pairs, README results table. 90 tests. | Z5 needs an interrupt source in the VM | Z5 IRQ source; `tracelens eval detect --runs 5`; first real `fix` (needs ANTHROPIC_API_KEY) |
 | 2026-11-14 | **Z5 on real QNX: all 5 bugs verified.** QNX 8.0 interrupt events (verified): `INTERRUPT :INT_DELIVER intr_id:0x4(4)` (no INT_ENTR) and `SYSTEM :IST_ATTACH pid tid intr_id … ist_prio` → model `irq_handlers`, detector reads both formats. IRQ source: console UART IRQ 4 driven by writing /dev/ser1 (~2,700 irq/s; ser2/IRQ 3 has no QEMU backend). `capture --background`, zoo.toml `background`, eval/fix pass it. Real Z5 buggy: HIGH overrun (masked ≤2.38 ms) + slow response (p99 2.05 ms), exit 1; fixed: 0 findings, p50 63 µs / p99 315 µs (noise floor) → bug-zoo `irq_max_latency_us` 1000. Lossy rule now rate-based (any violation voids a trace < 100k events; above, > 1 per 100k): real Z5 had 1 violation in 245,085 events. 16 real tests, 6.2 MB fixtures, CI loops all 5 pairs. `tracelens eval detect --runs 5` running on the VM. | — | eval results into README/Devpost; first real `fix` (needs key) |
 | 2026-11-14 | **Held-out eval on real QNX: 10/10 everywhere.** `tracelens eval detect --runs 10 --irq 4`: Z1–Z5 buggy caught 10/10, reference fixes 0/10 flagged, all VERIFIED; healthy programs 0/30; 3 of 133 captures lossy (replaced). Calibration runs (3 × 5 runs, kept in captures/eval_calib) exposed: **workloads** Z1/Z2 releases < 1 tick apart (3/5, 4/5) → whole-tick spacing; Z3 mutual MsgSend raced (1/5, 0/5) → process-shared barrier; **tool** kernel-space mutex (procnto proc_pool_thread) failed Z4's fix → LOW; release-grid numbering moved by one >½-period-late job (199/200 false misses) → floor vs median phase; late wake-up while only lower-prio threads ran → platform latency; sparse p99 (7 waits) → HIGH needs ≥10% share or ≥3 long waits; rare marginal deadline miss (1/800, +2%) → MEDIUM (`deadline_marginal_rate`, 0 = hard RT); isolated IRQ overrun (1/9686) → MEDIUM; **harness** VERIFIED for a bug that never reproduced → needs ≥60% before-rate; lossy runs now replaced; clear error when traceprinter is missing. Fixtures Z1–Z3 refreshed from the new sources; results in docs/results/; README results + 'what real QNX taught the tool'; Devpost TBDs filled (except fix table); codelab §4–5 show real output. Healthy-program captures committed (`fixtures/real/healthy_*`, CI gate). 107 tests. | — | first real `tracelens fix` + `eval fix` (needs ANTHROPIC_API_KEY); codelab end-to-end pass on the VM |
+| 2026-11-14 | **No AI, no CI: deterministic fix engine, 4/5 VERIFIED on QNX.** User decision: no API-key dependency, no CI pipelines, solve real problems. Deleted Claude/Gemini explain+fix, `llm.py`, MCP server, `service.py`, CircleCI + GitHub workflow; `scripts/ci.sh` → `scripts/check.sh` (local). New `remedy/` (C toolkit: masking, statements, declarations, alias taint; 5 rules) + `fix/engine.py` (multi-round) + `tracelens remedy` (no target). Real QNX (`eval fix --runs 5`): Z1 PI mutex VERIFIED (inversion 5/5→0/5, p99 5.74→1.29 ms, budget 2 ms); Z2 flag drop VERIFIED (misses 1000→0, p99 6.75→0.77 ms); Z4 lock shrink VERIFIED (p99 7.45→2.99 ms); Z5 IST defer VERIFIED (p99 masked 2.41→0.24 ms, response 2.08→0.57 ms); Z3 GUIDED. **Found on the way:** first Z5 remedy started the worker after InterruptAttachEvent (20 ms spikes) at prio IST-1 → start before attach, prio below the lowest interrupt thread in the trace (virtio 21 → 20, matches the hand-written reference); eval fix did not replace lossy before-captures; at Z1's 1 ms budget the mutex left a ~1 ms critical-section wait (round 2 fixes it) and VM jitter decided the verdict → budget 2 ms per the slack rule, Z1 detect re-run (10/10, 0/10); host load during captures inflates VM timings → measure with the host idle. `docs/results/fix.md` + per-workload bundles (patch, summary, verdict). README, codelab (mkqnximage VM, remedy step), Devpost, video script rewritten. 113 tests (Linux). | — | Commit; codelab end-to-end run as a new user; record video; real-world QNX software beyond the bug zoo |
 
 ### Judge-roast backlog (2026-11-13)
 
@@ -376,3 +383,8 @@ row of 2026-11-13); the rest, in prize-money-per-hour order:
 | 2026-11-14 | Bug-zoo releases are whole QNX ticks apart | Timers fire on 1 ms tick boundaries; sub-tick offsets made planted bugs reproduce 0–4 times in 5 |
 | 2026-11-14 | Severity needs a pattern; rare small outliers are MEDIUM | Real VM noise (one 5.3 ms stall, one 564 µs handler, one 2.5 ms lock wait) must not fail a healthy build; `deadline_marginal_rate = 0` for hard RT |
 | 2026-11-14 | Published numbers come from a held-out run | Detectors were calibrated on three 5-run evals; the 10-run table was captured after the last change |
+| 2026-11-14 | No AI, no API keys, no CI pipelines (user) | Solve real problems on the user's machine and target; nothing to configure or pay for; deterministic, reproducible fixes |
+| 2026-11-14 | Automatic remedy only when its preconditions hold in the code; else guidance | A wrong rewrite of real-time code is worse than none; tests prove each rule backs off |
+| 2026-11-14 | Deferred interrupt work runs below the lowest interrupt thread in the trace | It must never delay any driver's interrupt; measured: IST-1 broke Z5, 20 (below virtio 21) verified |
+| 2026-11-14 | Z1 budget 2 ms (was 1 ms) | The 1 ms budget left < 1 ms slack over measured VM jitter, violating the bug-zoo slack rule; detection and fix re-run at 2 ms |
+| 2026-11-14 | Capture with the host idle | QEMU vCPUs share host cores; host load showed up as 10x job running time in the guest |

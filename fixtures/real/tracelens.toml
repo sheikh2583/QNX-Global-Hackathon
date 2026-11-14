@@ -16,7 +16,9 @@ irq_max_handler_us = 500
 deadlock_min_blocked_us = 50000
 
 [deadlines.control]   # z1 infusion pump: dose computation every 10 ms
-budget_us = 1000
+# 2 ms, not 1: the job runs ~0.12 ms, and on the QEMU VM wake-ups land up to ~0.7 ms late and
+# execution stalls add more (measured). Keep >= ~2 ms of slack over that noise (PLAN.md §15).
+budget_us = 2000
 period_us = 10000
 
 [deadlines.brake]     # z2 brake-by-wire: request round trip every 10 ms

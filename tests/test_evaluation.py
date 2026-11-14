@@ -105,28 +105,33 @@ def test_irq_is_substituted(zoo, cfg, tmp_path):
     assert all(c[3] == ("-d", "2", "-i", "7") for c in fake.calls)
 
 
-def test_fix_ablation_table(zoo, cfg, tmp_path):
-    outcomes = {("z1_infusion_pump", "full"): ("VERIFIED", 1), ("z1_infusion_pump", "source-only"): ("NOT FIXED", 4),
-                ("z3_sensor_fusion", "full"): ("VERIFIED", 2), ("z3_sensor_fusion", "source-only"): ("VERIFIED", 3)}
+def test_fix_table_from_the_engine(zoo, cfg, tmp_path):
     seen_before = []
 
-    def make_agent(workload_dir, ctx, out):
+    def make_engine(workload_dir, out):
         name = Path(workload_dir).name
 
         def run(before_traces=None):
-            seen_before.append((name, ctx, tuple(before_traces)))
-            st, n = outcomes[(name, ctx)]
-            return SimpleNamespace(status=st, attempts=[None] * n, bundle=str(out))
+            seen_before.append((name, tuple(before_traces)))
+            if name == "z3_sensor_fusion":
+                return SimpleNamespace(status="GUIDED", targets=["ipc_deadlock"], verdict=None, bundle=str(out),
+                                       remedies=[{"rule": "ipc-cycle", "automatic": False, "title": "Break the cycle"}])
+            return SimpleNamespace(
+                status="VERIFIED", targets=["priority_inversion"], bundle=str(out),
+                remedies=[{"rule": "semaphore-as-lock", "automatic": True, "title": "sem -> PI mutex"},
+                          {"rule": "symptom", "automatic": False, "title": "deadline"}],
+                verdict={"targets": {"priority_inversion": {"before_rate": 1.0, "after_rate": 0.0}},
+                         "deadlines": [{"name": "control", "before_p99": 5.5e6, "after_p99": 0.6e6,
+                                        "budget_ns": 1e6}]})
         return SimpleNamespace(run=run)
 
-    rep = eval_fix(zoo, cfg, make_agent, FakeTarget(), tmp_path / "res", runs=5)
+    rep = eval_fix(zoo, cfg, make_engine, FakeTarget(), tmp_path / "res", runs=5)
     md = (tmp_path / "res" / "fix.md").read_text()
-    assert "| **Verified** | **2/2** | **1/2** |" in md
-    assert "NOT FIXED (4 attempts)" in md and "VERIFIED (1 attempt)" in md
-    # both contexts reuse the same 'before' captures
-    z1 = [b for n, c, b in seen_before if n == "z1_infusion_pump"]
-    assert len(z1) == 2 and z1[0] == z1[1] and len(z1[0]) == 5
-    assert any(r.get("skipped") for r in rep["rows"])
+    assert "| `z1_infusion_pump` | auto: sem -> PI mutex | **VERIFIED** | priority_inversion 100% -> 0% of runs; " \
+           "'control' p99 5.50 -> 0.60 ms (budget 1.0) |" in md
+    assert "guided: Break the cycle | **GUIDED**" in md
+    assert "Automatic remedy for 1 of 2 workloads; **1 of 2 verified on the target**" in md
+    assert all(len(b) == 5 for _, b in seen_before) and any(r.get("skipped") for r in rep["rows"])
 
 
 LOSSY = ("TRACEPRINTER version 1.02\n -- HEADER FILE INFORMATION --\n        CYCLES_PER_SEC:: 1000000000\n"

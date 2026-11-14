@@ -1,8 +1,7 @@
-"""Autonomous fix-and-verify loop (PLAN.md §7, phase P4)."""
+"""Deterministic fix-and-verify loop: remedies chosen from the trace, proven on the target."""
 
-from .agent import Attempt, FixAgent, FixResult
 from .build import BuildResult, HostCheckBuilder, QccBuilder
+from .engine import FixEngine, FixResult
 from .scope import ScopeError, Workspace
 
-__all__ = ["Attempt", "BuildResult", "FixAgent", "FixResult", "HostCheckBuilder", "QccBuilder",
-           "ScopeError", "Workspace"]
+__all__ = ["BuildResult", "FixEngine", "FixResult", "HostCheckBuilder", "QccBuilder", "ScopeError", "Workspace"]

@@ -83,55 +83,6 @@ def _verdict(a, cfg, allow_lossy: bool) -> int:
     return 1 if any(at_least(f.severity, cfg.fail_on) for f in a.findings) else 0
 
 
-def _cmd_explain(args: argparse.Namespace) -> int:
-    try:
-        from .explain.claude import Explainer
-        from .llm import LLMError
-        explainer = Explainer(model=args.model, effort=args.effort, provider=args.provider,
-                              cache_dir=None if args.no_cache else args.cache_dir)
-    except ImportError:
-        print("tracelens explain with Claude needs the AI extra: pip install 'tracelens[ai]' "
-              "(or use Gemini: --provider gemini with GEMINI_API_KEY set)", file=sys.stderr)
-        return 2
-    except LLMError as exc:
-        print(f"tracelens explain: {exc}", file=sys.stderr)
-        return 2
-
-    cfg = load_config(args.config)
-    if args.fail_on:
-        cfg.fail_on = args.fail_on
-    a = analyze_file(args.trace, cfg, cycles_per_sec=args.cycles_per_sec, snapshot=args.snapshot)
-    sources = {Path(s).name: Path(s).read_text(encoding="utf-8", errors="replace") for s in args.source}
-
-    print(f"TraceLens {__version__} | explaining {min(len(a.findings), args.limit or 10**9)} "
-          f"of {len(a.findings)} findings with {explainer.llm.provider}:{explainer.model}")
-    expl = {}
-    for f in a.findings[:args.limit]:
-        x = explainer.explain(a, f, sources)
-        expl[f.id] = x
-        if x.data is None:
-            state = f"unavailable ({x.error})"
-        elif x.verified:
-            state = "citations verified" + (" (cached)" if x.cached else f" ({x.attempts} attempt(s))")
-        else:
-            state = "citations NOT verified: " + "; ".join(x.problems)
-        print(f"  {f.id} {f.title}\n      {state}")
-        if x.data is not None and not args.quiet:
-            print(f"      -> {x.data.get('headline', '')}")
-
-    if any("authentication" in x.error.lower() or "api key" in x.error.lower() for x in expl.values()):
-        print("  hint: model credentials rejected - set ANTHROPIC_API_KEY (Claude) or GEMINI_API_KEY "
-              "(Gemini) in your shell, then rerun", file=sys.stderr)
-    if args.json:
-        from .report.json_out import dumps
-        Path(args.json).write_text(dumps(a, expl), encoding="utf-8")
-    if args.html:
-        from .report.html import render
-        Path(args.html).write_text(render(a, expl), encoding="utf-8")
-        print(f"  report: {args.html}")
-    return _verdict(a, cfg, args.allow_lossy)
-
-
 def _cmd_capture(args: argparse.Namespace) -> int:
     import os
     from .target import Target, TargetError, capture
@@ -189,9 +140,51 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     return {VERIFIED: 0, INCONCLUSIVE: EXIT_LOSSY}.get(v.verdict, 1)
 
 
+def _cmd_remedy(args: argparse.Namespace) -> int:
+    """Plan fixes from a trace and the workload source. No target, no network."""
+    from .remedy import plan
+
+    cfg = load_config(args.config)
+    a = analyze_file(args.trace, cfg, cycles_per_sec=args.cycles_per_sec, snapshot=args.snapshot)
+    src_dir = Path(args.source)
+    files = [src_dir] if src_dir.is_file() else sorted([*src_dir.glob("*.c"), *src_dir.glob("*.h")])
+    if not files:
+        print(f"tracelens remedy: no .c/.h files in {src_dir}", file=sys.stderr)
+        return 2
+    root = src_dir if src_dir.is_dir() else src_dir.parent
+    sources = {f.relative_to(root).as_posix(): f.read_text(encoding="utf-8", errors="replace") for f in files}
+    findings = [f for f in a.findings if at_least(f.severity, cfg.fail_on)] or a.findings
+    remedies, fixed = plan(findings, sources)
+    print(f"TraceLens {__version__} | remedies for {Path(args.trace).name} ({len(findings)} findings)")
+    if not remedies:
+        print("  nothing to fix")
+        return 0
+    for r in remedies:
+        tag = "SYMPTOM" if r.rule == "symptom" else ("AUTO" if r.automatic else "GUIDED")
+        print(f"\n  [{tag}] {r.title}")
+        print(f"      {r.rationale}")
+        for path, line, code in r.locations[:8]:
+            print(f"      {path}:{line}  {code}")
+        for g in r.guidance:
+            print(f"      - {g}")
+        for n in r.notes:
+            print(f"      (not automatic: {n})")
+    import difflib
+    diff = "".join(
+        line for path in sorted(sources) if fixed[path] != sources[path]
+        for line in difflib.unified_diff(sources[path].splitlines(True), fixed[path].splitlines(True),
+                                         f"a/{path}", f"b/{path}"))
+    if diff:
+        out = Path(args.patch or "tracelens-fix.patch")
+        out.write_text(diff, encoding="utf-8")
+        print(f"\n  patch: {out} ({diff.count(chr(10))} lines). Prove it on the target: tracelens fix "
+              f"{root} --host <qnx>")
+    return 0
+
+
 def _cmd_fix(args: argparse.Namespace) -> int:
     import os
-    from .fix import FixAgent, QccBuilder
+    from .fix import FixEngine, QccBuilder
     from .target import Target, capture
 
     workload = Path(args.workload)
@@ -208,32 +201,25 @@ def _cmd_fix(args: argparse.Namespace) -> int:
     wargs = args.workload_args
 
     def capturer(binary, _ws, label, i, out):
-        res = capture(target, binary, wargs, Path(out) / "traces", seconds=args.seconds, name=f"{label}-{i}")
+        res = capture(target, binary, wargs, Path(out), seconds=args.seconds, name=f"{label}-{i}",
+                      background=args.background)
         return res.text
 
     includes = [Path(d) for d in args.include] or [d for d in [workload.parent / "common"] if d.is_dir()]
-    out = Path(args.out or f"fixes/{workload.name}-{args.context}")
-    try:
-        from .llm import LLMError
-        agent = FixAgent(workload, includes, cfg, QccBuilder(), capturer, out, model=args.model,
-                         effort=args.effort, runs=args.runs, max_attempts=args.max_attempts,
-                         context=args.context, target_kinds=args.kind or None, provider=args.provider)
-    except ImportError:
-        print("tracelens fix with Claude needs the AI extra: pip install 'tracelens[ai]' "
-              "(or use Gemini: --provider gemini with GEMINI_API_KEY set)", file=sys.stderr)
-        return 2
-    except LLMError as exc:
-        print(f"tracelens fix: {exc}", file=sys.stderr)
-        return 2
-    res = agent.run(before_traces=args.before or None)
-    print(f"TraceLens {__version__} | fix {res.workload} with {agent.llm.provider}:{agent.llm.model} "
-          f"({res.context}, {res.runs} runs per side)")
-    for a in res.attempts:
-        print(f"  attempt {a.n}: {a.stage} {'OK' if a.ok else 'failed'}"
-              + (f" - {a.verdict['verdict']}" if a.verdict else (f" - {a.detail[:120]}" if a.detail else "")))
+    out = Path(args.out or f"fixes/{workload.name}")
+    engine = FixEngine(workload, includes, cfg, QccBuilder(), capturer, out, runs=args.runs,
+                       target_kinds=args.kind or None)
+    res = engine.run(before_traces=args.before or None)
+    print(f"TraceLens {__version__} | fix {res.workload} ({res.runs} runs per side)")
+    for r in res.remedies:
+        if r["rule"] != "symptom":
+            print(f"  [{'AUTO' if r['automatic'] else 'GUIDED'}] {r['title']}")
+    if res.verdict:
+        for k, t in res.verdict["targets"].items():
+            print(f"  {k:<22} before {t['before_rate']:>4.0%} of runs  ->  after {t['after_rate']:>4.0%}")
     print(f"  STATUS: {res.status}" + (" (quick check: fewer than 5 runs)" if res.quick else ""))
-    print(f"  evidence bundle: {res.bundle}")
-    return {"VERIFIED": 0, "NOTHING TO FIX": 0, "INCONCLUSIVE": EXIT_LOSSY, "ERROR": 2}.get(res.status, 1)
+    print(f"  evidence bundle: {res.bundle} (SUMMARY.md, patch.diff, before/, after/)")
+    return {"VERIFIED": 0, "NOTHING TO FIX": 0, "GUIDED": 0, "INCONCLUSIVE": EXIT_LOSSY}.get(res.status, 1)
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
@@ -243,20 +229,6 @@ def _cmd_export(args: argparse.Namespace) -> int:
     out = Path(args.out or Path(args.trace).with_suffix(".perfetto.json"))
     out.write_text(dumps(a, include_calls=not args.no_calls), encoding="utf-8")
     print(f"wrote {out} ({len(a.findings)} findings) - open it at https://ui.perfetto.dev")
-    return 0
-
-
-def _cmd_mcp(args: argparse.Namespace) -> int:
-    try:
-        from .mcp_server import main as serve
-    except ImportError:
-        print("tracelens mcp needs the MCP extra: pip install 'tracelens[mcp]'", file=sys.stderr)
-        return 2
-    try:
-        serve()
-    except ImportError:
-        print("tracelens mcp needs the MCP extra: pip install 'tracelens[mcp]'", file=sys.stderr)
-        return 2
     return 0
 
 
@@ -333,19 +305,17 @@ def _cmd_eval(args: argparse.Namespace) -> int:
             eval_detect(args.zoo, cfg, cap, out, runs=args.runs, irq=args.irq, only=only)
             print((out / "detect.md").read_text(encoding="utf-8"))
             return 0
-        from .fix import FixAgent, QccBuilder
+        from .fix import FixEngine, QccBuilder
 
-        def make_agent(workload_dir, ctx, agent_out):
+        def make_engine(workload_dir, engine_out):
             def fix_cap(binary, _ws, label, i, o):
                 entry = _zoo_entry(args.zoo, Path(workload_dir).name)
                 wargs = [a.replace("{irq}", str(args.irq)) for a in entry.args]
                 return cap(label, i, binary, None, wargs, o, background=entry.background)
-            return FixAgent(workload_dir, [Path(args.zoo) / "common"], cfg, QccBuilder(), fix_cap, agent_out,
-                            model=args.model, effort=args.effort, runs=args.runs,
-                            max_attempts=args.max_attempts, context=ctx, provider=args.provider)
+            return FixEngine(workload_dir, [Path(args.zoo) / "common"], cfg, QccBuilder(), fix_cap, engine_out,
+                             runs=args.runs)
 
-        contexts = tuple(c.strip() for c in args.contexts.split(","))
-        eval_fix(args.zoo, cfg, make_agent, cap, out, runs=args.runs, contexts=contexts, irq=args.irq, only=only)
+        eval_fix(args.zoo, cfg, make_engine, cap, out, runs=args.runs, irq=args.irq, only=only)
         print((out / "fix.md").read_text(encoding="utf-8"))
         return 0
     except (FileNotFoundError, ImportError) as exc:
@@ -413,28 +383,6 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("-q", "--quiet", action="store_true")
     a.set_defaults(func=_cmd_analyze)
 
-    x = sub.add_parser("explain", help="analyze, then explain each finding with Claude (validated citations)")
-    x.add_argument("trace")
-    x.add_argument("--snapshot", default="auto",
-                       help="pidin listing from capture start (default: <trace>.pidin.txt if present)")
-    x.add_argument("--cycles-per-sec", type=int, help="clock rate if the trace header lacks CYCLES_PER_SEC")
-    x.add_argument("--allow-lossy", action="store_true", help="give a verdict even on a lossy trace")
-    x.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines)")
-    x.add_argument("--source", action="append", default=[], metavar="FILE",
-                   help="workload source to show Claude (repeatable)")
-    x.add_argument("--provider", choices=["auto", "claude", "gemini"], default=None,
-                   help="model provider (default: TRACELENS_LLM, else whichever API key is set)")
-    x.add_argument("--model", help="model id (default: claude-opus-5-5, or the best Gemini model your key can use)")
-    x.add_argument("--effort", default="medium", choices=["low", "medium", "high", "xhigh", "max"])
-    x.add_argument("--limit", type=int, help="explain at most N findings (highest severity first)")
-    x.add_argument("--json", help="write JSON findings + explanations here")
-    x.add_argument("--html", help="write the HTML report with explanations here")
-    x.add_argument("--cache-dir", default=".tracelens-cache/explain")
-    x.add_argument("--no-cache", action="store_true")
-    x.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
-    x.add_argument("-q", "--quiet", action="store_true")
-    x.set_defaults(func=_cmd_explain)
-
     c = sub.add_parser("capture", help="run a workload on the QNX target under a kernel trace and fetch it")
     c.add_argument("binary", nargs="?", help="workload built with qcc (e.g. bugzoo/out/z1_infusion_pump)")
     c.add_argument("--host", help="target address (or TRACELENS_TARGET, or [target] host in the config)")
@@ -463,7 +411,16 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--json", help="write the verdict as JSON here")
     v.set_defaults(func=_cmd_compare)
 
-    f = sub.add_parser("fix", help="Claude patches a workload; qcc, run on QNX, re-trace, verdict")
+    r = sub.add_parser("remedy", help="plan QNX fixes from a trace + source (no target needed); writes a patch")
+    r.add_argument("trace")
+    r.add_argument("--source", required=True, help="workload directory (or one .c file)")
+    r.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines)")
+    r.add_argument("--patch", help="write the patch here (default: tracelens-fix.patch)")
+    r.add_argument("--snapshot", default="auto")
+    r.add_argument("--cycles-per-sec", type=int)
+    r.set_defaults(func=_cmd_remedy)
+
+    f = sub.add_parser("fix", help="find, fix and prove: trace, apply the remedy, qcc, re-trace, verdict")
     f.add_argument("workload", help="workload directory, e.g. bugzoo/z1_infusion_pump")
     f.add_argument("-c", "--config", help="tracelens.toml (deadlines, [target])")
     f.add_argument("--host")
@@ -472,17 +429,11 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--key")
     f.add_argument("--runs", type=int, default=5, help="captures per side (>= 5 for a verified claim)")
     f.add_argument("--seconds", type=int, default=4)
-    f.add_argument("--max-attempts", type=int, default=4)
-    f.add_argument("--context", choices=["full", "source-only"], default="full",
-                   help="source-only hides findings and traces from the model (ablation)")
+    f.add_argument("--background", help="shell command run on the target during each capture")
     f.add_argument("--kind", action="append", help="finding kind the fix must remove")
     f.add_argument("--before", nargs="+", metavar="TRACE", help="reuse existing 'before' traces")
     f.add_argument("--include", action="append", default=[], help="read-only include dir (default: ../common)")
-    f.add_argument("--provider", choices=["auto", "claude", "gemini"], default=None,
-                   help="model provider (default: TRACELENS_LLM, else whichever API key is set)")
-    f.add_argument("--model", help="model id (default: claude-opus-5-5, or the best Gemini model your key can use)")
-    f.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
-    f.add_argument("--out", help="evidence bundle folder (default: fixes/<workload>-<context>)")
+    f.add_argument("--out", help="evidence bundle folder (default: fixes/<workload>)")
     f.set_defaults(func=_cmd_fix)
 
     e = sub.add_parser("export", help="write Chrome Trace JSON for ui.perfetto.dev (states, markers, findings)")
@@ -507,7 +458,7 @@ def build_parser() -> argparse.ArgumentParser:
     ev = sub.add_parser("eval", help="bug-zoo evaluation on the QNX target: detection table, fix ablation")
     evs = ev.add_subparsers(dest="eval_cmd", required=True)
     for name, desc in (("detect", "capture buggy + reference builds N times; detection and false-positive table"),
-                       ("fix", "run the fix agent with full context and source only; fix-rate table")):
+                       ("fix", "run the fix engine on every workload; proven-fix table")):
         e2 = evs.add_parser(name, help=desc)
         e2.add_argument("--zoo", default="bugzoo", help="bug-zoo folder with zoo.toml and out/ binaries")
         e2.add_argument("-c", "--config", default="bugzoo/tracelens.toml")
@@ -519,17 +470,7 @@ def build_parser() -> argparse.ArgumentParser:
         e2.add_argument("--host")
         e2.add_argument("--user")
         e2.add_argument("--key")
-        if name == "fix":
-            e2.add_argument("--contexts", default="full,source-only")
-            e2.add_argument("--provider", choices=["auto", "claude", "gemini"], default=None,
-                            help="model provider (default: TRACELENS_LLM, else whichever API key is set)")
-            e2.add_argument("--model", help="model id (default: claude-opus-5-5, or the best Gemini model your key can use)")
-            e2.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
-            e2.add_argument("--max-attempts", type=int, default=4)
         e2.set_defaults(func=_cmd_eval)
-
-    sp = sub.add_parser("mcp", help="run the MCP server on stdio (claude mcp add tracelens -- tracelens mcp)")
-    sp.set_defaults(func=_cmd_mcp)
 
     d = sub.add_parser("dump", help="print the normalized event stream as JSONL")
     d.add_argument("trace")

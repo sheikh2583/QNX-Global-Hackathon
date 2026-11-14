@@ -1,0 +1,11 @@
+--- a/main.c
++++ b/main.c
+@@ -76,7 +76,7 @@
+ {
+     t0 = tl_parse_args(argc, argv, &run_s);
+ 
+-    int chid = ChannelCreate(_NTO_CHF_FIXED_PRIORITY);
++    int chid = ChannelCreate(0);
+     if (chid == -1)
+         tl_die("ChannelCreate");
+ 

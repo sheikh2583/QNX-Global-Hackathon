@@ -1,0 +1,215 @@
+{
+  "runs_per_side": 5,
+  "rows": [
+    {
+      "workload": "z1_infusion_pump",
+      "skipped": "",
+      "status": "VERIFIED",
+      "targets": [
+        "deadline_miss",
+        "priority_inversion"
+      ],
+      "remedies": [
+        {
+          "rule": "semaphore-as-lock",
+          "automatic": true,
+          "title": "Replace semaphore 'buf_lock' (used as a lock) with a priority-inheriting mutex"
+        }
+      ],
+      "verdict": {
+        "verdict": "VERIFIED",
+        "reasons": [],
+        "runs": {
+          "before": 5,
+          "after": 5,
+          "lossy_skipped": 0
+        },
+        "targets": {
+          "deadline_miss": {
+            "before_rate": 1.0,
+            "after_rate": 0.0
+          },
+          "priority_inversion": {
+            "before_rate": 1.0,
+            "after_rate": 0.0
+          }
+        },
+        "new_kinds": [],
+        "deadlines": [
+          {
+            "name": "control",
+            "budget_ns": 2000000,
+            "before_p99": 5742241,
+            "after_p99": 1292378,
+            "before_misses": 998,
+            "after_misses": 0,
+            "p_value": 0.0,
+            "ok": true,
+            "reason": "significantly faster (p=0)"
+          }
+        ]
+      },
+      "rounds": 1,
+      "bundle": "docs/results/fixes/z1_infusion_pump"
+    },
+    {
+      "workload": "z2_brake_by_wire",
+      "skipped": "",
+      "status": "VERIFIED",
+      "targets": [
+        "deadline_miss",
+        "priority_inversion"
+      ],
+      "remedies": [
+        {
+          "rule": "fixed-priority-channel",
+          "automatic": true,
+          "title": "Let the server inherit its clients' priority: drop _NTO_CHF_FIXED_PRIORITY"
+        }
+      ],
+      "verdict": {
+        "verdict": "VERIFIED",
+        "reasons": [],
+        "runs": {
+          "before": 5,
+          "after": 5,
+          "lossy_skipped": 0
+        },
+        "targets": {
+          "deadline_miss": {
+            "before_rate": 1.0,
+            "after_rate": 0.0
+          },
+          "priority_inversion": {
+            "before_rate": 1.0,
+            "after_rate": 0.0
+          }
+        },
+        "new_kinds": [],
+        "deadlines": [
+          {
+            "name": "brake",
+            "budget_ns": 2000000,
+            "before_p99": 6745070,
+            "after_p99": 773427,
+            "before_misses": 1000,
+            "after_misses": 0,
+            "p_value": 0.0,
+            "ok": true,
+            "reason": "significantly faster (p=0)"
+          }
+        ]
+      },
+      "rounds": 1,
+      "bundle": "docs/results/fixes/z2_brake_by_wire"
+    },
+    {
+      "workload": "z3_sensor_fusion",
+      "skipped": "",
+      "status": "GUIDED",
+      "targets": [
+        "ipc_deadlock"
+      ],
+      "remedies": [
+        {
+          "rule": "ipc-cycle",
+          "automatic": false,
+          "title": "Break the Send/Reply cycle with a send hierarchy"
+        }
+      ],
+      "verdict": null,
+      "rounds": 0,
+      "bundle": "docs/results/fixes/z3_sensor_fusion"
+    },
+    {
+      "workload": "z4_camera_pipeline",
+      "skipped": "",
+      "status": "VERIFIED",
+      "targets": [
+        "deadline_miss",
+        "mutex_contention"
+      ],
+      "remedies": [
+        {
+          "rule": "shrink-critical-section",
+          "automatic": true,
+          "title": "Shrink the 'store_lock' critical section: move memset, tl_spin_us outside the lock"
+        }
+      ],
+      "verdict": {
+        "verdict": "VERIFIED",
+        "reasons": [],
+        "runs": {
+          "before": 5,
+          "after": 5,
+          "lossy_skipped": 0
+        },
+        "targets": {
+          "deadline_miss": {
+            "before_rate": 1.0,
+            "after_rate": 0.0
+          },
+          "mutex_contention": {
+            "before_rate": 1.0,
+            "after_rate": 0.0
+          }
+        },
+        "new_kinds": [],
+        "deadlines": [
+          {
+            "name": "frame",
+            "budget_ns": 4000000,
+            "before_p99": 7449446,
+            "after_p99": 2988487,
+            "before_misses": 2031,
+            "after_misses": 0,
+            "p_value": 0.0,
+            "ok": true,
+            "reason": "significantly faster (p=0)"
+          }
+        ]
+      },
+      "rounds": 1,
+      "bundle": "docs/results/fixes/z4_camera_pipeline"
+    },
+    {
+      "workload": "z5_motor_encoder",
+      "skipped": "",
+      "status": "VERIFIED",
+      "targets": [
+        "irq_handler_overrun",
+        "irq_latency"
+      ],
+      "remedies": [
+        {
+          "rule": "ist-defer-work",
+          "automatic": true,
+          "title": "Unmask IRQ first in main() and defer recompute_velocity_profile() to a worker thread"
+        }
+      ],
+      "verdict": {
+        "verdict": "VERIFIED",
+        "reasons": [],
+        "runs": {
+          "before": 5,
+          "after": 5,
+          "lossy_skipped": 0
+        },
+        "targets": {
+          "irq_handler_overrun": {
+            "before_rate": 1.0,
+            "after_rate": 0.0
+          },
+          "irq_latency": {
+            "before_rate": 1.0,
+            "after_rate": 0.0
+          }
+        },
+        "new_kinds": [],
+        "deadlines": []
+      },
+      "rounds": 1,
+      "bundle": "docs/results/fixes/z5_motor_encoder"
+    }
+  ]
+}

@@ -10,5 +10,5 @@ reports/
 bugzoo/out/
 .tracelens-cache/
 captures/
-fixes/
+/fixes/
 demo/out/

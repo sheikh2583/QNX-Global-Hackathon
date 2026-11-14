@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# TraceLens CI, runnable anywhere: CircleCI, GitHub Actions, GitLab, or your own machine.
+# Run every TraceLens check on this machine (Linux/WSL; expects `pip install -e ".[dev]"`).
 #
-#   scripts/ci.sh            everything (expects `pip install -e ".[dev]"` done)
-#   scripts/ci.sh tests      unit tests + committed synthetic fixtures match the generator
-#   scripts/ci.sh hostcheck  bug-zoo workloads and reference fixes compile against QNX API stubs
-#   scripts/ci.sh gate       the real-time trace gate on committed real QNX 8.0 and synthetic traces
+#   scripts/check.sh            everything
+#   scripts/check.sh tests      unit tests + committed synthetic fixtures match the generator
+#   scripts/check.sh hostcheck  bug-zoo workloads and reference fixes compile against QNX API stubs
+#   scripts/check.sh gate       every real QNX 8.0 and synthetic trace gets the expected verdict
 #
 # Reports (HTML, JSON, SARIF) land in reports/. Exit status is non-zero if any step fails.
 set -u
@@ -61,5 +61,5 @@ case "${1:-all}" in
   all) step_tests; step_hostcheck; step_gate ;;
   *) echo "usage: $0 [all|tests|hostcheck|gate]" >&2; exit 2 ;;
 esac
-[ $failed -eq 0 ] && echo "CI: all checks passed" || echo "CI: FAILED" >&2
+[ $failed -eq 0 ] && echo "all checks passed" || echo "FAILED" >&2
 exit $failed

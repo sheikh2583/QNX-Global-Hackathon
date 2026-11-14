@@ -42,6 +42,12 @@ def detect(model: TraceModel, cfg: Config) -> list[Finding]:
             work = (done.t_ns - wake.t_ns) if done else None
             samples.setdefault((vec, key), []).append((irq, wake, done, wake.t_ns - irq.t_ns, work))
 
+    # Every interrupt service thread on the target (all drivers, not just this program): deferred
+    # application work must run below all of them, or it can delay some driver's interrupts.
+    ist_prios = [(model.threads[k].prio, model.label(k)) for ks in handlers.values() for k in ks
+                 if k in model.threads and model.threads[k].prio is not None]
+    lowest_ist = min(ist_prios) if ist_prios else None
+
     findings = []
     for (vec, key), items in samples.items():
         lat = [s[3] for s in items]
@@ -55,6 +61,9 @@ def detect(model: TraceModel, cfg: Config) -> list[Finding]:
             "max_latency_us": round(us(max(lat)), 1),
             "p99_handler_us": round(us(percentile(work, 99)), 1) if work else 0,
             "max_handler_us": round(us(max_work), 1),
+            "handler_prio": model.threads[key].prio,
+            "lowest_interrupt_thread_prio": lowest_ist[0] if lowest_ist else None,
+            "lowest_interrupt_thread": lowest_ist[1] if lowest_ist else None,
         }
         if us(p99_lat) > t.irq_max_latency_us:
             worst = max(items, key=lambda s: s[3])
