@@ -1,6 +1,6 @@
 # TraceLens ML: design and analysis
 
-Phase 6 of [PLAN.md](../../PLAN.md). Status (2026-11-15): scaffold built; QNX scheduling simulator built; both models trained and evaluated on 1,800 simulated traces and checked on the real bug-zoo traces ([results_sim.md](results_sim.md)). Next: the real tlgen pilot on the QNX VM.
+Phase 6 of [PLAN.md](../../PLAN.md). Status (2026-11-15): scaffold built; QNX scheduling simulator built; the simulator was then measured against the real captures feature by feature and corrected; both models are trained and evaluated on 1,920 simulated traces, explain each finding by the labelled pattern it resembles, and are wired into the product ([results_sim.md](results_sim.md)). Next: the real tlgen pilot on the QNX VM.
 
 ## 1. What ML is for here (and what it is not)
 
@@ -41,6 +41,7 @@ already, a real QNX 8.0 target and a capture pipeline, so we generate labelled d
   | `lost_wakeup` | (unseen) signal sent before the wait; the consumer sleeps to its timeout | **no** | radar test, held out |
   | `period_overrun` | (unseen) a job's work exceeds its period; a low-priority thread starves | **no** | radar test, held out |
   | `healthy_irq` | healthy (interrupt thread, unmask first) | n/a | radar training; false-alarm test |
+  | `healthy_irq_deferred` | healthy (unmask, then a lower-priority worker: the pattern TraceLens's own remedy writes) | n/a | radar training; false-alarm test |
   | `irq_overrun` | irq_handler_overrun | yes | classifier training |
 
 - **Parameters** are sampled per run (seeded): priorities, period, work and critical-section
@@ -61,7 +62,10 @@ Unit: **one thread, one 20 ms window** (two periods of a 10 ms loop). Features a
 TraceModel (`src/tracelens/ml/features.py`), normalised by window length so traces of any length mix:
 
 - time shares: running, ready (preempted), blocked on SEM / MUTEX / CONDVAR, SEND / REPLY, INTR, sleep
-- longest single block, longest ready wait, number of blocks and preemptions
+- longest single block, longest ready wait, **longest unbroken CPU burst**, number of blocks and preemptions
+- **time spent holding an interrupt masked** (from InterruptWait() returning to InterruptUnmask()):
+  the only thing that separates a handler doing its work on the device's time from one that unmasked
+  first and deferred, since both can hold a CPU for milliseconds
 - **priority context**: blocked while a lower-priority thread of another process ran on its CPU
   (the generic inversion signal, independent of the sync object type), the thread's priority rank
 - CPU migrations, distinct CPUs
@@ -177,6 +181,10 @@ at random. Commands: `tracelens simulate <scenario> -o t.txt.gz`, `tracelens dat
 | 1 | fixed Z1's logger flagged (waits for the CPU 60% of the time) | healthy coverage: long low-priority critical sections behind PI mutexes, medium loads up to 70% of a core |
 | 2 | random single windows flag long healthy traces | persistence rule (calibrated on healthy training traces) |
 | 3 | classifier blamed fixed Z1's logger | per-thread labels (victim only) |
+| 4 | a measured gap table (`median` per feature, real victim thread vs its simulated family) showed the simulated interrupt thread preempted 4.75x/ms where the real one was never preempted, and the simulated `ipc_deadlock` threads only ever sat in SEND | a driver on a shared line now only does work when its own device raised the interrupt; `ipc_deadlock` serves its peer in a MsgReceive loop first, like the real Z3; healthy handler work narrowed to the measured ~7 us |
+| 4 | nothing in the feature set saw a handler's 2.4 ms of masked work | `max_run_frac` and `intr_masked_frac` |
+| 5 | adding the deferred-worker scenario (the correct pattern) taught the radar that long CPU bursts are normal, and the interrupt-overrun detection collapsed | `intr_masked_frac`: the worker's burst is not masked time, the overrunning handler's is |
+| 5 | the busy logger of the real Z1 *fix* flagged again after the healthy set changed | parameters drawn as fractions of the period, so heavily loaded healthy programs are common instead of a rare corner; healthy training traces that miss deadlines are dropped from training |
 
 **Results** ([results_sim.md](results_sim.md), one recorded run of the final code):
 - held-out simulated data: radar false alarms on 4 of 124 healthy traces; unseen families `lost_wakeup`,
@@ -189,7 +197,34 @@ at random. Commands: `tracelens simulate <scenario> -o t.txt.gz`, `tracelens dat
   The classifier names the right cause on the right thread for Z1, Z2, Z4, says healthy for all 8
   healthy/fixed traces, and misses Z3 and Z5.
 
-## 10. Roadmap
+## 10. Retrieval: what does this behaviour resemble?
+
+"Unlike anything healthy" is true but thin, so each radar finding also names the labelled pattern it most
+resembles (`src/tracelens/ml/retrieve.py`). A handful of exemplar windows per scenario ride with the radar
+model; the distance is measured in the radar's own z-space, so it compares *deviations from healthy*
+rather than raw timings, and the report says whether the match is inside that pattern's usual radius:
+
+> `ab` behaved unlike healthy QNX programs in 51 of its 100 time windows ... The closest pattern
+> TraceLens has seen is a lock-order (ABBA) deadlock between two mutexes, but only loosely
+> (distance 1.4 against 1.2 typical for it): treat this as behaviour of its own.
+
+Rules that keep it honest: exemplars come from training-split windows only (so the held-out families have
+none, and a finding on one of them reports its nearest *known* pattern with an explicit distance), only the
+planted victim's windows represent a bug, and a match beyond the pattern's radius is reported as loose.
+
+## 11. In the product
+
+| Where | What it shows |
+|---|---|
+| `tracelens analyze --radar` | learned findings after the rules' own, numbered with them |
+| the web app (`/analyze` uploads, the example reports) | the same findings, MEDIUM, in plain language: "A thread behaved unlike anything healthy" |
+| `tracelens fix --watch` and the hosted replay | a "Second opinion" block per round, marked *Learned*, next to the rules' findings |
+
+The boundary is visible everywhere: a learned finding is MEDIUM, never fails the gate, never becomes a fix
+target and never gets a patch. The bundled `radar.json` makes this work offline with no key and no network;
+a corrupt or missing model costs the report nothing (it is reported as an error and the rules carry on).
+
+## 12. Roadmap
 
 1. **Real pilot** (needs WSL + the VM): build `tlgen` with qcc, one run per scenario; compare each feature's
    distribution real vs simulated (per-feature gap table); recalibrate the simulator's knobs from it.
@@ -198,7 +233,7 @@ at random. Commands: `tracelens simulate <scenario> -o t.txt.gz`, `tracelens dat
 3. **Close the two misses**: Z3 (deadlock across processes: add multi-process healthy IPC so a long SEND
    wait is learnable) and Z5 (real interrupt bursts: drive the simulated line from the real
    inter-arrival distribution).
-4. **Retrieval for explanations**: store labelled exemplar windows; a radar finding shows "most similar
-   known pattern: lost wake-up (scenario lost_wakeup), distance d" with the exemplar's timeline.
-5. **Product**: radar note in the web report and per-run radar scores in the live fix view.
+4. **A second real target**: everything here is one QEMU guest with four CPUs. Hardware, or a different
+   CPU count, is the next honest test of the features' independence from the platform.
+5. **Retrieval beyond the nearest exemplar**: show the exemplar's own timeline next to the finding's.
 

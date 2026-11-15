@@ -3,6 +3,7 @@
   /                 what TraceLens solves, how to use it, measured proof
   /demo             guided demo for judges: one real QNX 8.0 recording from bug to proven fix, then reliability
   /analyze          upload a recording (optionally C source and deadlines): plain-language report and patch
+                    (reports also carry the radar's learned findings, bundled model, no network)
   /examples         the five real QNX programs; /example/<w> their reports, /proof/<w> their before/after
   /guide            how to read a report
   /replay/<bundle>  a real fix on the QNX VM, replayed step by step (from its recorded events.jsonl)
@@ -32,6 +33,7 @@ from urllib.parse import unquote
 
 from . import __version__, app
 from .analyze import Analysis, analyze_file, analyze_text
+from .ml.radar import annotate as radar_annotate
 from .config import Config, load_config
 
 MAX_UPLOAD = 12 * 1024 * 1024  # ~150k events: about 200 MB to analyze
@@ -68,6 +70,7 @@ class Site:
                 self._cache.move_to_end(name)
                 return self._cache[name]
         a = analyze_file(self.traces()[name], self.cfg)  # outside the lock: slow, and safe to repeat
+        radar_annotate(a)  # learned findings for behaviour no rule knows (MEDIUM, never a fix)
         with self._lock:
             self._cache[name] = a
             while len(self._cache) > 2:  # keep memory small on a free instance
@@ -177,6 +180,7 @@ def analyze_upload(fields: dict[str, tuple[str, bytes]]) -> bytes:
     if not a.model.events:
         raise UploadError("There are no QNX kernel events in it. Upload the text that `traceprinter -f trace.kev` "
                           "prints, or that text gzipped.")
+    radar_annotate(a)
     src_name, src = fields.get("source", ("", b""))
     sources = {Path(src_name or "main.c").name: src.decode("utf-8", errors="replace")} if src else None
     return app.upload_report(a, cfg, fields["trace"][0], sources)

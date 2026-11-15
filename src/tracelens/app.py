@@ -46,6 +46,14 @@ KIND = {
                   "delayed or lost.",
         "todo": "Acknowledge and unmask the interrupt first; hand the heavy work to a lower-priority thread.",
     },
+    "unusual_behavior": {
+        "name": "A thread behaved unlike anything healthy",
+        "impact": "No rule matched this, but the thread's timing does not look like any healthy QNX program "
+                  "TraceLens has learned from. It is a lead, not a verdict: real-time bugs with no rule yet "
+                  "look exactly like this.",
+        "todo": "Open the timeline at that moment and check what the thread was waiting for, and who held "
+                "the CPU or the lock it needed.",
+    },
     "irq_latency": {
         "name": "Interrupts are answered late",
         "impact": "The thread that serves the device starts long after the device asked for attention.",
@@ -293,11 +301,12 @@ def problem_card(a: Analysis, f: Finding, n: int, remedies: list, diff: str = ""
 
 
 SYMPTOMS = {"deadline_miss", "irq_latency"}
+LEARNED = {"unusual_behavior"}  # from the learned radar, not a rule: shown apart, never auto-fixed
 
 
 def order(f: Finding) -> tuple:
-    """Most severe first; within a severity, causes before the symptoms they explain."""
-    return (-SEVERITY_RANK.get(f.severity, 0), f.kind in SYMPTOMS, f.t_start)
+    """Most severe first; within a severity, causes before symptoms, proven findings before learned ones."""
+    return (-SEVERITY_RANK.get(f.severity, 0), f.kind in LEARNED, f.kind in SYMPTOMS, f.t_start)
 
 
 def report_body(a: Analysis, cfg: Config, title: str, sources: dict[str, str] | None = None,

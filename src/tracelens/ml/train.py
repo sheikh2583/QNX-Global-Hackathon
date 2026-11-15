@@ -40,7 +40,9 @@ def features_from_manifest(data_dir: str | Path, out: str | Path, cfg: Config,
 
 
 def train_radar(feature_rows: list[dict], quantile: float = 0.995) -> dict:
-    train = [r for r in feature_rows if r["label"] == HEALTHY and r["split"] == "train"]
+    # Only runs the rules also call clean: a "healthy" variant that drew so much load that it misses
+    # deadlines is a real problem, and teaching the radar that it is normal would blind it.
+    train = [r for r in feature_rows if r["label"] == HEALTHY and r["split"] == "train" and r.get("triggered", True)]
     by_trace: dict[str, list] = {}
     for r in train:
         by_trace.setdefault(r["id"], []).append((r["thread"], r["f"]))
@@ -48,8 +50,10 @@ def train_radar(feature_rows: list[dict], quantile: float = 0.995) -> dict:
     model = fit_radar([r["f"] for r in train], quantile,
                       note=f"trained on {len(train)} windows of {len(by_trace)} healthy traces ({', '.join(sources)})")
     from .model import calibrate_persistence, persistence
+    from .retrieve import build as build_exemplars
     calibrate_persistence(model, [persistence(model, rows) for rows in by_trace.values()])
     model["sources"] = sources
+    model["exemplars"] = build_exemplars(feature_rows, model)  # training-split windows only
     return model
 
 

@@ -17,6 +17,16 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
 - **Understands QNX.** QNX mutexes inherit priority by default, so most textbook inversions can't happen. TraceLens looks for the ones that can: ownerless semaphores and `_NTO_CHF_FIXED_PRIORITY` channels. It reads priorities from kernel events over time, so a traced inheritance boost is recognised. Message-passing deadlocks are found per channel. Locks inside procnto are told apart from yours.
 - **Fixes.** Each proven root cause maps to a QNX-specific source transform: a semaphore used as a lock becomes a `PTHREAD_PRIO_INHERIT` mutex; a fixed-priority channel gets its flag dropped; an interrupt thread that works before `InterruptUnmask()` unmasks first and hands the work to a pulse-driven worker at a priority below every interrupt thread in the trace; private work leaves a contended critical section. Each transform checks its safety preconditions in the code (a semaphore used as a signal, a pointer into shared data, an early `return` inside a lock all make it back off) and otherwise gives the exact lines and the fix to make by hand.
 - **Proves.** `tracelens fix` captures the program 5 times, patches a sandbox copy, builds it with `qcc`, runs it 5 more times under `tracelogger`, and compares: VERIFIED requires the finding gone in every run, nothing new, and statistically faster response times (Mann-Whitney U). If the verdict is NOT FIXED, it diagnoses the patched build's own traces and fixes again (one fix often uncovers the next cause).
+- **Learns what healthy looks like**, for the bugs nobody wrote a rule for. A model trained only on
+  healthy QNX traces flags a thread whose scheduling behaviour fits nothing it has seen, says which of
+  its labelled patterns the behaviour most resembles, and how loose that match is. It is a small JSON
+  file read by the standard library, so this stays key-free, offline and deterministic; a learned
+  finding is MEDIUM, never fails a build and never gets an automatic patch. The rules remain the proof.
+- **Makes its own training data.** TraceLens ships a model of the QNX 8.0 scheduler (priorities on N
+  CPUs, the 1 ms tick, priority-inheriting mutexes, condvars, MsgSend/Receive/Reply with server
+  inheritance, shared interrupt lines with per-handler masking) that writes traces in the real
+  `traceprinter` format, so 1,920 labelled recordings take five minutes on a laptop and the whole
+  pipeline runs on them unchanged. `tracelens simulate <scenario>` gives you one to try without a target.
 - **Try it in a browser:** a hosted demo (`tracelens serve`) shows every real QNX trace analyzed, each fix planned from the trace and the source, the before/after reports proven on the VM, and analyzes uploaded traces live.
 - **Fits the workflow:** HTML/JSON/SARIF reports, exit codes for scripts (including "inconclusive" for lossy traces), Perfetto export, and `tracelens remedy`, which plans the fix from a trace and the source with no target at all.
 
@@ -28,6 +38,12 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
   - Z4 camera pipeline: contention 5/5 → 0/5; frame p99 7.45 → 2.99 ms (budget 4 ms).
   - Z5 motor encoder: p99 time with the interrupt masked 2.41 → 0.24 ms; p99 interrupt response 2.08 → 0.57 ms.
 - **Detection** (held-out run, 10 captures per build): every planted bug caught in **10 of 10** runs, every hand-written reference fix clean in **10 of 10**, healthy system programs **0 findings in 30 runs**.
+- **Learned radar**, trained only on simulated healthy traces and never on a real one: on held-out
+  simulated data it gives false alarms on **1 of 158** healthy traces and catches three of the four bug
+  families that have no rule at all **100%** of the time (it cannot see the fourth, a starved
+  low-priority job, which looks exactly like healthy deferred work unless a deadline is declared). On
+  the real captures it flags **all five** buggy builds on the thread that suffers, and stays quiet on
+  all five reference fixes and three healthy system traces.
 
 ## How we built it
 
@@ -35,6 +51,12 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
 - **Host:** a dependency-free Python core. The parser handles 32-bit counter wraps, cross-CPU reordering and missing clock rates. The model holds per-thread state and priority timelines, message pairing through COMM events, interrupt handlers from QNX 8.0's `IST_ATTACH` events, and integrity checks that detect dropped events.
 - **Fix engine:** a small C toolkit (comments and strings masked, brace matching, statement and declaration parsing, pointer-alias tracking) under five rules, one per root cause. It applies only what it has checked; every generated patch compiles warning-free with `qcc -Wall -Wextra`.
 - **Verification:** multi-run before/after comparison with a one-sided Mann-Whitney U test, because one run under nested virtualization proves nothing; lossy captures are replaced, never scored.
+- **Learning:** one thread, one 20 ms window, 19 features of scheduling behaviour and no identities, so
+  a model cannot memorise our programs. The simulator was corrected by measuring each feature against
+  the real captures, and every correction had to be a QNX behaviour we had not modelled (a shared
+  interrupt line, a server that answers before it deadlocks), never a number tuned to one trace.
+  Building it found four real bugs in TraceLens itself, including an interrupt rule that crashed on a
+  handler attached but never run, and the crash being silently swallowed.
 - **Hardening:** an internal "judge roast" ran adversarial traces against v0. Six of seven broke something (multi-core false positives, self-reported priorities, counter wraps). Each became a regression test, as did every bug the real traces exposed.
 
 ## Challenges

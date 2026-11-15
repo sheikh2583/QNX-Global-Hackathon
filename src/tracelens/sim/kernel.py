@@ -425,8 +425,14 @@ class Kernel:
             yield ("expire",)
             yield ("kunmask", att)
 
-    def driver_ist(self, proc: Proc, irq: Irq, work_ns: tuple[int, int] = (8_000, 40_000)) -> Thread:
-        """A device driver's interrupt thread (e.g. devc-ser8250 at priority 254 on the serial line)."""
+    def driver_ist(self, proc: Proc, irq: Irq, work_ns: tuple[int, int] = (8_000, 40_000),
+                   own_share: float = 0.1) -> Thread:
+        """A device driver's interrupt thread (e.g. devc-ser8250 at priority 254 on the serial line).
+
+        On a shared line a driver wakes for every delivery but only works when its *own* device raised
+        the interrupt; otherwise it reads a status register and returns. Without this the simulated
+        driver preempted the application's handler on every interrupt (measured against the real Z5
+        capture: 4.75 preemptions per ms simulated, 0 real)."""
         th = self.new_thread(proc, 254, IST_POLICY, mask=(irq.cpu,))
         att = Attach(irq, th, kernel=True)
         irq.attaches.append(att)
@@ -436,7 +442,8 @@ class Kernel:
         def prog():
             while True:
                 yield ("kwait", att)
-                yield ("work", self.rnd(work_ns))
+                mine = self.rng.random() < own_share
+                yield ("work", self.rnd(work_ns) if mine else self.rng.randint(1_000, 3_000))
                 yield ("kunmask", att)
 
         th.gen = prog()
@@ -811,7 +818,13 @@ class Kernel:
         req.done = True
         self.wake(c, cpu, exit=("KER_EXIT", "MSG_SENDV/11", f"ret_val:-1 errno:{ETIMEDOUT}", ()), result="timeout")
 
-    def op_msg_receive(self, th, ch):
+    def op_msg_receive(self, th, ch, timeout_ns=None):
+        if timeout_ns:  # TimerTimeout(_NTO_TIMEOUT_RECEIVE) before the call, as QNX programs do
+            self.emit(th.cpu, "KER_CALL", "TIMER_TIMEOUT/75", "", (("id", "2"), ("timeout_flags", "0x00000010"),
+                                                                  ("ntime(sec)", str(timeout_ns // 1_000_000_000)),
+                                                                  ("ntime(nsec)", str(timeout_ns % 1_000_000_000))))
+            self.emit(th.cpu, "KER_EXIT", "TIMER_TIMEOUT/75", "", (("prev_timeout_flags", "0x00000000"),
+                                                                  ("otime(sec)", "0"), ("otime(nsec)", "0")))
         self.emit(th.cpu, "KER_CALL", "MSG_RECEIVEV/14", "", (("chid", f"0x{ch.chid:08x}"), ("rparts", "1")))
         if ch.sendq:
             req = self._best(ch.sendq)
@@ -824,6 +837,13 @@ class Kernel:
         ch.receivers.append(th)
         th.wait_list = ch.receivers
         self.block(th, "RECEIVE")
+        if timeout_ns:
+            self.add_timer(self.now + timeout_ns, self._receive_timeout, th, ch, th.wait_token)
+
+    def _receive_timeout(self, cpu, th, ch, token):
+        if th.wait_token == token and th in ch.receivers:
+            self.wake(th, cpu, exit=("KER_EXIT", "MSG_RECEIVEV/14", f"ret_val:-1 errno:{ETIMEDOUT}", ()),
+                      result="timeout")
 
     def op_msg_reply(self, th, req):
         self.emit(th.cpu, "KER_CALL", "MSG_REPLYV/15", "", (("rcvid", req.rcvid), ("sparts", "1"),

@@ -16,7 +16,7 @@
  *   healthy_mixed      [healthy]              periodic + PI mutex + message passing together
  *   sem_inversion      [priority_inversion]   semaphore used as a lock, medium load in between
  *   chan_inversion     [priority_inversion]   _NTO_CHF_FIXED_PRIORITY server, medium load
- *   ipc_deadlock       [ipc_deadlock]         two processes MsgSend() to each other
+ *   ipc_deadlock       [ipc_deadlock]         two processes serve each other, then MsgSend() both ways
  *   lock_contention    [mutex_contention]     N workers do their work inside one mutex
  *   condvar_inversion  [priority_inversion]   high waits on a condvar the low thread must signal
  *   cpu_starvation     [unseen]               a busy higher-priority thread makes a periodic job late
@@ -25,6 +25,7 @@
  *   period_overrun     [unseen]               a periodic job's work exceeds its period; a logger starves
  *   healthy_irq        [healthy]              interrupt thread: acknowledge, unmask, then short work (-i irq)
  *   irq_overrun        [irq_handler_overrun]  interrupt thread works before InterruptUnmask() (-i irq)
+ *   healthy_irq_deferred [healthy]            interrupt thread unmasks, then a lower-priority worker does the work
  * The interrupt scenarios need a busy interrupt line: on the QEMU VM, IRQ 4 (console UART) while
  * something writes to /dev/ser1 (verified, PLAN.md).
  */
@@ -251,13 +252,28 @@ static void run_ipc_deadlock(void)
         peer = ConnectAttach(0, child, chid_b, _NTO_SIDE_CHANNEL, 0);
     }
     tl_thread_init(is_b ? "fusion_b" : "fusion_a", A.mid, TL_ALL_CPUS);
-    tl_sleep_until(t0 + (uint64_t)A.seconds * TL_NS_PER_S / 4);
+    /* Serve the peer in a MsgReceive loop with a short timeout until the recalibration epoch, so the
+     * deadlock interrupts a normal server (as in the z3_sensor_fusion workload). */
+    const uint64_t epoch_at = t0 + (uint64_t)A.seconds * TL_NS_PER_S / 4;
+    const uint64_t end = t0 + (uint64_t)A.seconds * TL_NS_PER_S;
+    while (tl_now_ns() < epoch_at) {
+        struct msg m;
+        uint64_t poll = 5 * TL_NS_PER_MS;
+        TimerTimeout(CLOCK_MONOTONIC, _NTO_TIMEOUT_RECEIVE, NULL, &poll, NULL);
+        rcvid_t rcvid = MsgReceive(chid, &m, sizeof m, NULL);
+        if (rcvid > 0) {
+            tl_spin_us(100);
+            MsgReply(rcvid, 0, &m, sizeof m);
+        }
+    }
     pthread_barrier_wait(epoch);                 /* both stop serving, then ask each other */
     struct msg m = { 1, 0 }, r;
     uint64_t timeout = 1 * TL_NS_PER_S;
+    tl_mark("TL_NOTE recalibrate from=%s", is_b ? "fusion_b" : "fusion_a");
     TimerTimeout(CLOCK_MONOTONIC, _NTO_TIMEOUT_SEND | _NTO_TIMEOUT_REPLY, NULL, &timeout, NULL);
     (void)MsgSend(peer, &m, sizeof m, &r, sizeof r);
-    (void)chid;
+    while (tl_now_ns() < end)
+        tl_sleep_until(tl_now_ns() + TL_NS_PER_MS);
     if (is_b)
         _exit(0);
     waitpid(child, NULL, 0);
@@ -282,8 +298,34 @@ static void *abba_thread(void *arg)
 }
 
 /* ------------------------------------------------------------------ interrupt thread */
-static void run_irq(int unmask_first)
+static volatile int irq_running = 1;
+
+/* The deferred half of the correct pattern (what TraceLens's ist-defer-work remedy writes): below
+ * every interrupt thread, on another CPU, woken by the handler. */
+static void *deferred_worker(void *arg)
 {
+    (void)arg;
+    tl_thread_init("worker", A.lo, 0x2);
+    while (1) {
+        while (sem_wait(&sem_lock) == -1 && errno == EINTR) {
+        }
+        if (!irq_running)
+            return NULL;
+        tl_job_start("profile");
+        tl_spin_us(A.work_us);
+        tl_job_end("profile");
+    }
+}
+
+static void run_irq(int unmask_first, int defer)
+{
+    pthread_t worker;
+
+    if (defer) {
+        if (sem_init(&sem_lock, 0, 0) == -1)
+            tl_die("sem_init");
+        worker = tl_spawn(deferred_worker, NULL);   /* started before the attach */
+    }
     if (A.irq < 0) {
         fprintf(stderr, "%s needs -i <irq>\n", A.scenario);
         exit(2);
@@ -302,6 +344,8 @@ static void run_irq(int unmask_first)
             tl_die("InterruptWait");
         if (unmask_first) {
             InterruptUnmask(A.irq, id);
+            if (defer)
+                sem_post(&sem_lock);          /* hand the heavy work over */
             tl_spin_us(A.cs_us);              /* a little bookkeeping, interrupt already unmasked */
         } else {
             tl_spin_us(A.work_us);            /* the heavy work, with the line still masked */
@@ -309,6 +353,11 @@ static void run_irq(int unmask_first)
         }
     }
     InterruptDetach(id);
+    if (defer) {
+        irq_running = 0;
+        sem_post(&sem_lock);
+        pthread_join(worker, NULL);
+    }
 }
 
 /* ------------------------------------------------------------------ main */
@@ -394,8 +443,8 @@ int main(int argc, char **argv)
         pthread_t a = tl_spawn(abba_thread, (void *)1), b = tl_spawn(abba_thread, NULL);
         pthread_join(a, NULL);
         pthread_join(b, NULL);
-    } else if (!strcmp(s, "healthy_irq") || !strcmp(s, "irq_overrun")) {
-        run_irq(!strcmp(s, "healthy_irq"));
+    } else if (!strcmp(s, "healthy_irq") || !strcmp(s, "irq_overrun") || !strcmp(s, "healthy_irq_deferred")) {
+        run_irq(strcmp(s, "irq_overrun") != 0, !strcmp(s, "healthy_irq_deferred"));
     } else {
         fprintf(stderr, "unknown scenario %s\n", s);
         return 2;

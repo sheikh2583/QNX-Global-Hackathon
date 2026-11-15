@@ -38,15 +38,12 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     m = a.model
     if args.radar is not None:
         from .ml import model as ml_model
-        from .ml.radar import radar_findings
+        from .ml.radar import annotate
         path = Path(args.radar) if args.radar else ml_model.DEFAULT_RADAR
         if not path.exists():
             print(f"tracelens analyze: no radar model at {path} (train one: tracelens ml train-radar)", file=sys.stderr)
             return 2
-        extra = radar_findings(a, ml_model.load(path))
-        for i, f in enumerate(extra, len(a.findings) + 1):
-            f.id = f"TL-{i:03d}"
-        a.findings.extend(extra)
+        annotate(a, path)
 
     if args.json:
         from .report.json_out import dumps

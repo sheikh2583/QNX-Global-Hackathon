@@ -11,10 +11,11 @@ import gzip
 import random
 from pathlib import Path
 
-from ..ml.dataset import TRUTH  # noqa: F401  (ground truth, shared with real tlgen captures)
+from ..ml.dataset import SCENARIOS, TRUTH  # noqa: F401  (ground truth, shared with real tlgen captures)
 from .kernel import TICK_NS, Kernel, Knobs
 
 US = 1000
+# "profile" (the deferred worker's job) is deliberately not a declared deadline: it is background work.
 DEFAULTS = {"seconds": 2, "period_us": 10000, "work_us": 300, "cs_us": 200, "mid_us": 4000, "workers": 4, "pin": 1,
             "hi": 50, "mid": 20, "lo": 10, "irq": 4}
 PLAIN, SEM_HI, SEM_LO, MTX_HI, MTX_LO, CV_HI, CV_LO, BUSY, WORKER, LW_CONS, LW_PROD = range(11)
@@ -41,12 +42,14 @@ class Prog:
         self.t0 = 0
         self.mask = (0,) if A["pin"] else None
         self.periods = A["seconds"] * 1_000_000 // A["period_us"]
-        self.sem = k.new_sem(1)
+        self.sem = k.new_sem(0 if scenario == "healthy_irq_deferred" else 1)
         self.mtx = k.new_mutex(pi=True)  # QNX default protocol: priority inheritance
         self.mtx_b = k.new_mutex(pi=True)
         self.cond = k.new_cond()
         self.ready_gen = 0
         self.chan = None
+        self.stop = False
+        self.at_epoch = 0  # the process-shared barrier of the ipc_deadlock scenario
 
     def release(self, kk: int, off_ticks: int) -> int:
         return self.t0 + kk * self.A["period_us"] * US + off_ticks * TICK_NS
@@ -159,26 +162,49 @@ def run_ipc(P: Prog, fixed: bool, with_mid: bool):
         yield ("join", m)
 
 
-def fusion(P: Prog, name: str, peer_chan: list):
-    """One side of ipc_deadlock: both stop serving, then MsgSend() to each other (1 s timeout)."""
-    yield from thread_init(name, P.A["mid"], None)
+def fusion(P: Prog, name: str, chan, peer_chan: list):
+    """One side of ipc_deadlock. Both sides serve each other in a MsgReceive loop with a 5 ms timeout
+    (as the real Z3 sensor fusion does); at the recalibration epoch both stop serving and MsgSend() to
+    each other with a 1 s timeout. Without the serving loop the simulated threads only ever showed
+    "blocked in SEND for the whole window", which never matches a real server that deadlocks."""
+    A = P.A
+    yield from thread_init(name, A["mid"], None)
     conn = yield ("connect", peer_chan[0])
-    yield ("sleep_until", P.t0 + P.A["seconds"] * 1_000_000_000 // 4)
-    yield ("msg_send", conn, 1_000_000_000)
+    epoch = P.t0 + A["seconds"] * 1_000_000_000 // 4
+    end = P.t0 + A["seconds"] * 1_000_000_000
+    done = False
+    while (yield ("now",)) < end:
+        if not done and (yield ("now",)) >= epoch:
+            done = True
+            # Both sides must stop serving before either asks, or the one still in MsgReceive simply
+            # answers and nothing deadlocks. The real workload uses a process-shared barrier.
+            P.at_epoch += 1
+            while P.at_epoch < 2:
+                yield ("sleep", 200_000)
+            yield mark(f"TL_NOTE recalibrate from={name}")
+            yield ("msg_send", conn, 1_000_000_000)  # the peer has stopped receiving too
+            continue
+        req = yield ("msg_receive", chan, 5 * TICK_NS)
+        if req != "timeout" and req is not None:
+            yield ("spin", 100 * US)
+            yield ("msg_reply", req)
 
 
 def run_ipc_deadlock(P: Prog):
     chan_a = yield ("channel_create", False)
     peer_of_a, peer_of_b = [None], [chan_a]
+    chan_b = []
 
     def side_b():
-        peer_of_a[0] = yield ("channel_create", False)
-        yield from fusion(P, "fusion_b", peer_of_b)
+        ch = yield ("channel_create", False)
+        chan_b.append(ch)
+        peer_of_a[0] = ch
+        yield from fusion(P, "fusion_b", ch, peer_of_b)
 
     yield ("fork", side_b)
     while peer_of_a[0] is None:  # the pipe read: wait for B's channel id
         yield ("sleep", 200_000)
-    yield from fusion(P, "fusion_a", peer_of_a)
+    yield from fusion(P, "fusion_a", chan_a, peer_of_a)
 
 
 def abba(P: Prog, first_a: bool):
@@ -193,8 +219,22 @@ def abba(P: Prog, first_a: bool):
     yield ("mutex_unlock", x)
 
 
-def run_irq(P: Prog, unmask_first: bool):
+def velocity_worker(P: Prog):
+    """The deferred half of the correct interrupt pattern: woken by the handler, does the heavy work at
+    a priority below every interrupt thread, on another CPU."""
+    yield from thread_init("worker", P.A["lo"], (1,))
+    while True:
+        yield ("sem_wait", P.sem)
+        if P.stop:
+            return
+        yield mark("TL_JOB_START name=profile")
+        yield ("spin", P.A["work_us"] * US)
+        yield mark("TL_JOB_END name=profile")
+
+
+def run_irq(P: Prog, unmask_first: bool, defer: bool = False):
     A = P.A
+    worker = (yield ("spawn", velocity_worker, P)) if defer else None  # started before the attach
     yield from thread_init("ist", A["hi"], (0,))
     att = yield ("interrupt_attach", P.irq)
     end = (yield ("now",)) + A["seconds"] * 1_000_000_000
@@ -202,11 +242,17 @@ def run_irq(P: Prog, unmask_first: bool):
         yield ("interrupt_wait", att)
         if unmask_first:
             yield ("interrupt_unmask", att)
-            yield ("spin", A["cs_us"] * US)  # a little bookkeeping, line already unmasked
+            if defer:
+                yield ("sem_post", P.sem)       # hand the heavy work over; coalesces if still pending
+            yield ("spin", A["cs_us"] * US)     # a little bookkeeping, line already unmasked
         else:
-            yield ("spin", A["work_us"] * US)  # the heavy work with the line still masked
+            yield ("spin", A["work_us"] * US)   # the heavy work with the line still masked
             yield ("interrupt_unmask", att)
     yield ("interrupt_detach", att)
+    if worker is not None:
+        P.stop = True
+        yield ("sem_post", P.sem)
+        yield ("join", worker)
 
 
 def tlgen_main(P: Prog):
@@ -247,8 +293,8 @@ def tlgen_main(P: Prog):
         b = yield ("spawn", abba, P, False)
         yield ("join", a)
         yield ("join", b)
-    elif s in ("healthy_irq", "irq_overrun"):
-        yield from run_irq(P, s == "healthy_irq")
+    elif s in ("healthy_irq", "irq_overrun", "healthy_irq_deferred"):
+        yield from run_irq(P, s != "irq_overrun", defer=s == "healthy_irq_deferred")
     else:
         raise ValueError(f"unknown scenario {s}")
 
@@ -272,7 +318,8 @@ def simulate(scenario: str, params: dict | None = None, seed: int = 0, seconds: 
     k.boot()
     k.system_noise(SYSTEM)
     P = Prog(k, A, scenario)
-    irq_load = scenario in ("healthy_irq", "irq_overrun") if irq_load is None else irq_load
+    if irq_load is None:  # the data plan decides, so a new interrupt scenario cannot be forgotten here
+        irq_load = scenario in SCENARIOS and SCENARIOS[scenario].needs_irq
     P.irq = k.device_irq(A["irq"], 0, knobs.irq_rate_hz if irq_load else 0)
     k.driver_ist(k.serial_proc, P.irq)  # the serial driver shares the line (QNX VM, measured)
     if irq_load:

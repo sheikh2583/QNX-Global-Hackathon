@@ -14,13 +14,14 @@ tracelens data simulate --per-scenario 120 --out data/sim                 # a la
 
 | File | Planted problem | Who should be blamed |
 |---|---|---|
-| `healthy_*` | none (5 healthy program shapes) | nobody |
+| `healthy_*` | none (6 healthy program shapes) | nobody |
+| `healthy_irq_deferred` | none: the correct interrupt pattern (unmask, then a lower-priority worker) | nobody |
 | `sem_inversion` | priority inversion through a semaphore | `hi` blocked, `lo` holds it, `mid` runs |
 | `chan_inversion` | inversion through a `_NTO_CHF_FIXED_PRIORITY` channel | `client` waits on `server` |
 | `condvar_inversion` | inversion through a condition variable | `hi` waits on `lo` |
-| `ipc_deadlock` | two processes MsgSend() to each other | `fusion_a`, `fusion_b` |
 | `lock_contention` | workers serialised on one mutex | `w1`..`wN` |
 | `irq_overrun` | interrupt thread works with the line masked | `ist` |
+| `ipc_deadlock` | two servers serve each other, then both send | `fusion_a`, `fusion_b` |
 | `cpu_starvation` | a busy higher-priority thread delays a periodic job (no rule) | `job` starved by `hog` |
 | `mutex_abba` | lock-order deadlock between two mutexes (no rule) | `ab`, `ba` |
 | `lost_wakeup` | signal sent before the wait; consumer sleeps to its timeout (no rule) | `consumer` |

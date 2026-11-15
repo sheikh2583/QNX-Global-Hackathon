@@ -35,23 +35,28 @@ class Scenario:
 
 HEALTHY = "healthy"
 SCENARIOS: dict[str, Scenario] = {
-    "healthy_periodic": Scenario(HEALTHY, True, {"work_us": (100, 2000), "pin": (0, 1), "period_us": (10000, 20000)}),
+    "healthy_periodic": Scenario(HEALTHY, True, {"work_us": ("frac", 0.01, 0.25), "pin": (0, 1),
+                                                 "period_us": (10000, 20000)}),
     # Long low-priority critical sections behind a PI mutex are healthy and common (the fixed Z1's logger
     # holds one 2.5 ms): the low thread waits READY a lot, and that must not look alien to the radar.
     # Medium loads up to 70% of a core are healthy too (the fixed Z1's telemetry uses 60%; widened from
     # 50% after the first sim-to-real check, so the real zoo traces are a development set now).
-    "healthy_pi_mutex": Scenario(HEALTHY, True, {"work_us": (100, 500), "cs_us": (50, 2500), "mid_us": (2000, 7000),
-                                                 "pin": (1,), "period_us": (10000, 20000)}),
-    "healthy_ipc": Scenario(HEALTHY, True, {"work_us": (100, 500), "cs_us": (50, 500), "mid_us": (1000, 7000),
-                                            "pin": (1,), "period_us": (10000, 20000)}),
-    "healthy_mixed": Scenario(HEALTHY, True, {"work_us": (100, 800), "cs_us": (50, 1500), "pin": (0, 1),
+    "healthy_pi_mutex": Scenario(HEALTHY, True, {"work_us": ("frac", 0.01, 0.06), "cs_us": ("frac", 0.02, 0.30),
+                                                 "mid_us": ("frac", 0.15, 0.65), "pin": (1,),
+                                                 "period_us": (10000, 20000)}),
+    # Unpinned too: a client that migrates between CPUs and waits longer for its reply is healthy.
+    "healthy_ipc": Scenario(HEALTHY, True, {"work_us": ("frac", 0.01, 0.05), "cs_us": ("frac", 0.005, 0.06),
+                                            "mid_us": ("frac", 0.10, 0.60), "pin": (0, 1),
+                                            "period_us": (10000, 20000)}),
+    "healthy_mixed": Scenario(HEALTHY, True, {"work_us": ("frac", 0.01, 0.08), "cs_us": ("frac", 0.02, 0.25),
+                                              "mid_us": ("frac", 0.10, 0.50), "pin": (0, 1),
                                               "period_us": (10000, 20000)}),
     # cs_us > 1 tick so the low thread still holds the lock when the medium one wakes a tick later
     "sem_inversion": Scenario("priority_inversion", True, {"work_us": (100, 500), "cs_us": (1500, 3000),
                                                            "mid_us": (3000, 6000), "pin": (1,), "period_us": (10000, 20000)}),
     "chan_inversion": Scenario("priority_inversion", True, {"work_us": (100, 500), "cs_us": (200, 800),
                                                             "mid_us": (3000, 6000), "pin": (1,), "period_us": (10000, 20000)}),
-    "ipc_deadlock": Scenario("ipc_deadlock", True, {"period_us": (10000,)}),
+    "ipc_deadlock": Scenario("ipc_deadlock", True, {"period_us": (10000, 20000)}),
     "lock_contention": Scenario("mutex_contention", True, {"work_us": (800, 2000), "workers": (2, 6), "pin": (0,),
                                                            "period_us": (10000, 20000)}),
     # The inversion rule also follows condition variables (found by the simulator, 2026-11-15), so this
@@ -68,9 +73,16 @@ SCENARIOS: dict[str, Scenario] = {
                                                          "period_us": (10000, 15000)}),
     # Interrupt-driven programs. The first radar experiment flagged a healthy interrupt handler as
     # unusual because no healthy one was in its training data: healthy coverage has to be broad.
-    "healthy_irq": Scenario(HEALTHY, True, {"cs_us": (20, 150), "period_us": (10000,)}, needs_irq=True),
+    # A correct handler acknowledges the device and defers: the real reference handler does ~7 us per
+    # interrupt (measured on the Z5 fix). 20-150 us made every healthy handler look busy.
+    "healthy_irq": Scenario(HEALTHY, True, {"cs_us": (5, 60), "period_us": (10000,)}, needs_irq=True),
     "irq_overrun": Scenario("irq_handler_overrun", True, {"work_us": (600, 2500), "period_us": (10000, 20000)},
                             needs_irq=True),
+    # The textbook QNX fix, and the one TraceLens's own ist-defer-work remedy writes: unmask at once and
+    # hand the heavy work to a lower-priority worker. The radar must know this shape as healthy, or
+    # TraceLens would flag the fix it just recommended (it flagged the real Z5 fix's worker, 2026-11-15).
+    "healthy_irq_deferred": Scenario(HEALTHY, True, {"work_us": (1500, 3000), "cs_us": (5, 60),
+                                                     "period_us": (10000,)}, needs_irq=True),
 }
 # Where each planted problem is, by thread name (tlgen.c and the simulator use the same names). The
 # victim is the thread whose behaviour shows the problem; only its windows carry the bug's label when
@@ -112,17 +124,45 @@ def window_label(row: dict) -> str:
 IRQ_BACKGROUND = "while :; do echo 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef; done > /dev/ser1"
 FLAG = {"work_us": "-w", "cs_us": "-c", "mid_us": "-m", "workers": "-n", "pin": "-p", "period_us": "-P"}
 REGION_B_PERIOD = 15000  # known-bug variants with a period at or above this are the classifier's test set
+HEALTHY_LOAD = 0.75  # most CPU a healthy variant may demand of one core, so it keeps its deadlines
+JOB_BUDGET_US = 2500  # the 'job' deadline declared in bugzoo/gen/tlgen.toml
+JOB_MARGIN_US = 600  # slack a healthy variant keeps for wake-up and scheduling noise
 
 
 def sample(scenario: str, rng: random.Random) -> dict:
+    """One variant's parameters. A spec is a range, a tuple of choices, or ``("frac", lo, hi)``: a
+    fraction of this run's period. Durations drawn as fractions keep the *utilisation* spread even, so
+    heavily loaded but healthy programs are common in training. Absolute ranges alone made them rare:
+    only the corner where a short period met a long critical section produced one, and the radar then
+    flagged the busy low-priority thread of a real, correct program (the Z1 reference fix's logger)."""
+    spec_all = SCENARIOS[scenario].params
     out = {}
-    for name, spec in SCENARIOS[scenario].params.items():
-        if name == "period_us" and len(spec) == 2:  # whole milliseconds: releases stay tick-aligned
-            out[name] = rng.randrange(spec[0] // 1000, spec[1] // 1000 + 1) * 1000
+    period = spec_all.get("period_us", (10000,))
+    out["period_us"] = (rng.randrange(period[0] // 1000, period[1] // 1000 + 1) * 1000 if len(period) == 2
+                        else rng.choice(period))
+    for name, spec in spec_all.items():
+        if name == "period_us":
+            continue
+        if spec and spec[0] == "frac":
+            out[name] = max(50, round(rng.uniform(spec[1], spec[2]) * out["period_us"] / 10) * 10)
         elif len(spec) == 2 and isinstance(spec[0], int) and spec[1] > spec[0] + 1:
             out[name] = rng.randint(*spec)
         else:
             out[name] = rng.choice(spec)
+    if SCENARIOS[scenario].label == HEALTHY:
+        # A healthy variant must still be schedulable, or the rules are right to flag it and it is no
+        # longer healthy data. Two limits: a critical section shorter than the job budget it shares a
+        # CPU with, and a total CPU demand that leaves headroom when everything is pinned to one core.
+        if "work_us" in out:
+            out["work_us"] = min(out["work_us"], JOB_BUDGET_US // 2)
+        if "cs_us" in out:  # the job waits for this lock, so its holder must fit inside the budget
+            out["cs_us"] = max(50, min(out["cs_us"], JOB_BUDGET_US - out.get("work_us", 0) - JOB_MARGIN_US))
+        parts = [k for k in ("work_us", "cs_us", "mid_us") if k in out]
+        total = sum(out[k] for k in parts)
+        budget = HEALTHY_LOAD * out["period_us"]
+        if out.get("pin", 1) and total > budget and total:
+            for k in parts:
+                out[k] = max(50, round(out[k] * budget / total / 10) * 10)
     return out
 
 

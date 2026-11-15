@@ -88,7 +88,7 @@ def main() -> int:
            "MEDIUM, below the HIGH gate: graded, not missed.", "",
            evaluate.markdown(evaluate.evaluate_radar(feats, radar), evaluate.evaluate_classifier(feats, clf)).strip(), "",
            "Classifier labels are per thread: only the planted victim's windows carry the bug's label "
-           "(`dataset.window_label`). `ipc_deadlock` has a fixed period, so it has no region-B test windows.", "",
+           "(`dataset.window_label`): a preempted lock holder looks like a healthy one.", "",
            "## Sim-to-real: the same frozen models on real QNX 8.0 captures", "",
            "Neither model has seen a real trace. These traces were used to find the simulator's gaps "
            "(DESIGN.md section 9), so this is a development set, not a clean test.", ""]

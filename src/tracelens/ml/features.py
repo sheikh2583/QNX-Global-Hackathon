@@ -18,7 +18,7 @@ SLEEP_STATES = {"NANOSLEEP", "RECEIVE", "SIGWAITINFO", "STOPPED", "JOIN", "WAITP
 FEATURES = [
     "share_running", "share_ready", "share_sem", "share_mutex", "share_condvar", "share_send", "share_reply",
     "share_intr", "share_sleep",
-    "max_block_frac", "max_ready_frac", "blocks_per_ms", "preempts_per_ms",
+    "max_block_frac", "max_ready_frac", "max_run_frac", "intr_masked_frac", "blocks_per_ms", "preempts_per_ms",
     "inversion_frac", "prio_rank", "migrations_per_ms", "cpus_used",
 ]
 SYSTEM_PROCS = {"procnto", "procnto-smp-instr", "slogger2", "tracelogger", "pidin", "sshd", "ksh", "sh", "io-sock",
@@ -57,6 +57,31 @@ class _CpuIndex:
                 yield max(s, a), min(e, b), k
 
 
+def masked_spans(th) -> list[tuple[int, int]]:
+    """When this thread held an interrupt masked: from each InterruptWait() returning (the kernel masks
+    the line before waking the handler) to its InterruptUnmask(), or to its next wait if it never
+    unmasked. This is the one thing that separates a handler doing its work on the device's time from
+    one that unmasked first and deferred: both can hold a CPU for milliseconds (QNX 8.0 semantics,
+    and the difference between the Z5 bug and its reference fix)."""
+    waits = sorted(e.t_ns for e in th.exits if e.kind.startswith("INTERRUPT_WAIT"))
+    if not waits:
+        return []
+    ends = sorted(e.t_ns for e in th.calls if e.kind.startswith(("INTERRUPT_UNMASK", "INTERRUPT_WAIT")))
+    out, j = [], 0
+    for i, w in enumerate(waits):
+        while j < len(ends) and ends[j] <= w:
+            j += 1
+        nxt = waits[i + 1] if i + 1 < len(waits) else None
+        end = ends[j] if j < len(ends) else nxt
+        if end is None:
+            continue
+        if nxt is not None:
+            end = min(end, nxt)
+        if end > w:
+            out.append((w, end))
+    return out
+
+
 def _prio(m: TraceModel, key, t):
     th = m.threads.get(key)
     if th is None:
@@ -82,6 +107,7 @@ def windows(m: TraceModel, keys=None, window_ns: int = WINDOW_NS, trim_edges: bo
         if not ivs:
             continue
         rank = (prios.index(th.prio) / max(1, len(prios) - 1)) if th.prio in prios and len(prios) > 1 else 0.5
+        masked = masked_spans(th)
         life0, life1 = ivs[0].start, max(iv.end for iv in ivs)
         j = 0
         for w in range(n_win):
@@ -92,7 +118,12 @@ def windows(m: TraceModel, keys=None, window_ns: int = WINDOW_NS, trim_edges: bo
             while j < len(ivs) and ivs[j].end <= a:
                 j += 1
             acc = defaultdict(int)
-            max_block = max_ready = blocks = preempts = inversion = migrations = 0
+            for ms0, ms1 in masked:
+                if ms0 >= b:
+                    break
+                if ms1 > a:
+                    acc["masked"] += min(ms1, b) - max(ms0, a)
+            max_block = max_ready = max_run = blocks = preempts = inversion = migrations = 0
             cpus, last_cpu, active = set(), None, False
             for iv in ivs[j:]:
                 if iv.start >= b:
@@ -104,6 +135,7 @@ def windows(m: TraceModel, keys=None, window_ns: int = WINDOW_NS, trim_edges: bo
                 st = iv.state
                 if st == "RUNNING":
                     acc["running"] += d
+                    max_run = max(max_run, iv.duration)
                     active = True
                     if iv.cpu >= 0:
                         cpus.add(iv.cpu)
@@ -144,6 +176,11 @@ def windows(m: TraceModel, keys=None, window_ns: int = WINDOW_NS, trim_edges: bo
                 # a block longer than the window counts as the whole window: beyond that the value says
                 # nothing (a shell thread REPLY-blocked for a second scored 50 before this, real QNX)
                 "max_block_frac": min(max_block / window_ns, 1.0), "max_ready_frac": min(max_ready / window_ns, 1.0),
+                # longest single CPU burst: how long this thread held a CPU without being interrupted.
+                # The signature of an interrupt handler that keeps its line masked (real Z5: 2.4 ms vs
+                # 7 us for the same handler fixed), a lock holder, and a CPU hog. Nothing else saw it.
+                "max_run_frac": min(max_run / window_ns, 1.0),
+                "intr_masked_frac": min(acc["masked"] / window_ns, 1.0),
                 "blocks_per_ms": blocks / ms, "preempts_per_ms": preempts / ms,
                 "inversion_frac": inversion / window_ns, "prio_rank": rank,
                 "migrations_per_ms": migrations / ms, "cpus_used": float(len(cpus)),

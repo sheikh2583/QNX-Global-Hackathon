@@ -102,6 +102,26 @@ class FixEngine:
                    irq={"p99_masked_us": irq.get("p99_handler_us"), "p99_response_us": irq.get("p99_latency_us")}
                    if irq else None)
 
+    def _radar(self, an: list[Analysis]) -> list[dict]:
+        """What the learned radar says about the same runs. Context only: a radar finding never becomes a
+        target and never gets a patch (docs/ml/DESIGN.md); the rules remain the proof."""
+        if not an:
+            return []
+        try:
+            from ..ml.radar import annotate
+            out = []
+            for f in annotate(an[0], append=False):
+                item = {"name": f.threads[0] if f.threads else "", "summary": f.summary,
+                        "score": f.metrics.get("score"), "threshold": f.metrics.get("threshold"),
+                        "windows": f.metrics.get("unusual_windows")}
+                if f.metrics.get("like"):
+                    item["like"] = str(f.metrics["like_label"]).replace("_", " ")
+                    item["like_within"] = f.metrics.get("like_within")
+                out.append(item)
+            return out
+        except Exception:  # never let the addition break the run
+            return []
+
     def _diagnosis_event(self, rnd: int, an: list[Analysis], findings, targets) -> None:
         try:
             from .. import app
@@ -113,7 +133,7 @@ class FixEngine:
                               "impact": copy.get("impact", ""), "summary": app.friendly_summary(f),
                               "threads": f.threads, "qnx": f.qnx_note,
                               "timeline": app.finding_timeline(a, f) if a is not None else ""})
-            self._emit("diagnosis", round=rnd, targets=targets, findings=items)
+            self._emit("diagnosis", round=rnd, targets=targets, findings=items, radar=self._radar(an))
         except Exception as exc:  # the viewer is optional
             self._emit("log", message=f"diagnosis view unavailable: {type(exc).__name__}")
 

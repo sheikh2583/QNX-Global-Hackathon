@@ -131,6 +131,7 @@ def test_every_step_is_reported_for_the_live_view(cfg, tmp_path):
     assert types.count("run") == 15 and types.count("verdict") == 2 and types.count("remedy") == 2
     first = next(e for e in seen if e["type"] == "diagnosis")
     assert first["findings"][0]["name"] == "A high-priority task was held up by lower-priority work"
+    assert isinstance(first["radar"], list)  # the learned second opinion, context only, never a target
     remedy = next(e for e in seen if e["type"] == "remedy")
     assert any(loc[0] == "main.c" for r in remedy["remedies"] for loc in r["locations"])
     assert "pthread_mutex_lock(&buf_lock)" in remedy["files"]["main.c"] and remedy["diff"]

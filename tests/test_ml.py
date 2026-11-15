@@ -141,3 +141,81 @@ def test_generator_compiles_against_qnx_stubs():
                          f"-I{b / 'hostcheck'}", f"-I{b / 'common'}", str(b / "gen" / "tlgen.c")],
                         capture_output=True, text=True)
     assert cp.returncode == 0, cp.stderr
+
+
+# --------------------------------------------------------------------- the longest-CPU-burst feature
+def test_longest_cpu_burst_separates_a_masked_handler_from_a_correct_one():
+    """The feature that closed the real Z5 miss: a handler holding its line masked runs in long bursts
+    (real Z5 buggy: 2.4 ms) where the same handler fixed runs in short ones (7 us)."""
+    from tracelens.ml.features import windows as W
+    def burst(name, thread):
+        m = analyze_file(REAL / f"{name}.txt.gz", CFG).model
+        v = sorted(f["max_run_frac"] for k, _, _, f in W(m) if m.label(k) == thread)
+        return v[len(v) // 2]
+    buggy, fixed = burst("z5_motor_encoder", "encoder_ist"), burst("z5_motor_encoder_fixed", "encoder_ist")
+    assert buggy > 10 * fixed, (buggy, fixed)
+    assert all(0.0 <= f["max_run_frac"] <= 1.0 for _, _, _, f in W(analyze_file(REAL / "z4_camera_pipeline.txt.gz", CFG).model))
+
+
+# --------------------------------------------------------------------- retrieval of labelled exemplars
+def _rows(scenario, label, role, feature, lo, hi, n=40, split="train"):
+    import random as _r
+    rng = _r.Random(hash(scenario) % 1000)
+    out = []
+    for i in range(n):
+        f = {k: 0.0 for k in FEATURES}
+        f[feature] = rng.uniform(lo, hi)
+        out.append({"id": f"{scenario}-{i}", "scenario": scenario, "label": label, "role": role,
+                    "split": split, "thread": "t", "f": f})
+    return out
+
+
+@pytest.fixture(scope="module")
+def retrieval(radar):
+    from tracelens.ml.retrieve import build
+    rows = (_rows("healthy_periodic", "healthy", "other", "share_running", 0.0, 0.05)
+            + _rows("sem_inversion", "priority_inversion", "victim", "share_sem", 0.5, 0.9)
+            + _rows("sem_inversion", "priority_inversion", "culprit", "share_ready", 0.9, 1.0)
+            + _rows("mutex_abba", "mutex_abba", "victim", "share_mutex", 0.9, 1.0, split="test_unseen"))
+    return build(rows, radar, per_scenario=4)
+
+
+def test_retrieval_names_the_pattern_a_window_resembles(radar, retrieval):
+    from tracelens.ml.retrieve import nearest
+    f = {k: 0.0 for k in FEATURES}
+    f["share_sem"] = 0.7
+    hit = nearest(retrieval, radar, f)
+    assert hit["scenario"] == "sem_inversion" and hit["within"] and "semaphore" in hit["text"]
+
+
+def test_retrieval_never_learns_from_held_out_families_or_culprits(radar, retrieval):
+    scenarios = {i["scenario"] for i in retrieval["items"]}
+    assert "mutex_abba" not in scenarios  # held out entirely: it may not be in any model
+    assert scenarios == {"healthy_periodic", "sem_inversion"}
+    # the culprit's windows are not exemplars of the bug: a mutex-heavy window must not match it closely
+    from tracelens.ml.retrieve import nearest
+    f = {k: 0.0 for k in FEATURES}
+    f["share_mutex"] = 0.95
+    assert not nearest(retrieval, radar, f)["within"]
+
+
+def test_radar_findings_report_what_the_behaviour_resembles(radar, retrieval):
+    from tracelens.ml.radar import radar_findings
+    model = dict(radar, exemplars=retrieval)
+    fs = radar_findings(analyze_file(REAL / "z1_infusion_pump.txt.gz", CFG), model)
+    assert fs and fs[0].metrics["like"] and "closest pattern" in fs[0].summary
+
+
+# --------------------------------------------------------------------- the radar as a product addition
+def test_annotate_adds_numbered_medium_findings_and_survives_a_bad_model(radar, tmp_path):
+    from tracelens.ml.radar import annotate
+    a = analyze_file(REAL / "z1_infusion_pump.txt.gz", CFG)
+    n_rules = len(a.findings)
+    save(radar, tmp_path / "r.json")
+    added = annotate(a, tmp_path / "r.json")
+    assert added and [f.id for f in added] == [f"TL-{i:03d}" for i in range(n_rules + 1, n_rules + 1 + len(added))]
+    assert all(f.severity == "medium" for f in added) and len(a.findings) == n_rules + len(added)
+    (tmp_path / "junk.json").write_text("{not json", encoding="utf-8")
+    b = analyze_file(REAL / "z1_infusion_pump.txt.gz", CFG)
+    assert annotate(b, tmp_path / "junk.json") == [] and b.errors  # reported, not raised
+    assert annotate(b, tmp_path / "missing.json") == []

@@ -173,6 +173,15 @@
         if (f.timeline) { const t = el("div", "scroll"); t.innerHTML = f.timeline; card.append(el("div", "k", "The moment it happened"), t); }
         wrap.append(card);
       });
+      if (e.radar && e.radar.length) {
+        const r = el("div", "fcard");
+        r.append(el("div", "fhd"), el("p", "muted", "Learned radar (not a rule, never auto-fixed): " +
+          e.radar.map((x) => x.name + " behaves unlike healthy QNX" +
+            (x.like ? ", closest known pattern " + x.like + (x.like_within ? "" : " (loosely)") : "") +
+            " \u2014 score " + x.score + " vs " + x.threshold).join("; ") + "."));
+        r.firstChild.append(el("b", null, "Second opinion"), el("span", "pill st-info", "Learned"));
+        wrap.append(r);
+      }
       box.prepend(wrap);  // newest round on top, earlier rounds stay below
       log("Found: " + (e.findings.map((f) => f.name).join("; ") || "nothing"));
     },

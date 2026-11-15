@@ -27,6 +27,19 @@ tracelens remedy  fixtures/real/z1_infusion_pump.txt.gz --source bugzoo/z1_infus
 
 That trace is a real QNX 8.0 capture, committed in [fixtures/real/](fixtures/real/). Or run the whole tour: `demo/run_demo.sh` (Linux/WSL).
 
+No QNX target? TraceLens ships a **model of the QNX 8.0 scheduler** that writes traces in the real
+`traceprinter` format, so you can make your own labelled recordings on a laptop:
+
+```bash
+tracelens simulate lost_wakeup -o my_trace.txt.gz            # 16 scenarios, see fixtures/sim/
+tracelens analyze my_trace.txt.gz -c bugzoo/gen/tlgen.toml --radar
+```
+
+`--radar` adds what a **learned model** sees, next to what the rules prove: it was trained only on
+healthy traces, so it can flag a thread whose behaviour no rule has a name for, and it names the
+labelled pattern that behaviour most resembles. It is a small JSON file read by the standard library:
+no API key, no network, and the same answer every time.
+
 ## Hosted demo
 
 `tracelens serve` is the TraceLens web app, written for people who want their program fixed rather
@@ -91,6 +104,7 @@ QNX 8.0 target (QEMU x86_64)                        Host (Linux / WSL2)
 | **Send/Reply deadlock & chains** | A wait-for graph over QNX's synchronous message passing. Servers are resolved from COMM events (rcvid pairing), so connections made before the capture count. A process can only break a cycle if a thread is receiving **on the channel being called**. |
 | **Mutex contention** | An uncontended QNX mutex never enters the kernel, so every `MUTEX`-state interval is real contention. Locks inside procnto (kernel addresses) are reported at LOW: not yours to fix. |
 | **IRQ latency / handler overrun** | `InterruptAttachEvent()` → `InterruptWait()` → `InterruptUnmask()`: the interrupt stays masked while the handler thread works. Shared vectors keep all their handlers. |
+| **Unusual behaviour** (learned) | Trained on healthy QNX traces only, per thread and 20 ms window: 19 features of scheduling behaviour, no names or absolute priorities, so it cannot memorise a program. Reported MEDIUM, never gates a build and never gets an automatic patch. It also names the closest labelled pattern it has seen, and how loose that match is. |
 | **Deadline misses** | Measured from the job's **release** (fitted period grid or `TL_RELEASE` marker), with a breakdown of every late job: late wake-up, waiting for the CPU, blocked, running. A late wake-up while nothing of equal or higher priority held the CPU is platform timer latency, not the program. |
 
 ## How it fixes
@@ -217,6 +231,20 @@ Each of these was found on real traces, fixed, and pinned by a regression test:
   above were taken with the host idle.
 - **The harness must not verify a bug that never happened.** A fix is only VERIFIED if the bug
   reproduced first.
+
+### Learning from traces, when no rule exists
+
+Rules cannot find what nobody wrote a rule for. TraceLens also learns what healthy QNX scheduling looks
+like, from labelled traces its own simulator generates (1,920 runs across 16 scenarios), and reports threads that do not fit:
+
+| | |
+|---|---|
+| **Held-out simulated traces** | false alarms on **1 of 158** healthy traces; the bug families with no rule at all are caught 100% of the time for a lost wake-up, a lock-order deadlock and a period overrun, and **never** for a starved low-priority job: starvation and healthy deferred work look the same from behaviour alone, which is what declared deadlines are for |
+| **Real QNX 8.0 captures, never used for training** | the radar flags **all five** buggy builds on the thread that suffers and stays quiet on all five reference fixes and three healthy system traces; the classifier names the right cause for Z1, Z2 and Z4 and calls the rest healthy (the rules catch Z3 and Z5) |
+
+The protocol was fixed before the data existed, the held-out families are never trained on, and every
+number here comes from one recorded run of `python scripts/sim_experiment.py`
+([docs/ml/results_sim.md](docs/ml/results_sim.md), method in [docs/ml/DESIGN.md](docs/ml/DESIGN.md)).
 
 ## Evidence of QNX use
 
