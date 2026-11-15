@@ -49,3 +49,24 @@ def test_attribution_by_cpu():
     assert call.key == (7, 2)          # running on CPU 0
     assert usr.key == (7, 2)
     assert irq.key is None             # nothing seen running on CPU 1 yet
+
+
+def test_user_string_event_without_a_decoded_string_is_read_from_its_payload():
+    """Some traceprinter builds print a user string event only as raw words (measured on a
+    host-decoded QNX 8.0 capture, 2026-11-16, where it hit exactly the TL_META markers that name
+    the threads). The characters are in the payload, four per word, little-endian."""
+    line = ("t:0x3473b85560 CPU:00 USREVENT        :EVENT:1           , "
+            "d0:0x4d5f4c54 d1:0x20415445 d2:0x656d616e d3:0x626f6a3d d4:0x69727020 d5:0x30323d6f")
+    t = parse_text(line, cycles_per_sec=1_000_000_000)
+    assert t.events[0].text == "TL_META name=job prio=20"
+
+
+def test_a_numeric_user_event_payload_is_not_invented_into_text():
+    line = "t:0x10 CPU:00 USREVENT        :EVENT:1           , d0:0x00000001 d1:0xfffffffe"
+    assert parse_text(line, cycles_per_sec=1_000_000_000).events[0].text == ""
+
+
+def test_a_decoded_string_still_wins_over_the_payload():
+    line = ('t:0x10 CPU:00 USREVENT        :EVENT:1            STR:"TL_META name=brake_ctrl prio=60", '
+            "d0:0x4d5f4c54 d1:0x20415445")
+    assert parse_text(line, cycles_per_sec=1_000_000_000).events[0].text == "TL_META name=brake_ctrl prio=60"

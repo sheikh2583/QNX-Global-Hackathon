@@ -43,7 +43,9 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
   families that have no rule at all **100%** of the time (it cannot see the fourth, a starved
   low-priority job, which looks exactly like healthy deferred work unless a deadline is declared). On
   the real captures it flags **all five** buggy builds on the thread that suffers, and stays quiet on
-  all five reference fixes and three healthy system traces.
+  all five reference fixes and three healthy system traces. In a clean held-out test, 16 real captures
+  made *after* the models were frozen, every planted problem reproduced on the target and the radar
+  flagged **8 of 10** buggy traces with **0 false alarms** on the 6 healthy ones.
 
 ## How we built it
 

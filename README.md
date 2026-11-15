@@ -205,6 +205,10 @@ must exit 1, every fix and every healthy program exit 0.
 
 Each of these was found on real traces, fixed, and pinned by a regression test:
 
+- **A user string event is not always a string.** Some `traceprinter` builds print one only as its
+  raw payload words (`d0:0x4d5f4c54 d1:...`), with no decoded `STR:` field: 8 of 3,954 user events in
+  a host-decoded capture, and exactly the `TL_META` markers that name the threads. Every check that
+  reads a thread name silently failed. The parser now decodes the words itself, four characters each.
 - **The 1 ms tick decides races.** QNX 8.0 timers fire on tick boundaries (the tick is fixed;
   `ClockPeriod()` cannot change it), so two releases less than a tick apart wake in a random order.
   Planted bugs that depended on sub-tick offsets reproduced in 1 to 4 runs out of 5; spaced by whole
@@ -241,6 +245,7 @@ like, from labelled traces its own simulator generates (1,920 runs across 16 sce
 |---|---|
 | **Held-out simulated traces** | false alarms on **1 of 158** healthy traces; the bug families with no rule at all are caught 100% of the time for a lost wake-up, a lock-order deadlock and a period overrun, and **never** for a starved low-priority job: starvation and healthy deferred work look the same from behaviour alone, which is what declared deadlines are for |
 | **Real QNX 8.0 captures, never used for training** | the radar flags **all five** buggy builds on the thread that suffers and stays quiet on all five reference fixes and three healthy system traces; the classifier names the right cause for Z1, Z2 and Z4 and calls the rest healthy (the rules catch Z3 and Z5) |
+| **A clean held-out test**: 16 real captures made *after* the models were frozen, one per scenario | every planted problem reproduced on the target (16/16, none lossy) and every rule fired on the family it belongs to; the radar flagged **8 of 10** buggy traces on the thread that suffers with **0 false alarms** on the 6 healthy ones ([results_real.md](docs/ml/results_real.md)) |
 
 The protocol was fixed before the data existed, the held-out families are never trained on, and every
 number here comes from one recorded run of `python scripts/sim_experiment.py`

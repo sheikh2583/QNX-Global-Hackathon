@@ -224,12 +224,37 @@ The boundary is visible everywhere: a learned finding is MEDIUM, never fails the
 target and never gets a patch. The bundled `radar.json` makes this work offline with no key and no network;
 a corrupt or missing model costs the report nothing (it is reported as an error and the rules carry on).
 
-## 12. Roadmap
+## 12. The real pilot (2026-11-16)
 
-1. **Real pilot** (needs WSL + the VM): build `tlgen` with qcc, one run per scenario; compare each feature's
-   distribution real vs simulated (per-feature gap table); recalibrate the simulator's knobs from it.
-2. **Clean real test**: overnight collection; train on simulated + real-train, test on real held-out.
-   README/Devpost numbers come only from that run.
+One real capture per scenario on the QNX 8.0 target, after the models were frozen:
+[results_real.md](results_real.md), reproduced by `python scripts/real_vs_sim.py`.
+
+- **The generator works on the target**: 16 of 16 captures, none lossy, every planted problem showing,
+  and each known family firing exactly its own rule. The three scenarios added for the simulator
+  (`lost_wakeup`, `period_overrun`, `healthy_irq_deferred`) behave on real QNX as designed.
+- **A clean held-out test of the learned models**, the first one: the radar flagged 8 of the 10 buggy
+  traces on the thread that suffers, with 0 false alarms on the 6 healthy ones. It missed
+  `cpu_starvation` (the documented blind spot) and `irq_overrun` (the interrupt rule catches that one
+  outright). The classifier named the right cause for the three inversions and the contention, called
+  the lock-order deadlock "mutex contention" (the nearest class it has), and healthy for the rest.
+- **The simulator is close but not equal**: 210 of 274 compared feature/thread medians agree within
+  0.10. The gaps that remain are specific and worth closing before the overnight collection:
+  interrupt threads are preempted about twice as often in simulation as on the target
+  (`preempts_per_ms` 4.2-4.9 against 0-2.1) and serve interrupts about twice as often
+  (`blocks_per_ms` 3.1 against 1.7), and real threads spread over more CPUs than the simulated
+  scheduler lets them (`cpus_used` differs by 1-2 for the contention workers).
+- **It found a parser bug that would have cost the whole dataset.** Some traceprinter builds print a
+  user string event only as raw payload words, with no decoded `STR:` field: 8 of 3,954 user events
+  in this capture, and they happened to be the `TL_META` markers that name the threads. Every
+  name-dependent check silently failed (`cpu_starvation` looked like it never triggered). The parser
+  now decodes the words, and three tests pin it.
+
+## 13. Roadmap
+
+1. **Close the measured gaps** (section 12): the simulated interrupt load and the scheduler's CPU
+   placement, then re-run `scripts/sim_experiment.py` so the recorded numbers match the new simulator.
+2. **Overnight collection**: ~1,950 real runs; train on simulated + real-train, test on real held-out.
+   The published numbers then come from that run.
 3. **Close the two misses**: Z3 (deadlock across processes: add multi-process healthy IPC so a long SEND
    wait is learnable) and Z5 (real interrupt bursts: drive the simulated line from the real
    inter-arrival distribution).

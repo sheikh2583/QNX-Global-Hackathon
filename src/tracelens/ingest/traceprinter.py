@@ -151,6 +151,8 @@ def parse_text(lines: str | Iterable[str], source: str = "<memory>",
         args = dict(ARG_RE.findall(payload))
         for k, v in EQ_ARG_RE.findall(payload):
             args.setdefault(k, v.strip())
+        if not text and cls == "USREVENT":
+            text = _text_from_dwords(args)
         for k, alias in ARG_ALIASES.items():
             if k in args:
                 args.setdefault(alias, args[k])
@@ -216,6 +218,34 @@ def parse_text(lines: str | Iterable[str], source: str = "<memory>",
         trace.issues.append(f"32-bit cycle counter wrapped {trace.wraps}x; gaps of 2^32 cycles or more "
                             "cannot be recovered without CONTROL TIME events")
     return trace
+
+
+_DWORD_RE = re.compile(r"^d(\d+)$")
+
+
+def _text_from_dwords(args: dict[str, str]) -> str:
+    """Rebuild a user string event's text from its raw payload words.
+
+    Some traceprinter builds print a user string event only as ``d0:0x4d5f4c54 d1:...`` with no
+    decoded ``STR:`` field (measured 2026-11-16: 8 of 3,954 user events in a host-decoded capture,
+    and they were the TL_META markers that name the threads). The characters are right there, four
+    per word, little-endian, so decode them instead of losing the marker.
+    """
+    words = []
+    for key, value in args.items():
+        m = _DWORD_RE.match(key)
+        if m is None:
+            continue
+        try:
+            words.append((int(m.group(1)), int(value.rstrip(","), 0)))
+        except ValueError:
+            return ""
+    if not words:
+        return ""
+    raw = b"".join(w.to_bytes(4, "little") for _, w in sorted(words))
+    out = raw.split(b"\0", 1)[0].decode("ascii", "replace")
+    # Only a printable string is a string; anything else is a numeric payload we must not invent.
+    return out if out and all(32 <= ord(c) < 127 for c in out) else ""
 
 
 def _hex(value: str | None) -> int | None:
