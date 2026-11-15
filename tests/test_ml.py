@@ -154,7 +154,8 @@ def test_longest_cpu_burst_separates_a_masked_handler_from_a_correct_one():
         return v[len(v) // 2]
     buggy, fixed = burst("z5_motor_encoder", "encoder_ist"), burst("z5_motor_encoder_fixed", "encoder_ist")
     assert buggy > 10 * fixed, (buggy, fixed)
-    assert all(0.0 <= f["max_run_frac"] <= 1.0 for _, _, _, f in W(analyze_file(REAL / "z4_camera_pipeline.txt.gz", CFG).model))
+    z4 = analyze_file(REAL / "z4_camera_pipeline.txt.gz", CFG).model
+    assert all(0.0 <= f["max_run_frac"] <= 1.0 for _, _, _, f in W(z4))
 
 
 # --------------------------------------------------------------------- retrieval of labelled exemplars
@@ -163,7 +164,7 @@ def _rows(scenario, label, role, feature, lo, hi, n=40, split="train"):
     rng = _r.Random(hash(scenario) % 1000)
     out = []
     for i in range(n):
-        f = {k: 0.0 for k in FEATURES}
+        f = dict.fromkeys(FEATURES, 0.0)
         f[feature] = rng.uniform(lo, hi)
         out.append({"id": f"{scenario}-{i}", "scenario": scenario, "label": label, "role": role,
                     "split": split, "thread": "t", "f": f})
@@ -182,7 +183,7 @@ def retrieval(radar):
 
 def test_retrieval_names_the_pattern_a_window_resembles(radar, retrieval):
     from tracelens.ml.retrieve import nearest
-    f = {k: 0.0 for k in FEATURES}
+    f = dict.fromkeys(FEATURES, 0.0)
     f["share_sem"] = 0.7
     hit = nearest(retrieval, radar, f)
     assert hit["scenario"] == "sem_inversion" and hit["within"] and "semaphore" in hit["text"]
@@ -194,7 +195,7 @@ def test_retrieval_never_learns_from_held_out_families_or_culprits(radar, retrie
     assert scenarios == {"healthy_periodic", "sem_inversion"}
     # the culprit's windows are not exemplars of the bug: a mutex-heavy window must not match it closely
     from tracelens.ml.retrieve import nearest
-    f = {k: 0.0 for k in FEATURES}
+    f = dict.fromkeys(FEATURES, 0.0)
     f["share_mutex"] = 0.95
     assert not nearest(retrieval, radar, f)["within"]
 

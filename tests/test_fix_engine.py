@@ -56,7 +56,7 @@ def test_semaphore_inversion_is_fixed_and_proven(cfg, tmp_path):
     assert [r["rule"] for r in res.remedies if r["automatic"]] == ["semaphore-as-lock"]
     assert "+static pthread_mutex_t buf_lock;" in res.diff
     assert "pthread_mutex_lock(&buf_lock)" in b.built[-1][0]  # the patched copy is what was built
-    assert sum(1 for l, _ in cap.calls if l == "after") == 5
+    assert sum(1 for side, _ in cap.calls if side == "after") == 5
     bundle = tmp_path / "bundle"
     assert (bundle / "patch.diff").exists() and (bundle / "verdict.json").exists()
     summary = (bundle / "SUMMARY.md").read_text(encoding="utf-8")

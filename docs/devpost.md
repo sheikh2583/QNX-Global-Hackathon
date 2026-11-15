@@ -11,7 +11,7 @@ Real-time bugs are timing bugs. Every function can be correct while the system i
 
 ## What it does
 
-TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findings, code fixes, and a verdict measured on the target. It runs entirely on your machine and your QNX target: no API keys, no cloud, no model. The same trace and source always give the same diagnosis and the same patch.
+TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findings, code fixes, and a verdict measured on the target. It runs entirely on your machine and your QNX target: no API keys, no cloud, no black box: the rules that prove a bug are deterministic, and the learned radar that catches the bugs no rule knows is a small JSON file read by the standard library. The same trace and source always give the same diagnosis and the same patch.
 
 - **Finds** five classes of real-time bugs with deterministic detectors: priority inversion, Send/Reply deadlocks and blocking chains, mutex contention, interrupt-handler overruns, and deadline misses. Every finding cites the exact trace events that prove it.
 - **Understands QNX.** QNX mutexes inherit priority by default, so most textbook inversions can't happen. TraceLens looks for the ones that can: ownerless semaphores and `_NTO_CHF_FIXED_PRIORITY` channels. It reads priorities from kernel events over time, so a traced inheritance boost is recognised. Message-passing deadlocks are found per channel. Locks inside procnto are told apart from yours.
@@ -69,7 +69,7 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
 
 ## Accomplishments
 
-- A closed loop with no model in it: the trace proves the cause, a QNX-specific rewrite fixes it, and the real kernel decides whether it worked.
+- A closed loop in which nothing is guessed: the trace proves the cause, a QNX-specific rewrite fixes it, and the real kernel decides whether it worked. What a model contributes is clearly marked, never patched automatically, and never part of the proof.
 - Fixes that refuse to guess: every automatic rewrite checks its preconditions in the code, and tests prove it backs off when they fail.
 - A gate that refuses to pass or fail a lossy trace, and a harness that refuses to verify a bug that never reproduced.
 

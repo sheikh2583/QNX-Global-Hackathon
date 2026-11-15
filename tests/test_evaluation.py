@@ -87,7 +87,7 @@ def test_detect_table(zoo, cfg, tmp_path):
     md = (tmp_path / "res" / "detect.md").read_text()
     assert "| `z1_infusion_pump` | priority_inversion, deadline_miss | 5/5 | 0/5 | 0 | VERIFIED |" in md
     # buggy binary from out/<name>, reference from out/<name>_fixed, args passed through
-    assert (f"z1_infusion_pump-buggy", zoo / "out" / "z1_infusion_pump", None, ("-d", "2")) in fake.calls
+    assert ("z1_infusion_pump-buggy", zoo / "out" / "z1_infusion_pump", None, ("-d", "2")) in fake.calls
     assert any(c[1] == zoo / "out" / "z1_infusion_pump_fixed" for c in fake.calls)
 
 

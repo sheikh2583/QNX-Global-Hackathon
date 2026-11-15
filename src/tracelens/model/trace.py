@@ -16,7 +16,6 @@ LOSSY_RATE = 1e-5  # above it: more than 1 violation per 100,000 events
 # QNX thread states in which a thread is waiting on another party.
 SYNC_STATES = {"SEM", "MUTEX", "CONDVAR"}
 IPC_STATES = {"SEND", "REPLY"}
-BLOCKED_STATES = SYNC_STATES | IPC_STATES | {"JOIN", "INTR", "WAITPAGE"}
 
 
 @dataclass(slots=True)
@@ -240,7 +239,7 @@ class TraceModel:
         for th in self.threads.values():
             if len(th.prio_hist) > 1:
                 held: dict[int, int] = {}
-                for (t, p, _), nxt in zip(th.prio_hist, th.prio_hist[1:] + [(self.t_end, 0, 0)]):
+                for (t, p, _), nxt in zip(th.prio_hist, th.prio_hist[1:] + [(self.t_end, 0, 0)], strict=False):
                     held[p] = held.get(p, 0) + max(0, nxt[0] - t)
                 th.prio = max(held, key=held.get)
         self.integrity_violations = sum(violations.values())

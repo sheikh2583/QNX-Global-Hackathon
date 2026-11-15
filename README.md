@@ -2,7 +2,7 @@
 
 **Find, fix, and prove real-time bugs on QNX.** TraceLens reads a QNX Neutrino kernel event trace, finds timing bugs with deterministic detectors (priority inversion, Send/Reply deadlocks, mutex contention, interrupt-handler overruns, deadline misses), rewrites the code with the QNX-specific fix for the root cause it proved, rebuilds it with `qcc`, re-runs it on the QNX target, and accepts the fix only if repeated re-traces show the bug is gone.
 
-No API keys, no cloud, no model: the same trace and source always give the same diagnosis and the same patch. The core is pure Python 3.11 standard library.
+No API keys, no cloud, no black box: the rules that prove a bug are deterministic, and the learned radar that catches the bugs no rule knows is a small JSON file read by the standard library. The same trace and source always give the same diagnosis and the same patch. The core is pure Python 3.11 standard library.
 
 ## Try it in one minute (no QNX needed)
 

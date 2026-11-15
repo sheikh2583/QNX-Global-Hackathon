@@ -2,6 +2,7 @@
 # Run every TraceLens check on this machine (Linux/WSL; expects `pip install -e ".[dev]"`).
 #
 #   scripts/check.sh            everything
+#   scripts/check.sh lint       ruff: dead code, bug patterns, APIs newer Pythons deprecate
 #   scripts/check.sh tests      unit tests + committed synthetic fixtures match the generator
 #   scripts/check.sh hostcheck  bug-zoo workloads and reference fixes compile against QNX API stubs
 #   scripts/check.sh gate       every real QNX 8.0 and synthetic trace gets the expected verdict
@@ -12,6 +13,11 @@ cd "$(dirname "$0")/.."
 mkdir -p reports
 failed=0
 fail() { echo "FAIL: $*" >&2; failed=1; }
+
+step_lint() {
+  echo "== lint (ruff)"
+  python -m ruff check src tests scripts || fail "ruff"
+}
 
 step_tests() {
   echo "== unit tests"
@@ -55,11 +61,12 @@ step_gate() {
 }
 
 case "${1:-all}" in
+  lint) step_lint ;;
   tests) step_tests ;;
   hostcheck) step_hostcheck ;;
   gate) step_gate ;;
-  all) step_tests; step_hostcheck; step_gate ;;
-  *) echo "usage: $0 [all|tests|hostcheck|gate]" >&2; exit 2 ;;
+  all) step_lint; step_tests; step_hostcheck; step_gate ;;
+  *) echo "usage: $0 [all|lint|tests|hostcheck|gate]" >&2; exit 2 ;;
 esac
 [ $failed -eq 0 ] && echo "all checks passed" || echo "FAILED" >&2
 exit $failed

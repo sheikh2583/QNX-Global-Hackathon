@@ -57,10 +57,10 @@ def _releases(items: list, period: int | None, markers: list) -> list[int]:
     # to 80% of a period.
     ks = [round((st - s0) / period) for st in starts]
     p = fit(ks)
-    phase = sorted(st - s0 - k * p for k, st in zip(ks, starts))[len(starts) // 2]
+    phase = sorted(st - s0 - k * p for k, st in zip(ks, starts, strict=False))[len(starts) // 2]
     ks = [math.floor((st - s0 - phase + 0.2 * p) / p) for st in starts]
     p = fit(ks)
-    a = min(st - k * p for k, st in zip(ks, starts))
+    a = min(st - k * p for k, st in zip(ks, starts, strict=False))
     return [int(a + k * p) for k in ks]
 
 
@@ -70,7 +70,7 @@ def _theil_sen(xs: list[int], ys: list[int], max_points: int = 400) -> float | N
     if n < 3:
         return None
     step = max(1, n // max_points)
-    pts = list(zip(xs, ys))[::step]
+    pts = list(zip(xs, ys, strict=False))[::step]
     slopes = sorted((y2 - y1) / (x2 - x1) for i, (x1, y1) in enumerate(pts)
                     for x2, y2 in pts[i + 1:] if x2 != x1)
     return slopes[len(slopes) // 2] if slopes else None
@@ -106,7 +106,7 @@ def _stream_releases(items: list, period: int | None, markers: list) -> list[int
     for key, idx in by_thread.items():
         mk = [e for e in markers if e.key == key] or ([] if len(by_thread) > 1 else markers)
         rel = _releases([items[i] for i in idx], period, mk)
-        for i, r in zip(idx, rel):
+        for i, r in zip(idx, rel, strict=False):
             out[i] = r
     return out
 
@@ -121,7 +121,7 @@ def responses(model: TraceModel, cfg: Config) -> dict[str, list[int]]:
             continue
         period = int(dl.period_us * 1000) if dl.period_us else None
         rel = _stream_releases(items, period, releases.get(name, []))
-        out[name] = [end.t_ns - r for (_, end), r in zip(items, rel)]
+        out[name] = [end.t_ns - r for (_, end), r in zip(items, rel, strict=False)]
     return out
 
 
@@ -182,14 +182,14 @@ def detect(model: TraceModel, cfg: Config) -> list[Finding]:
         budget = dl.budget_us * 1000
         period = int(dl.period_us * 1000) if dl.period_us else None
         rel = _stream_releases(items, period, releases.get(name, []))
-        resp = [end.t_ns - r for (_, end), r in zip(items, rel)]
-        jitter = [start.t_ns - r for (start, _), r in zip(items, rel)]
+        resp = [end.t_ns - r for (_, end), r in zip(items, rel, strict=False)]
+        jitter = [start.t_ns - r for (start, _), r in zip(items, rel, strict=False)]
         misses = [i for i, r in enumerate(resp) if r > budget]
         overruns = sum(1 for r in resp if period and r > period)
         skipped = 0
         if period:
             for key in {s.key for s, _ in items}:  # per stream: a period with no job from that thread
-                rs = sorted(r for (s, _), r in zip(items, rel) if s.key == key)
+                rs = sorted(r for (s, _), r in zip(items, rel, strict=False) if s.key == key)
                 if len(rs) > 1:
                     slots = {round((r - rs[0]) / period) for r in rs}
                     skipped += (max(slots) - min(slots) + 1) - len(slots)

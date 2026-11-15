@@ -115,7 +115,7 @@ def test_one_very_late_job_does_not_shift_the_release_grid():
     starts[61] += 5_300_000
     items = [(N(t_ns=t), None) for t in starts]
     rel = _releases(items, P, [])
-    late = [st - r for st, r in zip(starts, rel)]
+    late = [st - r for st, r in zip(starts, rel, strict=False)]
     assert max(late) == late[61] and 5_200_000 < late[61] < 5_400_000
     assert sorted(late)[-2] < 100_000  # everyone else stays on time
 

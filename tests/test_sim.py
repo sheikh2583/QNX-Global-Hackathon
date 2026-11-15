@@ -13,7 +13,7 @@ from tracelens.config import load_config
 from tracelens.ingest.traceprinter import parse_text
 from tracelens.ml import dataset
 from tracelens.ml.dataset import role_of, window_label
-from tracelens.ml.features import windows
+from tracelens.ml.features import FEATURES, windows
 from tracelens.ml.model import calibrate_persistence, fit_radar, thread_flagged
 from tracelens.model.trace import TraceModel
 from tracelens.sim import simulate
@@ -49,8 +49,9 @@ def test_every_scenario_is_sound_and_deterministic(traces):
     for s, text in traces.items():
         m = TraceModel(parse_text(text))
         assert not m.integrity and not m.lossy, (s, m.integrity)
-    assert simulate("healthy_ipc", {"cs_us": 300}, seed=9, seconds=1) == simulate("healthy_ipc", {"cs_us": 300}, seed=9, seconds=1)
-    assert simulate("healthy_ipc", {"cs_us": 300}, seed=9, seconds=1) != simulate("healthy_ipc", {"cs_us": 300}, seed=10, seconds=1)
+    again = simulate("healthy_ipc", {"cs_us": 300}, seed=9, seconds=1)
+    assert simulate("healthy_ipc", {"cs_us": 300}, seed=9, seconds=1) == again
+    assert simulate("healthy_ipc", {"cs_us": 300}, seed=10, seconds=1) != again
 
 
 def test_every_planted_problem_shows_up_and_healthy_stays_clean(traces):
@@ -159,7 +160,8 @@ def test_persistence_rule_is_calibrated_on_healthy_traces():
     model = calibrate_persistence({"threshold": 1.0}, healthy, q=0.99)
     assert model["min_frac"] == 0.6 and model["min_windows"] == 3
     assert thread_flagged(model, 7, 10) and not thread_flagged(model, 5, 10) and not thread_flagged(model, 2, 2)
-    assert thread_flagged(fit_radar([{f: 0.0 for f in __import__("tracelens.ml.features").ml.features.FEATURES}] * 30), 1, 100)
+    flat = fit_radar([dict.fromkeys(FEATURES, 0.0)] * 30)  # no persistence calibrated: one window is enough
+    assert thread_flagged(flat, 1, 100)
 
 
 def test_only_the_victim_thread_carries_the_bug_label():

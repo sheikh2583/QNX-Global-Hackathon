@@ -120,7 +120,7 @@ def detect(model: TraceModel, cfg: Config) -> list[Finding]:
 
     findings: list[Finding] = []
     cyc_pids = set().union(*cycles) if cycles else set()
-    for pids, (cyc, lo, hi) in cycles.items():
+    for (cyc, lo, hi) in cycles.values():
         procs = [model.proc_names.get(e.client, f"pid {e.client}") for e in cyc]
         if len(set(procs)) < len(procs):  # forked servers share a process name: use thread names
             procs = [model.label(e.thread.key) for e in cyc]

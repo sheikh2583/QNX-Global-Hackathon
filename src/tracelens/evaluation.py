@@ -17,7 +17,8 @@ import json
 import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from .analyze import analyze_file
 from .config import Config

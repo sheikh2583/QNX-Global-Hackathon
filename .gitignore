@@ -14,3 +14,5 @@ captures/
 demo/out/
 .site/
 /data/
+/tracelens-fix.patch
+/reports/

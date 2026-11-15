@@ -23,7 +23,8 @@ import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from ..analyze import Analysis, analyze_file
 from ..config import Config
@@ -150,7 +151,7 @@ class FixEngine:
         self._emit("stage", stage="record_before", round=0)
         before, analyses = self._before(name, before_traces)
         self._before_an, self._after_an = analyses, []
-        clean = [a for s, a in zip(before, analyses) if not s.lossy]
+        clean = [a for s, a in zip(before, analyses, strict=False) if not s.lossy]
         if not clean:
             res.note = "every 'before' trace is lossy; recapture"
             return self._finish(res, [])
@@ -224,8 +225,8 @@ class FixEngine:
     def _before(self, name: str, traces: list[str | Path] | None):
         if traces:
             analyses = [analyze_file(p, self.cfg) for p in traces]
-            sums = [summarize(a, self.cfg, str(p)) for a, p in zip(analyses, traces)]
-            for i, (a, sm) in enumerate(zip(analyses, sums)):
+            sums = [summarize(a, self.cfg, str(p)) for a, p in zip(analyses, traces, strict=False)]
+            for i, (a, sm) in enumerate(zip(analyses, sums, strict=False)):
                 self._run_event("before", 0, i, a, sm)
             return sums, analyses
         bdir = self.out / "before"

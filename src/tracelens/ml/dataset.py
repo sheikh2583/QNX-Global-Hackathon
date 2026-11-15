@@ -18,7 +18,7 @@ import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 from ..analyze import Analysis, analyze_file
 from ..config import Config
@@ -53,16 +53,19 @@ SCENARIOS: dict[str, Scenario] = {
                                               "period_us": (10000, 20000)}),
     # cs_us > 1 tick so the low thread still holds the lock when the medium one wakes a tick later
     "sem_inversion": Scenario("priority_inversion", True, {"work_us": (100, 500), "cs_us": (1500, 3000),
-                                                           "mid_us": (3000, 6000), "pin": (1,), "period_us": (10000, 20000)}),
+                                                           "mid_us": (3000, 6000), "pin": (1,),
+                                                           "period_us": (10000, 20000)}),
     "chan_inversion": Scenario("priority_inversion", True, {"work_us": (100, 500), "cs_us": (200, 800),
-                                                            "mid_us": (3000, 6000), "pin": (1,), "period_us": (10000, 20000)}),
+                                                            "mid_us": (3000, 6000), "pin": (1,),
+                                                            "period_us": (10000, 20000)}),
     "ipc_deadlock": Scenario("ipc_deadlock", True, {"period_us": (10000, 20000)}),
     "lock_contention": Scenario("mutex_contention", True, {"work_us": (800, 2000), "workers": (2, 6), "pin": (0,),
                                                            "period_us": (10000, 20000)}),
     # The inversion rule also follows condition variables (found by the simulator, 2026-11-15), so this
     # family is a known one, not a held-out test of the radar.
     "condvar_inversion": Scenario("priority_inversion", True, {"work_us": (100, 500), "cs_us": (1500, 3000),
-                                                               "mid_us": (3000, 6000), "pin": (1,), "period_us": (10000, 20000)}),
+                                                               "mid_us": (3000, 6000), "pin": (1,),
+                                                               "period_us": (10000, 20000)}),
     "cpu_starvation": Scenario("cpu_starvation", False, {"work_us": (200, 800), "mid_us": (3000, 8000), "pin": (1,),
                                                          "period_us": (10000, 20000)}),
     "mutex_abba": Scenario("mutex_abba", False, {"period_us": (10000,)}),

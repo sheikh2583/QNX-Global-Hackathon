@@ -1,11 +1,9 @@
 """Deterministic remedies: right fix for each proven root cause, and no rewrite when unsafe."""
 
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 

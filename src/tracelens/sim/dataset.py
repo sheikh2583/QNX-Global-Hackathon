@@ -14,7 +14,7 @@ import hashlib
 import json
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 from ..analyze import analyze_text
 from ..config import Config, load_config

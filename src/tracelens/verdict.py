@@ -54,7 +54,7 @@ def mann_whitney_less(after: list[float], before: list[float]) -> tuple[float, f
         t = j - i + 1
         ties += t ** 3 - t
         i = j + 1
-    r1 = sum(r for r, (_, g) in zip(ranks, pooled) if g == 0)
+    r1 = sum(r for r, (_, g) in zip(ranks, pooled, strict=False) if g == 0)
     u1 = r1 - n1 * (n1 + 1) / 2
     mu = n1 * n2 / 2
     n = n1 + n2

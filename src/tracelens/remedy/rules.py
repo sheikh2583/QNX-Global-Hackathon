@@ -126,7 +126,7 @@ def semaphore_as_lock(f: Finding, sources: dict[str, str]) -> Remedy | None:
                 r.notes.append(f"{path}: {name} is not used strictly as a lock (init value, trywait/timedwait, "
                                f"waits and posts in different functions, or other uses)")
     involved = set()
-    for path, text in sources.items():
+    for text in sources.values():
         involved |= _thread_functions(text, csrc.mask(text), f.threads)
     if len(cands) > 1 and involved:
         cands = [c for c in cands if any(re.search(rf"\bsem_wait\s*\(\s*&\s*{c[1]}\b",
@@ -405,7 +405,7 @@ def _locals(m: str, fn: csrc.Function) -> set[str]:
             if ids:
                 names.add(ids[-1])
     params = m[m.rfind("(", fn.start, fn.body_open):fn.body_open]
-    names |= {x for x in re.findall(r"([A-Za-z_]\w*)\s*(?:\[\s*\])?\s*[,)]", params)}
+    names |= set(re.findall(r"([A-Za-z_]\w*)\s*(?:\[\s*\])?\s*[,)]", params))
     return names - csrc.KEYWORDS
 
 

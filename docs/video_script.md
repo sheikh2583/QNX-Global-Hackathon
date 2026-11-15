@@ -4,7 +4,7 @@ Recording: OBS screen capture at 1920×1080, terminal font 18 pt, browser zoom 1
 
 | Time | Shot | Voiceover |
 |---|---|---|
-| 0:00–0:10 | QNX 8.0 booting in QEMU (`tracelens target up`), then the TraceLens logo | "Real-time bugs on QNX are found today by an engineer staring at a timeline. TraceLens finds them, fixes the code, and proves the fix on the real kernel. No AI, no API keys." |
+| 0:00–0:10 | QNX 8.0 booting in QEMU (`tracelens target up`), then the TraceLens logo | "Real-time bugs on QNX are found today by an engineer staring at a timeline. TraceLens finds them, fixes the code, and proves the fix on the real kernel. No API keys, no cloud." |
 | 0:10–0:25 | A raw `traceprinter` dump scrolling: thousands of lines | "This is two seconds of an infusion pump's life, as the QNX kernel saw it. The bug is in here somewhere." |
 | 0:25–0:55 | `tracelens capture … --analyze` on Z1; the CRITICAL finding; HTML report with the timeline | "One command captures the trace on QNX and analyzes it. Priority inversion in 200 of 200 periods: the dose controller, priority 50, waited 5.4 milliseconds on a semaphore held by the logger, while telemetry held the logger's CPU. Every claim links to the trace events that prove it." |
 | 0:55–1:10 | Report: the QNX note; zoom on the timeline (logger READY, telemetry RUNNING) | "QNX mutexes inherit priority, so this can't happen with a mutex. A semaphore has no owner, so the kernel has nobody to boost." |

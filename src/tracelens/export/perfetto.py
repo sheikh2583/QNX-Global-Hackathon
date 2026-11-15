@@ -56,7 +56,7 @@ def to_chrome_trace(a: Analysis, include_calls: bool = True) -> dict:
             for e in th.calls:
                 ev.append({"ph": "i", "s": "t", "pid": key[0], "tid": key[1], "name": e.kind,
                            "cat": "kernel_call", "ts": _us(e.t_ns - t0),
-                           "args": {"event": e.id, **{k: v for k, v in e.args.items()}}})
+                           "args": {"event": e.id, **dict(e.args.items())}})
 
     if m.irq_entries:
         meta(IRQ_PID, None, "process_name", "IRQs")

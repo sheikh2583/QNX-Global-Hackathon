@@ -13,7 +13,7 @@ from pathlib import Path
 from .. import __version__
 from ..analyze import Analysis, analyze_file
 from ..config import Config
-from .html import CSS, SEV_CLASS, STATE_COLORS
+from .html import CSS, STATE_COLORS
 
 WINDOW_NS = 25_000_000  # 2.5 periods of a 10 ms loop: enough to see the pattern repeat
 

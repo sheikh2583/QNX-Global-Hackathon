@@ -89,7 +89,8 @@ def test_qemu_up_explains_the_known_setup_problems(tmp_path):
     with pytest.raises(RuntimeError, match="virsh net-start default"):
         q.up()
     (tmp_path / "virbr0.status").write_text("[]")
-    q = QemuImage(str(tmp_path), dhcp_running=lambda: True, spawn=lambda a, c, p: p.write_text("/usr/lib/qemu/qemu-bridge-helper not setuid"),
+    not_setuid = "/usr/lib/qemu/qemu-bridge-helper not setuid"
+    q = QemuImage(str(tmp_path), dhcp_running=lambda: True, spawn=lambda a, c, p: p.write_text(not_setuid),
                   sleep=lambda s: None, leases_path=str(tmp_path / "virbr0.status"))
     with pytest.raises(RuntimeError, match=r"chmod u\+s"):
         q.up()

@@ -168,7 +168,7 @@ def detect(model: TraceModel, cfg: Config) -> list[Finding]:
         iv = worst["iv"]
         ratio = worst["interference"] / iv.duration if iv.duration else 0
         mids = sorted(worst["interferers"], key=lambda x: -x[1])
-        def during(th):
+        def during(th, iv=iv):  # bound now: the next group rebinds the name
             r = th.prio_range(iv.start, iv.end)
             return f"{model.label(th.key)} (prio {r[1] if r else '?'})"
         mid_names = ", ".join(during(m) for m, _, _ in mids[:3])

@@ -49,7 +49,7 @@ already, a real QNX 8.0 target and a capture pipeline, so we generate labelled d
   for the classifier's test.
 - **Volume and cost**: ~10 s per capture on the VM; 2,000 traces ≈ 6 h, one overnight run with the
   host idle (host load distorts guest timing: measured, PLAN §15). Collection is resumable.
-- **Simulated twin** (section 9): the same plan through a QNX scheduling simulator, 1,800 traces in ~5 min
+- **Simulated twin** (section 9): the same plan through a QNX scheduling simulator, 1,920 traces in ~6 min
   on a laptop. Unseen families use job names with no declared deadline, so no rule can see them.
 - **Labels per thread**: only the planted victim thread's windows carry the bug's label
   (`dataset.TRUTH`, `window_label`); every other thread's windows are normal behaviour.

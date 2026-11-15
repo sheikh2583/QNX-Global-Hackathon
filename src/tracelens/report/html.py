@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import re
 from html import escape
-from typing import Any
 
 from .. import __version__
 from ..analyze import Analysis
@@ -95,7 +93,7 @@ def _thread_rects(th, t0: int, span: int, left: float, plot_w: float, y: float, 
     same state merge into one rect, so the picture is the same at the displayed resolution. Short
     intervals stay visible as long as they dominate a column; long ones keep their exact hover text."""
     col_ns = span / cols
-    acc: list[dict[str, int]] = [dict() for _ in range(cols)]
+    acc: list[dict[str, int]] = [{} for _ in range(cols)]
     longest: dict[int, object] = {}
     for iv in th.intervals:
         color = STATE_COLORS.get(iv.state)
@@ -126,17 +124,6 @@ def _thread_rects(th, t0: int, span: int, left: float, plot_w: float, y: float, 
                    f'height="15" rx="2" fill="{STATE_COLORS[state]}"><title>{title}</title></rect>')
         c += 1
     return out
-
-
-_CITE = re.compile(r"\bE(\d+)\b")
-
-
-def _link(fid: str, eid: int) -> str:
-    return f'<a class=cite href="#{escape(fid)}-E{eid}">E{eid}</a>'
-
-
-def _cite(text: str, fid: str) -> str:
-    return _CITE.sub(lambda m: _link(fid, int(m.group(1))), escape(str(text)))
 
 
 def _integrity(a: Analysis) -> str:

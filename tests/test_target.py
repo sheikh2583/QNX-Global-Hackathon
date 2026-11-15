@@ -24,7 +24,7 @@ PIDIN = """\
 
 def z1_without_priorities() -> str:
     """Z1 as an unmodified program would trace: no TL_META, no prio on THREAD events."""
-    text = "\n".join(l for l in S.z1_prio_inversion().splitlines() if "TL_META" not in l)
+    text = "\n".join(x for x in S.z1_prio_inversion().splitlines() if "TL_META" not in x)
     return re.sub(r" prio:\d+", "", text) + "\n"
 
 

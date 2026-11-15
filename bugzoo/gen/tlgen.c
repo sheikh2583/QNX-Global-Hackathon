@@ -319,7 +319,7 @@ static void *deferred_worker(void *arg)
 
 static void run_irq(int unmask_first, int defer)
 {
-    pthread_t worker;
+    pthread_t worker = 0;   /* qcc cannot see that `defer` guards both the create and the join */
 
     if (defer) {
         if (sem_init(&sem_lock, 0, 0) == -1)

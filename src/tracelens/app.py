@@ -199,7 +199,7 @@ def layout(title: str, body: str, active: str = "") -> bytes:
             f'<footer><div class=in><div>TraceLens finds, fixes and proves real-time bugs in QNX programs. '
             f'Open source: <a href="https://github.com/sheikh2583/QNX-Global-Hackathon">github.com/sheikh2583/'
             f'QNX-Global-Hackathon</a>.</div><div>Built for QNX SDP 8.0 · runs on your machine · no account, '
-            f'no AI, no data kept · v{escape(__version__)}</div></div></footer></body></html>').encode("utf-8")
+            f'runs offline · no data kept · v{escape(__version__)}</div></div></footer></body></html>').encode()
 
 
 LEGEND = ('<div class=legend><span><i style="background:var(--run)"></i>running</span>'

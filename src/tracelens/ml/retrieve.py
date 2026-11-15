@@ -23,7 +23,6 @@ import math
 import random
 
 from .dataset import HEALTHY, SCENARIOS
-from .features import FEATURES
 
 PER_SCENARIO = 8  # exemplars kept per scenario (k-center picks the spread, not the average)
 SAMPLE = 4000  # windows looked at per scenario when picking
@@ -60,7 +59,7 @@ def zvec(model: dict, f: dict) -> list[float]:
 
 
 def distance(a: list[float], b: list[float]) -> float:
-    return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)) / len(a))
+    return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b, strict=False)) / len(a))
 
 
 def _k_center(vectors: list[list[float]], k: int) -> list[int]:

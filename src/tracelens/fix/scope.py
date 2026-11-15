@@ -28,7 +28,7 @@ class Workspace:
     include_dirs: list[Path]  # read-only, e.g. bugzoo/common
 
     @classmethod
-    def create(cls, workload_dir: str | Path, sandbox: str | Path, include_dirs: list[str | Path]) -> "Workspace":
+    def create(cls, workload_dir: str | Path, sandbox: str | Path, include_dirs: list[str | Path]) -> Workspace:
         src = Path(workload_dir)
         dst = Path(sandbox)
         if dst.exists():

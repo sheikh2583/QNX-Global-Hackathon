@@ -24,7 +24,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 DEFAULT_IMAGE_DIR = "~/qnx-vm"
 LEASES = "/var/lib/libvirt/dnsmasq/virbr0.status"
@@ -41,14 +41,32 @@ def _run(argv: list[str], cwd: str, timeout: float = 60) -> subprocess.Completed
 
 def _spawn(argv: list[str], cwd: str, log_path: Path):
     """Start a long-running command detached (mkqnximage --run keeps QEMU in the foreground)."""
-    log = open(log_path, "wb")
+    log = open(log_path, "wb")  # noqa: SIM115  (the child writes to it; closing here breaks the pipe)
     return subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                             start_new_session=True)
 
 
+def _bridge_has_address(name: str = "virbr0") -> bool:
+    """Does the libvirt bridge carry an IPv4 address? libvirt gives the bridge its gateway address
+    and starts dnsmasq together when the network starts, so this answers the same question as finding
+    the daemon, and it still works where the daemon's process is invisible."""
+    try:
+        out = subprocess.run(["ip", "-4", "-br", "addr", "show", name], capture_output=True,
+                             text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.returncode == 0 and bool(re.search(r"\b\d+\.\d+\.\d+\.\d+/\d+", out.stdout))
+
+
 def _dhcp_running() -> bool:
-    """Is libvirt's dnsmasq serving the default network? (After a reboot the lease file survives
-    while the DHCP server does not, and a VM then boots without an address.)"""
+    """Is libvirt's DHCP serving the default network? (After a reboot the lease file survives while
+    the DHCP server does not, and a VM then boots without an address.)
+
+    Two ways, because neither works everywhere: the daemon's own command line in /proc, and failing
+    that the bridge's address. Under WSL with systemd, a shell started by `wsl.exe` can land outside
+    systemd's PID namespace and see none of its processes, so the /proc scan alone reported a healthy
+    network as broken (measured 2026-11-16); a stale bridge left by a crashed session has no address,
+    which is exactly the state that needs reporting."""
     proc = Path("/proc")
     if not proc.is_dir():
         return True  # not Linux: cannot tell, do not block
@@ -59,7 +77,7 @@ def _dhcp_running() -> bool:
             continue
         if b"dnsmasq" in text and (b"default.conf" in text or b"virbr0" in text):
             return True
-    return False
+    return _bridge_has_address()
 
 
 def _ssh_open(ip: str, timeout: float = 2.0) -> bool:

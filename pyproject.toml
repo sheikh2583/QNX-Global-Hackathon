@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 dependencies = []  # core is stdlib-only on purpose: judges can run it anywhere
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "ruff>=0.6"]
 ml = ["scikit-learn>=1.4"]  # offline training only; inference is stdlib
 
 [project.scripts]
@@ -26,3 +26,21 @@ tracelens = ["py.typed", "live.js", "ml/radar.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# A deprecation ignored today is a build that will not run on the next Python.
+filterwarnings = ["error::DeprecationWarning", "error::PendingDeprecationWarning"]
+
+[tool.ruff]
+line-length = 125
+target-version = "py311"
+
+[tool.ruff.lint]
+# F/E/W: real errors. UP: syntax and imports that newer Pythons deprecate. B: bug patterns (a zip()
+# without strict= truncates silently; a closure over a loop variable reads the wrong value).
+select = ["F", "E", "W", "UP", "B", "C4", "PIE"]
+ignore = ["E731"]  # a named lambda is fine for the one-line formatters in the reports
+
+[tool.ruff.lint.per-file-ignores]
+# These modules embed the web app's HTML, CSS and SVG; wrapping those strings makes them harder to read.
+"src/tracelens/app.py" = ["E501"]
+"src/tracelens/report/html.py" = ["E501"]
+"src/tracelens/report/fix_html.py" = ["E501"]

@@ -49,7 +49,7 @@ class Knobs:
     irq_rate_hz: float = 4000.0  # device interrupt rate on a busy line
 
     @classmethod
-    def random(cls, rng: random.Random) -> "Knobs":
+    def random(cls, rng: random.Random) -> Knobs:
         return cls(cycles_per_sec=rng.choice([2_419_562_295, 2_419_200_064, 1_999_999_870, 2_904_002_112]),
                    kcall_ns=(rng.randint(300, 800), rng.randint(1500, 4000)),
                    ctx_ns=(rng.randint(150, 500), rng.randint(900, 2500)),
@@ -397,7 +397,8 @@ class Kernel:
         """procnto with one idle thread per CPU and the clock interrupt thread, as at capture start."""
         nto = self.new_proc("/proc/boot/procnto-smp-instr", pid=1)
         for c in range(self.k.ncpu):
-            self.emit(c, "CONTROL", "TIME", f"msb:0x{(self.base_cycles >> 32):08x} lsb(offset):0x{self.base_cycles & 0xffffffff:08x}")
+            self.emit(c, "CONTROL", "TIME", f"msb:0x{(self.base_cycles >> 32):08x} "
+                                            f"lsb(offset):0x{self.base_cycles & 0xffffffff:08x}")
         self.emit(0, "PROCESS", "PROCCREATE_NAME", "", (("ppid", "0"), ("pid", "1"), ("name", nto.name)))
         for c in range(self.k.ncpu):
             idle = self.new_thread(nto, 0, FIFO, mask=(c,))
@@ -503,7 +504,7 @@ class Kernel:
         self.interrupt(irq)
         self.at(self.now + 2000 + int(self.rng.expovariate(irq.rate_hz) * 1e9), self._arrive, irq)
 
-    def interrupt(self, irq: Irq, only: "Attach | None" = None) -> None:
+    def interrupt(self, irq: Irq, only: Attach | None = None) -> None:
         targets = [only] if only is not None else irq.attaches
         open_ = [a for a in targets if not a.masked]
         for a in targets:
