@@ -8,6 +8,9 @@
   verdict      -> tracelens compare: VERIFIED / NOT FIXED / INCONCLUSIVE
   next round   -> if NOT FIXED: diagnose the patched build's traces, fix again (up to 3 rounds)
 
+Every step is also reported as it happens (``on_event``, and ``events.jsonl`` in the bundle): the
+live view (``tracelens fix --watch``) and the hosted replay are built from those events.
+
 Root causes without a safe automatic transform get GUIDED: exact source locations and the QNX
 remedy, so a developer applies it and reruns ``tracelens compare``. Everything lands in an
 evidence bundle: before/after traces, the patch, build log, verdict, and SUMMARY.md.
@@ -17,6 +20,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -56,12 +60,62 @@ class FixResult:
 class FixEngine:
     def __init__(self, workload_dir: str | Path, include_dirs: list[str | Path], cfg: Config,
                  builder: Any, capturer: Capturer, out_dir: str | Path, runs: int = 5,
-                 target_kinds: list[str] | None = None, alpha: float = 0.01, max_rounds: int = 3):
+                 target_kinds: list[str] | None = None, alpha: float = 0.01, max_rounds: int = 3,
+                 on_event: Callable[[dict], None] | None = None):
         self.workload_dir = Path(workload_dir)
         self.include_dirs = [Path(d) for d in include_dirs]
         self.cfg, self.builder, self.capturer = cfg, builder, capturer
         self.out = Path(out_dir)
         self.runs, self.target_kinds, self.alpha, self.max_rounds = runs, target_kinds, alpha, max_rounds
+        self.on_event = on_event
+        self._events_path: Path | None = None
+
+    # ------------------------------------------------------------------ events
+    def _emit(self, kind: str, **data) -> None:
+        """Report one step. Never raises: a broken viewer must not cost a verdict."""
+        evt = {"type": kind, "t": round(time.time(), 3), **data}
+        try:
+            if self._events_path is not None:
+                with open(self._events_path, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(evt) + "\n")
+            if self.on_event is not None:
+                self.on_event(evt)
+        except Exception:
+            pass
+
+    def _run_event(self, side: str, rnd: int, i: int, a: Analysis, s: RunSummary) -> None:
+        from ..app import KIND
+        from ..detectors import deadline
+        dls = {}
+        if not s.lossy:
+            for name, resp in deadline.responses(a.model, self.cfg).items():
+                if not resp:
+                    continue
+                srt = sorted(resp)
+                budget = self.cfg.deadlines[name].budget_us * 1000
+                dls[name] = {"p99_ms": round(srt[min(len(srt) - 1, int(0.99 * len(srt)))] / 1e6, 3),
+                             "max_ms": round(srt[-1] / 1e6, 3), "budget_ms": round(budget / 1e6, 3),
+                             "late": sum(1 for x in resp if x > budget), "jobs": len(resp)}
+        irq = next((f.metrics for f in a.findings if f.kind in ("irq_handler_overrun", "irq_latency")), None)
+        self._emit("run", side=side, round=rnd, i=i, lossy=s.lossy, kinds=sorted(s.kinds),
+                   problems=sorted({KIND.get(k, {}).get("name", k) for k in s.kinds}), deadlines=dls,
+                   irq={"p99_masked_us": irq.get("p99_handler_us"), "p99_response_us": irq.get("p99_latency_us")}
+                   if irq else None)
+
+    def _diagnosis_event(self, rnd: int, an: list[Analysis], findings, targets) -> None:
+        try:
+            from .. import app
+            a = next((x for x in an if any(f in x.findings for f in findings)), an[0] if an else None)
+            items = []
+            for f in sorted(findings, key=app.order):
+                copy = app.KIND.get(f.kind, {"name": f.title, "impact": ""})
+                items.append({"id": f.id, "kind": f.kind, "severity": f.severity, "name": copy["name"],
+                              "impact": copy.get("impact", ""), "summary": app.friendly_summary(f),
+                              "threads": f.threads, "qnx": f.qnx_note,
+                              "timeline": app.finding_timeline(a, f) if a is not None else ""})
+            self._emit("diagnosis", round=rnd, targets=targets, findings=items)
+        except Exception as exc:  # the viewer is optional
+            self._emit("log", message=f"diagnosis view unavailable: {type(exc).__name__}")
 
     def run(self, before_traces: list[str | Path] | None = None) -> FixResult:
         name = self.workload_dir.name
@@ -69,13 +123,18 @@ class FixEngine:
         res = FixResult(status=INCONCLUSIVE, workload=name, runs=self.runs, bundle=str(self.out),
                         quick=self.runs < 5)
         original = Workspace.create(self.workload_dir, self.out / "original", self.include_dirs).files()
+        self._events_path = self.out / "events.jsonl"
+        self._events_path.write_text("", encoding="utf-8")
+        self._emit("start", workload=name, runs=self.runs, max_rounds=self.max_rounds, files=original)
 
+        self._emit("stage", stage="record_before", round=0)
         before, analyses = self._before(name, before_traces)
         self._before_an, self._after_an = analyses, []
         clean = [a for s, a in zip(before, analyses) if not s.lossy]
         if not clean:
             res.note = "every 'before' trace is lossy; recapture"
             return self._finish(res, [])
+        self._emit("stage", stage="diagnose", round=1)
         targets = self.target_kinds or _majority_kinds(before)
         res.targets = targets
         if not targets:
@@ -87,8 +146,10 @@ class FixEngine:
         # inversion leaves a long critical section) and fix again. Every round is judged against
         # the original 'before' runs.
         findings = _representative_findings(clean, targets)
+        self._diagnosis_event(1, clean, findings, targets)
         current, all_remedies = dict(original), []
         for rnd in range(1, self.max_rounds + 1):
+            self._emit("stage", stage="patch", round=rnd)
             remedies, fixed = plan(findings, current)
             all_remedies += remedies
             res.remedies += [r.to_dict() | {"round": rnd} for r in remedies]
@@ -99,6 +160,10 @@ class FixEngine:
                 else:
                     res.note = f"round {rnd}: the remaining findings have no further automatic remedy"
                 break
+            self._emit("remedy", round=rnd, remedies=[
+                {"title": r.title, "rule": r.rule, "automatic": r.automatic, "rationale": r.rationale,
+                 "locations": r.locations, "guidance": r.guidance, "finding_id": r.finding_id}
+                for r in remedies], diff=_diff(current, fixed), files=fixed)
             current = fixed
             rdir = self.out / f"round-{rnd}"
             ws = Workspace.create(self.workload_dir, rdir / "src", self.include_dirs)
@@ -107,31 +172,42 @@ class FixEngine:
             (rdir / "patch.diff").write_text(res.diff, encoding="utf-8")
             (self.out / "patch.diff").write_text(res.diff, encoding="utf-8")
 
+            self._emit("stage", stage="build", round=rnd)
             build = self.builder.build(sorted(ws.root.glob("*.c")), [ws.root, *self.include_dirs], rdir / name)
             (rdir / "build.log").write_text(build.log, encoding="utf-8")
+            self._emit("build", round=rnd, ok=build.ok, log=build.log[-1500:])
             if not build.ok:
                 res.status, res.note = BUILD_FAILED, build.log[-2000:]
                 break
 
-            after, after_an = self._runs(build.binary, ws.root, "after", rdir / "after")
+            self._emit("stage", stage="record_after", round=rnd)
+            after, after_an = self._runs(build.binary, ws.root, "after", rdir / "after", rnd)
             self._after_an = after_an
+            self._emit("stage", stage="verdict", round=rnd)
             v = compare_runs(before, after, self.cfg, target_kinds=targets, min_runs=min(self.runs, 5),
                              alpha=self.alpha)
             res.status, res.verdict, res.rounds = v.verdict, v.to_dict(), rnd
             (rdir / "verdict.json").write_text(json.dumps(v.to_dict(), indent=2), encoding="utf-8")
             (self.out / "verdict.json").write_text(json.dumps(v.to_dict(), indent=2), encoding="utf-8")
+            self._emit("verdict", round=rnd, verdict=v.to_dict())
             if v.verdict != "NOT FIXED":
                 break  # VERIFIED, or INCONCLUSIVE (more runs needed, not another patch)
             after_clean = [a for a in after_an if not a.model.lossy]
             findings = _representative_findings(after_clean, None) if after_clean else []
             findings = [f for f in findings if f.severity in ("critical", "high", "medium")]
+            if rnd < self.max_rounds:
+                self._emit("stage", stage="diagnose", round=rnd + 1)
+                self._diagnosis_event(rnd + 1, after_clean, findings, targets)
         return self._finish(res, all_remedies)
 
     # ----------------------------------------------------------------- helpers
     def _before(self, name: str, traces: list[str | Path] | None):
         if traces:
             analyses = [analyze_file(p, self.cfg) for p in traces]
-            return [summarize(a, self.cfg, str(p)) for a, p in zip(analyses, traces)], analyses
+            sums = [summarize(a, self.cfg, str(p)) for a, p in zip(analyses, traces)]
+            for i, (a, sm) in enumerate(zip(analyses, sums)):
+                self._run_event("before", 0, i, a, sm)
+            return sums, analyses
         bdir = self.out / "before"
         ws = Workspace.create(self.workload_dir, bdir / "src", self.include_dirs)
         build = self.builder.build(sorted(ws.root.glob("*.c")), [ws.root, *self.include_dirs], bdir / name)
@@ -140,23 +216,26 @@ class FixEngine:
             raise RuntimeError(f"the original workload does not build:\n{build.log[-2000:]}")
         return self._runs(build.binary, ws.root, "before", bdir)
 
-    def _runs(self, binary: Path | None, ws_root: Path, label: str, out: Path):
+    def _runs(self, binary: Path | None, ws_root: Path, label: str, out: Path, rnd: int = 0):
         out.mkdir(parents=True, exist_ok=True)
         summaries: list[RunSummary] = []
         analyses: list[Analysis] = []
         clean, i = 0, 0
         while clean < self.runs and i < 2 * self.runs:  # a lossy capture is replaced, up to N extra
+            self._emit("run_start", side=label, round=rnd, i=i)
             trace = self.capturer(binary, ws_root, label, i, out)
-            i += 1
             a = analyze_file(trace, self.cfg)
             analyses.append(a)
             s = summarize(a, self.cfg, str(trace))
             summaries.append(s)
+            self._run_event(label, rnd, i, a, s)
+            i += 1
             clean += not s.lossy
         return summaries, analyses
 
     def _finish(self, res: FixResult, remedies: list[Remedy]) -> FixResult:
         (self.out / "result.json").write_text(json.dumps(res.to_dict(), indent=2), encoding="utf-8")
+        self._emit("done", status=res.status, rounds=res.rounds, note=res.note)
         self._report(res)
         (self.out / "SUMMARY.md").write_text(summary_markdown(res, remedies), encoding="utf-8")
         return res

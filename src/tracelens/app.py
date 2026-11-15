@@ -92,7 +92,7 @@ CSS = """
 --block:#ff6b6b;--ipc:#9775fa;--intr:#4dabf7;--band:rgba(255,107,107,.14);--crit:#ff8787;--crit-soft:rgba(255,107,107,.14);
 --warn:#ffb057;--warn-soft:rgba(255,176,87,.14);--ok:#69db7c;--ok-soft:rgba(105,219,124,.13);--info:#74b8f5;
 --info-soft:rgba(116,184,245,.13);--before:#6c7975;color-scheme:dark}
-*{box-sizing:border-box}html{scroll-behavior:smooth}
+*{box-sizing:border-box}html{scroll-behavior:smooth}[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 var(--sans)}
 a{color:var(--accent)}a:focus-visible,button:focus-visible,summary:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .top{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
@@ -422,6 +422,13 @@ class Results:
                              d["after_p99"] / 1e6, d["budget_ns"] / 1e6))
         return rows
 
+    def replay_for(self, workload: str) -> str | None:
+        """The bundle whose recorded events replay a real fix of this workload, if any."""
+        for b in (f"{workload}_live", workload):
+            if (self.dir / "fixes" / b / "events.jsonl").exists():
+                return b
+        return None
+
     def fix_svgs(self, bundle: str) -> list[str]:
         import re
         p = self.dir / "fixes" / bundle / "report.html"
@@ -583,6 +590,8 @@ def examples_page(res: Results) -> bytes:
                 "GUIDED": '<span class="pill st-info">Fix by hand, lines shown</span>'}.get(st, "")
         cards.append(f'<div class=card><h3>{escape(name)}</h3><p class=muted>{escape(story)}</p>{pill}'
                      f'<div class=btns><a class="btn primary" href="/example/{w}">Open the report</a>'
+                     + (f'<a class="btn ghost" href="/replay/{res.replay_for(w)}">Watch the fix happen</a>'
+                        if res.replay_for(w) else "")
                      + (f'<a class="btn ghost" href="/proof/{w}">Before and after</a>' if st == "VERIFIED" else "")
                      + "</div></div>")
     body = (f'<section class=hero><div class=eyebrow>Examples</div><h1>Five real QNX programs, five real bugs</h1>'
@@ -699,6 +708,8 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
   </div>
   <p class=muted>Round 1 removed the inversion, and the new recordings showed the next cause: the logger held the
   lock through a 2.5 ms flash write. Round 2 moved that work out of the lock.</p>
+  {f'<div class=btns><a class="btn primary" href="/replay/{res.replay_for("z1_infusion_pump")}">Watch a fix happen, step by step</a></div>'
+   if res.replay_for("z1_infusion_pump") else ""}
   {LEGEND}
   <div><div class=k>Before: 25 ms from the middle of a run</div><div class=scroll>{svgs[0] if svgs else ""}</div></div>
   <div><div class=k>After round 2: 25 ms from the middle of a run of the fixed program</div><div class=scroll>{svgs[1] if len(svgs) > 1 else ""}</div></div>
@@ -747,3 +758,97 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
 </div></div>
 """
     return layout("Guided demo · TraceLens", body, "/demo")
+
+
+# ----------------------------------------------------------------------------- live fix view
+LIVE_CSS = """
+.livehd{display:grid;gap:10px}.livehd .row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px}
+#lv-now{font-size:18px;color:var(--muted);min-height:1.6em}
+.pill.busy::before{animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+.livegrid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:960px){.livegrid{grid-template-columns:minmax(0,1fr)}}
+.livegrid>div{display:grid;gap:18px;min-width:0}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px;display:grid;gap:12px;min-width:0}
+.panel>h2{font-size:18px}.panel h3{font-size:16px}
+#lv-steps{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+#lv-steps li{display:flex;gap:10px;align-items:center;padding:6px 8px;border-radius:8px;color:var(--faint)}
+#lv-steps li .dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--line);flex:none}
+#lv-steps li.done{color:var(--fg)}#lv-steps li.done .dot{background:var(--ok);border-color:var(--ok)}
+#lv-steps li.now{color:var(--fg);background:var(--accent-soft);font-weight:600}
+#lv-steps li.now .dot{border-color:var(--accent);background:var(--accent);animation:pulse 1.2s ease-in-out infinite}
+.runrow{display:grid;gap:6px}.rowlbl{font-size:13px;color:var(--muted)}
+.slots{display:flex;flex-wrap:wrap;gap:6px}
+.slot{width:34px;height:22px;border-radius:6px;border:2px dashed var(--line)}
+.slot.rec{border:2px solid var(--accent);animation:pulse 1s ease-in-out infinite}
+.slot.bug{background:var(--crit);border-color:var(--crit)}.slot.clean{background:var(--ok);border-color:var(--ok)}
+.slot.lossy{border:2px solid var(--faint);background:repeating-linear-gradient(45deg,transparent 0 4px,var(--line) 4px 6px)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px}.tabs button{font:600 13px var(--sans);padding:7px 12px;border-radius:8px;border:1px solid var(--line);
+background:var(--surface);color:var(--muted);cursor:pointer}.tabs button[aria-pressed=true]{background:var(--accent-soft);color:var(--fg);border-color:var(--accent)}
+#lv-code{max-height:460px;overflow:auto;margin:0;padding:8px 0;background:var(--sunk);border-radius:10px;font:12.5px/1.55 var(--mono)}
+#lv-code .ln{display:block;padding:0 12px;white-space:pre}#lv-code .ln i{font-style:normal;color:var(--faint);user-select:none}
+#lv-code .ln.mark{background:var(--crit-soft);box-shadow:inset 3px 0 var(--crit)}
+#lv-code .ln.chg,#lv-code .ln.add{background:var(--ok-soft);box-shadow:inset 3px 0 var(--ok)}
+#lv-code .ln.del{background:var(--crit-soft)}#lv-code .ln.hunk{color:var(--info)}
+.fcard,.rcard{border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:grid;gap:8px;min-width:0}
+.fhd{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
+.found{display:grid;gap:12px}
+.vcard{border-radius:12px;padding:12px 14px;display:grid;gap:6px}.vcard ul{margin:0;padding-left:18px}
+.vcard.ok{background:var(--ok-soft)}.vcard.bad{background:var(--crit-soft)}.vcard.warn{background:var(--warn-soft)}
+#lv-log{list-style:none;margin:0;padding:0;font:12.5px/1.6 var(--mono);color:var(--muted);max-height:200px;overflow:auto}
+.minichart{display:block;width:100%;height:auto}.minichart text{fill:var(--muted);font:12px var(--sans)}
+#lv-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#lv-controls select{font:14px var(--sans);padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+@media (prefers-reduced-motion:reduce){.pill.busy::before,#lv-steps li.now .dot,.slot.rec{animation:none}}
+"""
+
+
+def live_page(mode: str, events_url: str, title: str = "Live fix", intro: str = "") -> bytes:
+    """The fix as it happens: where the error is, the fix, each run on the target, the verdict.
+    ``mode`` is "live" (EventSource from a running `tracelens fix --watch`) or "replay"."""
+    controls = ("" if mode == "live" else
+                '<div id=lv-controls hidden><button class="btn ghost" id=lv-pause type=button>Pause</button>'
+                '<label class=small for=lv-speed>Speed <select id=lv-speed><option value=8>Slow</option>'
+                '<option value=20 selected>Normal</option><option value=60>Fast</option></select></label>'
+                '<button class="btn ghost" id=lv-end type=button>Skip to the result</button>'
+                '<button class="btn ghost" id=lv-again type=button>Play again</button></div>')
+    body = f"""
+<section class=livehd id=live data-mode="{escape(mode)}" data-events="{escape(events_url)}">
+  <div class=eyebrow>{"Live fix on your QNX target" if mode == "live" else "Replay of a real fix on a QNX 8.0 target"}</div>
+  <div class=row><h1 id=lv-title>{escape(title)}</h1><span id=lv-status class="pill st-info busy">Connecting</span></div>
+  <p id=lv-now>Waiting for the first step…</p>
+  {f"<p class=muted>{escape(intro)}</p>" if intro else ""}
+  {controls}
+</section>
+<div class=livegrid>
+  <div>
+    <div class=panel><h2>Where the error is</h2><div id=lv-where><p class=muted>TraceLens shows the problem here as soon
+      as it has read the recordings of the original program.</p></div></div>
+    <div class=panel><h2>Your code <span class="muted small" id=lv-file></span></h2>
+      <div class=tabs><button type=button data-tab=base aria-pressed=true>With the error</button>
+      <button type=button data-tab=fixed aria-pressed=false>After the fix</button>
+      <button type=button data-tab=patch aria-pressed=false>The patch</button></div>
+      <pre id=lv-code></pre>
+      <div class=legend><span><i style="background:var(--crit)"></i>where the error is</span>
+      <span><i style="background:var(--ok)"></i>what the fix changed</span></div>
+      <div id=lv-fix></div></div>
+  </div>
+  <div>
+    <div class=panel><h2>Progress</h2><ol id=lv-steps></ol></div>
+    <div class=panel><h2>Runs on the QNX target</h2><div id=lv-runs></div>
+      <div class=legend><span><i style="background:var(--crit)"></i>problem present</span><span><i style="background:var(--ok)"></i>clean</span>
+      <span><i style="border:2px dashed var(--line)"></i>waiting</span><span><i style="border:2px solid var(--faint)"></i>recording lost events</span></div>
+      <div id=lv-chart></div>
+      <div class=legend id=lv-chart-legend hidden><span><i style="background:var(--before);border-radius:50%"></i>original</span>
+      <span><i style="background:var(--accent);border-radius:50%"></i>fixed</span>
+      <span><i style="border-left:2px dashed var(--fg);width:2px;border-radius:0"></i>budget</span></div></div>
+    <div class=panel><h2>Verdict</h2><div id=lv-verdict><p class=muted>Appears after the fixed program has been
+      recorded and compared with the original.</p></div>
+      <div id=lv-final hidden class=btns><a class="btn ghost" href="/guide">What the verdict means</a></div></div>
+    <div class=panel><h2>Activity</h2><ul id=lv-log></ul></div>
+  </div>
+</div>
+<script src="/live.js" defer></script>
+"""
+    page = layout(f"{title} · TraceLens", body, "/demo" if mode == "replay" else "")
+    return page.replace(b"</style>", LIVE_CSS.encode("utf-8") + b"</style>", 1)

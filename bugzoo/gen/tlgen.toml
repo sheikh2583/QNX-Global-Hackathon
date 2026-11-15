@@ -1,0 +1,22 @@
+# TraceLens configuration for the ML data engine (tlgen captures, real or simulated).
+# Thresholds match the bug zoo (bugzoo/tracelens.toml). Deadlines differ: tlgen's period varies per
+# run, so no period is declared and a job's response is measured from its TL_JOB_START marker.
+# Blocking inside a job counts; a late start does not (cpu_starvation is checked by READY time).
+
+fail_on = "high"
+
+[thresholds]
+inversion_min_block_us = 1000
+inversion_min_interference_us = 500
+contention_min_share = 0.05
+contention_p99_wait_us = 1000
+contention_min_waits = 5
+irq_max_latency_us = 1000
+irq_max_handler_us = 500
+deadlock_min_blocked_us = 50000
+
+[deadlines.job]     # the high-priority job of inversion and IPC scenarios: <= 0.8 ms of work
+budget_us = 2500
+
+[deadlines.frame]   # lock_contention workers: <= 2 ms of work each
+budget_us = 4000

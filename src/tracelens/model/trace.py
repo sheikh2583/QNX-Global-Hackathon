@@ -99,6 +99,7 @@ class TraceModel:
         self.sync_ops: dict[str, list[Event]] = {}  # sync object address -> kernel calls on it
         self.irq_entries: list[Event] = []
         self.irq_handlers: dict[int, list[Key]] = {}  # interrupt id -> IST threads (SYSTEM :IST_ATTACH)
+        self.irq_attached_at: dict[tuple[int, Key], int] = {}  # (interrupt id, IST) -> time of its IST_ATTACH
         self.t_start = self.events[0].t_ns if self.events else 0
         self.t_end = self.events[-1].t_ns if self.events else 0
         self._build()
@@ -149,6 +150,7 @@ class TraceModel:
                     lst = self.irq_handlers.setdefault(vec, [])
                     if (pid, tid) not in lst:
                         lst.append((pid, tid))
+                    self.irq_attached_at.setdefault((vec, (pid, tid)), e.t_ns)
                 continue
             key = e.key
             if key is None:

@@ -65,9 +65,9 @@ def test_qemu_up_waits_for_a_dhcp_lease(tmp_path):
     leases.write_text("[]")
     polls = []
 
-    def run(argv, cwd, timeout):
+    def spawn(argv, cwd, log_path):  # mkqnximage --run stays in the foreground: started detached
         assert argv == ["mkqnximage", "--run=-h", "--noprompt"]
-        return cp(0, "QEMU Command: qemu-system-x86_64 ... -device virtio-net-pci,netdev=net0,mac=52:54:00:94:22:ff")
+        log_path.write_text("QEMU Command: qemu-system-x86_64 ... -device virtio-net-pci,netdev=net0,mac=52:54:00:94:22:ff")
 
     def sleep(s):
         polls.append(s)
@@ -75,19 +75,21 @@ def test_qemu_up_waits_for_a_dhcp_lease(tmp_path):
             leases.write_text('[{"ip-address": "10.9.9.9", "mac-address": "52:54:00:00:00:01", "expiry-time": 9},'
                               ' {"ip-address": "192.168.122.238", "mac-address": "52:54:00:94:22:ff", "expiry-time": 5}]')
 
-    q = QemuImage(str(tmp_path), run=run, sleep=sleep, leases_path=str(leases))
+    up_after = iter([False, False, True])  # a stale lease does not count until ssh answers
+    q = QemuImage(str(tmp_path), dhcp_running=lambda: True, spawn=spawn, sleep=sleep, leases_path=str(leases),
+                  reachable=lambda ip: ip == "192.168.122.238" and next(up_after))
     assert q.up(timeout=30, poll=3) == "192.168.122.238"  # our MAC, not the other VM's newer lease
     assert any("192.168.122.238" in line for line in q.log)
 
 
 def test_qemu_up_explains_the_known_setup_problems(tmp_path):
     (tmp_path / "output").mkdir()
-    q = QemuImage(str(tmp_path), run=lambda a, c, t: cp(0), sleep=lambda s: None,
+    q = QemuImage(str(tmp_path), dhcp_running=lambda: True, spawn=lambda a, c, p: None, sleep=lambda s: None,
                   leases_path=str(tmp_path / "missing"))
     with pytest.raises(RuntimeError, match="virsh net-start default"):
         q.up()
     (tmp_path / "virbr0.status").write_text("[]")
-    q = QemuImage(str(tmp_path), run=lambda a, c, t: cp(0, "/usr/lib/qemu/qemu-bridge-helper not setuid"),
+    q = QemuImage(str(tmp_path), dhcp_running=lambda: True, spawn=lambda a, c, p: p.write_text("/usr/lib/qemu/qemu-bridge-helper not setuid"),
                   sleep=lambda s: None, leases_path=str(tmp_path / "virbr0.status"))
     with pytest.raises(RuntimeError, match=r"chmod u\+s"):
         q.up()
@@ -102,9 +104,19 @@ def test_qemu_up_reuses_a_running_target(tmp_path):
     leases = tmp_path / "virbr0.status"
     leases.write_text('[{"ip-address": "192.168.122.238", "mac-address": "52:54:00:94:22:ff", "expiry-time": 5}]')
 
-    def run(argv, cwd, timeout):
+    def spawn(argv, cwd, log_path):
         raise AssertionError("must not run mkqnximage again")
 
-    q = QemuImage(str(tmp_path), run=run, leases_path=str(leases), reachable=lambda ip: True)
+    q = QemuImage(str(tmp_path), dhcp_running=lambda: True, spawn=spawn, leases_path=str(leases), reachable=lambda ip: True)
     assert q.up() == "192.168.122.238" and "already running" in q.log[0]
+
+
+def test_qemu_up_names_a_missing_dhcp_server(tmp_path):
+    """After a reboot the lease file survives but libvirt's dnsmasq does not (seen on WSL2)."""
+    (tmp_path / "output").mkdir()
+    (tmp_path / "virbr0.status").write_text("[]")
+    q = QemuImage(str(tmp_path), dhcp_running=lambda: False, leases_path=str(tmp_path / "virbr0.status"),
+                  spawn=lambda a, c, p: (_ for _ in ()).throw(AssertionError("must not start the VM")))
+    with pytest.raises(RuntimeError, match="virsh net-start default"):
+        q.up()
 

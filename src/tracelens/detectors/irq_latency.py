@@ -34,7 +34,13 @@ def detect(model: TraceModel, cfg: Config) -> list[Finding]:
         if vec is None:
             continue
         for key in handlers.get(vec, ()):
-            th = model.threads[key]
+            th = model.threads.get(key)
+            if th is None:  # attached but never ran in the capture (e.g. another CPU's clock thread)
+                continue
+            # Only interrupts this handler could have served: on a shared, busy line (the QNX VM's serial
+            # IRQ 4) deliveries before the program attached are not its latency (found by the simulator).
+            if irq.t_ns < model.irq_attached_at.get((vec, key), model.t_start):
+                continue
             wake = model.next_exit_after(th, irq.t_ns, ("INTERRUPT_WAIT",))
             if wake is None:
                 continue

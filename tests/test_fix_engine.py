@@ -112,3 +112,35 @@ def test_second_round_fixes_what_the_first_fix_uncovered(cfg, tmp_path):
     logger = final[final.index("static void *logger"):]
     assert logger.index("pthread_mutex_unlock(&buf_lock)") < logger.index("tl_spin_us(2500)")
     assert (tmp_path / "bundle" / "round-2" / "verdict.json").exists()
+
+
+def test_every_step_is_reported_for_the_live_view(cfg, tmp_path):
+    """events.jsonl (and on_event) carry the whole fix: runs, diagnosis, remedy, build, verdicts."""
+    import json
+    rounds = iter([S.z4_mutex_contention] * 5 + [S.z0_clean] * 5)
+    seen = []
+    eng = FixEngine(ROOT / "bugzoo" / "z1_infusion_pump", [ROOT / "bugzoo" / "common"], cfg, FakeBuilder(),
+                    capturer(S.z1_prio_inversion, lambda: next(rounds)()), tmp_path / "bundle", runs=5,
+                    on_event=seen.append)
+    res = eng.run()
+    assert res.status == "VERIFIED"
+    on_disk = [json.loads(line) for line in (tmp_path / "bundle" / "events.jsonl").read_text().splitlines()]
+    assert [e["type"] for e in on_disk] == [e["type"] for e in seen]
+    types = [e["type"] for e in seen]
+    assert types[0] == "start" and types[-1] == "done" and seen[-1]["status"] == "VERIFIED"
+    assert types.count("run") == 15 and types.count("verdict") == 2 and types.count("remedy") == 2
+    first = next(e for e in seen if e["type"] == "diagnosis")
+    assert first["findings"][0]["name"] == "A high-priority task was held up by lower-priority work"
+    remedy = next(e for e in seen if e["type"] == "remedy")
+    assert any(loc[0] == "main.c" for r in remedy["remedies"] for loc in r["locations"])
+    assert "pthread_mutex_lock(&buf_lock)" in remedy["files"]["main.c"] and remedy["diff"]
+    before = [e for e in seen if e["type"] == "run" and e["side"] == "before"]
+    assert all(e["kinds"] for e in before) and before[0]["deadlines"]["control"]["late"] > 0
+
+
+def test_a_broken_viewer_never_breaks_the_fix(cfg, tmp_path):
+    def boom(evt):
+        raise RuntimeError("viewer gone")
+    eng = FixEngine(ROOT / "bugzoo" / "z1_infusion_pump", [ROOT / "bugzoo" / "common"], cfg, FakeBuilder(),
+                    capturer(S.z1_prio_inversion, S.z0_clean), tmp_path / "bundle", runs=5, on_event=boom)
+    assert eng.run().status == "VERIFIED"

@@ -136,3 +136,45 @@ def test_prebuilt_pages_are_served_without_analyzing(tmp_path):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_live_view_streams_the_fix_as_it_happens():
+    import json
+    from tracelens.live import LiveFeed, make_live_server
+    feed = LiveFeed()
+    httpd = make_live_server(feed, "127.0.0.1", 0, "Fixing test")
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    try:
+        code, html = get(base + "/")
+        assert code == 200 and 'data-mode="live"' in html and '<script src="/live.js"' in html
+        assert "TraceLens live fix view" in get(base + "/live.js")[1]
+        feed.publish({"type": "start", "workload": "w", "runs": 5, "max_rounds": 3, "files": {}})
+        threading.Timer(0.3, feed.publish, args=[{"type": "done", "status": "VERIFIED", "rounds": 1}]).start()
+        with urllib.request.urlopen(base + "/events", timeout=30) as r:
+            body = r.read().decode()  # ends after the done event
+        events = [json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: ")]
+        assert [e["type"] for e in events] == ["start", "done"]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_recorded_fix_is_replayed(tmp_path):
+    import json
+    root = tmp_path / "repo"
+    b = root / "docs" / "results" / "fixes" / "z1_infusion_pump"
+    b.mkdir(parents=True)
+    (b / "events.jsonl").write_text('{"type": "start", "t": 1}\n{"type": "done", "t": 2, "status": "VERIFIED"}\n')
+    httpd = make_server("127.0.0.1", 0, root)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    try:
+        code, html = get(base + "/replay/z1_infusion_pump")
+        assert code == 200 and 'data-mode="replay"' in html and "/replay/z1_infusion_pump/events.json" in html
+        code, body = get(base + "/replay/z1_infusion_pump/events.json")
+        assert code == 200 and [e["type"] for e in json.loads(body)] == ["start", "done"]
+        assert get(base + "/replay/nope")[0] == 404
+    finally:
+        httpd.shutdown()
+        httpd.server_close()

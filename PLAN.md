@@ -322,6 +322,8 @@ Recording: screen capture (OBS) + AI or user voiceover. User uploads to YouTube.
 | 2026-11-14 | **Codelab verified end to end + before/after fix reports.** Ran every codelab command in a fresh clone on the VM (target check, qcc build, capture, threads, analyze, export, remedy, fix, gate): all work; `fix` went VERIFIED in 2 rounds (round 1 PI mutex: inversion gone, p99 7.18→2.48 ms > 2 ms budget, NOT FIXED; round 2 critical-section shrink: p99 0.54 ms, 0 misses). (verify) markers removed; step 1 now the mkqnximage VM. New `report/fix_html.py`: per-fix `report.html` (workload threads before/after on one scale, mid-run windows, verdict KPIs, remedy rationale, coloured patch), written by every `tracelens fix`, re-rendered by `tracelens fix-report`; generated for all 5 bundles + the codelab 2-round bundle (docs/results/fixes/). Results page published as a private Artifact for the user. Found: py3.11 nested-quote f-string; report import now inside the engine's try. | GitHub push needs the user's OK; results page is private until shared | Push; record the video from the codelab flow; Devpost form |
 | 2026-11-14 | **Hosted demo for Render (user's choice).** `tracelens serve` (stdlib http.server): results landing page + 'try it' panel, /trace/<name> analysis, /remedy/<w> fix plan + patch, /fix/<w> recorded before/after proof, /upload (traceprinter text or .gz, optional C source → patch, optional toml; 12 MB cap, one analysis at a time), /healthz; CSP + nosniff headers; path whitelist. Render sim showed 777 MB peak (free tier 512 MB) and 5–7 MB Z5 pages → (1) HTML timelines downsampled to one rect per pixel column per thread (Z5 report 5,044 KB → 78 KB, every TraceLens report benefits), (2) `serve --prebuild` renders committed traces at deploy time, one per subprocess (peak 392 MB, 45 s); server RSS 23 MB, pages < 10 ms. `render.yaml` Blueprint. `target up` now reuses a running VM (never a 2nd QEMU on one disk). demo/run_demo.sh verified offline (8 s) and live (2 min, VERIFIED). | Render deploy needs the repo pushed + user's Render account; PYTHON_VERSION value (verify) | Push; user deploys Blueprint; put the URL in Devpost |
 | 2026-11-15 | **Consumer web app + guided demo (user: 'UI is shit… consumer based… judges should have a demo on a trace').** New `app.py` design system (IBM Plex, teal, light/dark, mobile-safe) and pages: home (problem → 3 steps → 5 problem types → before/after dumbbell chart from docs/results), /demo (7-step tour on the real Z1 trace: program, raw kernel events, findings with zoomed 'moment it happened' timelines, patch, 2-round proof with before/after timelines, reliability stats + chart + tables + method), /analyze (upload + how to record with tracelogger/traceprinter), /examples + /example/<w> plain-language reports with patch download, /guide (reading results). Developer warnings translated (lossy → 'recording incomplete, record again') or moved under 'Technical details'; causes listed before symptoms. Prebuild now renders example pages + demo; Render sim: build 18 s (peak 392 MB), 10 routes ~1 ms, server 23 MB. Folder renamed to 'QNX Global hackathon' (venv reinstalled). | — | User deploys on Render; record video from /demo |
+| 2026-11-15 | **Phase 6 started: ML (user: 'take this to a new level').** Analysis in docs/ml/DESIGN.md; scaffold: tlgen generator (13 scenarios), `tracelens data plan|collect|features`, features (17), radar v0 + `analyze --radar`, tree JSON inference, sklearn trainer, `tracelens ml train-radar|train-classifier|eval`. First experiment on real traces: radar fitted on 5 healthy traces flags Z1-Z4 buggy on the right threads, 0/1,420 windows on held-out pidin loop, but a false alarm on the healthy Z5 fix (no healthy IRQ program in training) -> healthy_irq/irq_overrun scenarios. Fixed on the way: MAD scale saturates on sparse features; same-process exclusion hid inversions; thread start/exit windows. Also built today: live fix view (`tracelens fix --watch`, events.jsonl, hosted replay) and `target up` fixes (detached QEMU, ssh-verified lease, DHCP check). 135 tests. | libvirt DHCP down after reboot (user sudo command); WSL unresponsive at end of session | Build tlgen, one run per scenario, then overnight collection |
+| 2026-11-15 | **QNX scheduling simulator + first models (user: 'we need sample trace data').** `src/tracelens/sim/` writes real-format QNX 8.0 traces for every tlgen scenario (sched, PI mutex, sem, condvar, MsgSend, shared IRQ, ticks); `tracelens simulate`, `tracelens data simulate`; 15 samples in fixtures/sim. Found and fixed: irq rule crash + pre-attach latency, condvar_inversion not unseen, cpu_starvation untriggerable, feature hygiene, zoo deadline config unfit for tlgen (new bugzoo/gen/tlgen.toml); added lost_wakeup, period_overrun. Radar (persistence rule) and classifier (victim labels) trained on 1,800 sim traces: held-out FA 4/124, 3 of 4 unseen families 100%; classifier region B >= 0.91. Never trained on real: radar right on 9/10 zoo builds, 0 false alarms on 8 healthy/fixed; classifier right cause on Z1/Z2/Z4. Bundled radar.json. 148 tests. | WSL still unresponsive: tlgen.c changes not compiled | Real pilot when WSL is back (wsl --shutdown); per-feature gap table |
 
 ### Judge-roast backlog (2026-11-13)
 
@@ -351,6 +353,30 @@ row of 2026-11-13); the rest, in prize-money-per-hour order:
 - [ ] Time the fix loop end to end before any duration claim
 
 ---
+
+## 16. Phase 6: learning from traces (ML), started 2026-11-15
+
+Design and evaluation protocol: [docs/ml/DESIGN.md](docs/ml/DESIGN.md). Rules stay the proof; ML adds a
+radar for behaviour no rule knows, and a second opinion on the cause. Models are JSON files scored by
+the stdlib: no API key, no network, deterministic.
+
+- [x] Analysis: data (generate, not scrape), unit (thread x 20 ms window), features, models, evaluation protocol, risks
+- [x] Generator `bugzoo/gen/tlgen.c`: 13 scenarios (4 healthy + healthy_irq, 5 known bugs + irq_overrun, 3 unseen) in one qcc binary
+- [x] Data engine `tracelens data plan|collect|features`: seeded plan, splits fixed in advance, resumable collection, post-capture check
+- [x] Features (17, normalised, no identities) incl. the generic inversion signal; smoke-tested on real traces
+- [x] Radar v0 (robust z, per-side tail scale) + `analyze --radar`; tree-ensemble JSON inference; sklearn trainer (offline)
+- [x] Evaluation code for the protocol (`tracelens ml eval`)
+- [x] QNX scheduling simulator `src/tracelens/sim/`: real QNX 8.0 traceprinter format, all tlgen scenarios, `tracelens simulate`, `tracelens data simulate` (1,800 traces in ~5 min), samples in `fixtures/sim/`
+- [x] Two genuinely unseen families (`lost_wakeup`, `period_overrun`) in tlgen.c and the simulator; `condvar_inversion` moved to known
+- [x] Models trained on simulated data, evaluated (held-out sim + real zoo as development set): `scripts/sim_experiment.py` -> docs/ml/results_sim.md
+- [x] Detector fixes found by the simulator: irq rule crash on never-run handlers; pre-attach interrupts counted as latency
+- [ ] Build `tlgen` with qcc and run each scenario once on the VM; check every planted problem triggers (tlgen.c changed since: recompile + hostcheck)  **(verify)**
+- [ ] Overnight collection: ~1,950 runs (~5.4 h, host idle)
+- [ ] Train radar + classifier; held-out evaluation; README/Devpost numbers from the frozen models only
+- [ ] Per-feature sim-vs-real gap table from the pilot; recalibrate simulator knobs
+- [ ] Close the sim-to-real misses: Z3 (cross-process deadlock), Z5 (real interrupt bursts)
+- [ ] Retrieval of labelled exemplars to explain radar findings
+- [ ] Radar note in the web report and the live fix view
 
 ## 15. Decision Log
 
@@ -392,3 +418,12 @@ row of 2026-11-13); the rest, in prize-money-per-hour order:
 | 2026-11-14 | Z1 budget 2 ms (was 1 ms) | The 1 ms budget left < 1 ms slack over measured VM jitter, violating the bug-zoo slack rule; detection and fix re-run at 2 ms |
 | 2026-11-14 | Capture with the host idle | QEMU vCPUs share host cores; host load showed up as 10x job running time in the guest |
 | 2026-11-14 | Hosted demo on Render runs TraceLens itself, not the QNX VM | A public QNX instance raises licence (non-commercial), cost (nested KVM) and uptime problems; detection and fix planning need no target |
+| 2026-11-15 | ML data is generated on our QNX VM, not scraped | No public labelled QNX kernel traces exist; planted scenarios give labels for free; scraped code has no traces and mixed licences |
+| 2026-11-15 | Models ship as JSON scored by the stdlib; training offline | Keeps the no-key, no-network, deterministic promise; scikit-learn is a dev-only extra |
+| 2026-11-15 | Radar findings are MEDIUM and never auto-patched | A model's 'unusual' is not a proof; rules stay the proof |
+| 2026-11-15 | Evaluation protocol fixed before collecting data | Unseen families held out entirely; published numbers only from frozen models |
+| 2026-11-15 | Build a QNX scheduling simulator that writes the real traceprinter format | Real captures cost ~10 s each and need the VM; a simulator gives unlimited labelled data and exercises the whole pipeline unchanged; real traces stay the ground truth |
+| 2026-11-15 | The real zoo traces are a development set from now on | They were used to find sim-to-real gaps; clean tests are the real tlgen pilot and new zoo programs |
+| 2026-11-15 | Radar reports a thread only when its unusual windows persist (calibrated on healthy training traces) | Bugs repeat every period, noise does not; any-window flagging gave trace-level false alarms |
+| 2026-11-15 | Bug labels only on the planted victim thread's windows | A preempted lock holder looks healthy; labelling it as the bug taught the classifier to blame a healthy logger |
+| 2026-11-15 | Data engine uses bugzoo/gen/tlgen.toml (no deadline periods) | tlgen periods vary per run; the zoo's 10 ms frame period produced false deadline misses |

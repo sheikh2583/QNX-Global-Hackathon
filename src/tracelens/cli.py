@@ -36,6 +36,17 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
         cfg.fail_on = args.fail_on
     a = analyze_file(args.trace, cfg, cycles_per_sec=args.cycles_per_sec, snapshot=args.snapshot)
     m = a.model
+    if args.radar is not None:
+        from .ml import model as ml_model
+        from .ml.radar import radar_findings
+        path = Path(args.radar) if args.radar else ml_model.DEFAULT_RADAR
+        if not path.exists():
+            print(f"tracelens analyze: no radar model at {path} (train one: tracelens ml train-radar)", file=sys.stderr)
+            return 2
+        extra = radar_findings(a, ml_model.load(path))
+        for i, f in enumerate(extra, len(a.findings) + 1):
+            f.id = f"TL-{i:03d}"
+        a.findings.extend(extra)
 
     if args.json:
         from .report.json_out import dumps
@@ -207,9 +218,19 @@ def _cmd_fix(args: argparse.Namespace) -> int:
 
     includes = [Path(d) for d in args.include] or [d for d in [workload.parent / "common"] if d.is_dir()]
     out = Path(args.out or f"fixes/{workload.name}")
+    on_event = None
+    if args.watch:
+        from .live import LiveFeed, start_live_view
+        feed = LiveFeed()
+        url = start_live_view(feed, args.watch_port, f"Fixing {workload.name}", open_browser=not args.no_browser)
+        print(f"  live view: {url}  (it updates as the fix runs)", flush=True)
+        on_event = feed.publish
     engine = FixEngine(workload, includes, cfg, QccBuilder(), capturer, out, runs=args.runs,
-                       target_kinds=args.kind or None)
+                       target_kinds=args.kind or None, on_event=on_event)
     res = engine.run(before_traces=args.before or None)
+    if args.watch:
+        import time
+        time.sleep(3)  # let the browser receive the last events before the server goes away
     print(f"TraceLens {__version__} | fix {res.workload} ({res.runs} runs per side)")
     for r in res.remedies:
         if r["rule"] != "symptom":
@@ -237,6 +258,93 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         return prebuild(args.root)
     port = args.port or int(os.environ.get("PORT", "8000"))
     serve(args.host, port, args.root)
+    return 0
+
+
+def _cmd_simulate(args: argparse.Namespace) -> int:
+    from .ml.dataset import SCENARIOS
+    from .sim import simulate, write_trace
+    if args.scenario not in SCENARIOS:
+        print(f"tracelens simulate: unknown scenario {args.scenario} (one of {', '.join(SCENARIOS)})", file=sys.stderr)
+        return 2
+    params = {}
+    for kv in args.param:
+        k, _, v = kv.partition("=")
+        params[k.strip()] = int(v)
+    path = write_trace(args.out, simulate(args.scenario, params, seed=args.seed, seconds=args.seconds))
+    print(f"wrote {path} (simulated QNX 8.0 trace: {args.scenario}, seed {args.seed}); "
+          f"analyze it with: tracelens analyze {path} -c bugzoo/gen/tlgen.toml")
+    return 0
+
+
+def _cmd_data(args: argparse.Namespace) -> int:
+    from .ml import dataset
+    if args.data_cmd == "plan":
+        plan = dataset.make_plan(args.per_scenario, args.seed, args.scenario or None)
+        dataset.write_jsonl(args.out, plan)
+        by = {}
+        for item in plan:
+            by[item["split"]] = by.get(item["split"], 0) + 1
+        print(f"wrote {len(plan)} planned runs to {args.out}: " + ", ".join(f"{k} {v}" for k, v in sorted(by.items())))
+        print(f"  about {len(plan) * 10 / 3600:.1f} h on the QNX target (keep the host idle)")
+        return 0
+    if args.data_cmd == "collect":
+        import os
+        from .target import Target, capture
+        cfg = load_config(args.config)
+        host = args.host or os.environ.get("TRACELENS_TARGET") or cfg.target.get("host")
+        if not host:
+            print("tracelens data collect: no target host (--host or TRACELENS_TARGET)", file=sys.stderr)
+            return 2
+        target = Target(host=host, user=args.user or "root", key=args.key)
+
+        def cap(item, out):
+            return capture(target, args.binary, item["args"], out, seconds=args.seconds, name=item["id"],
+                           background=item.get("background"), snapshot=False).text
+
+        rows = dataset.collect(dataset.read_jsonl(args.plan), cap, args.out, cfg, limit=args.limit)
+        ok = [r for r in rows if r.get("status") == "ok"]
+        print(f"manifest: {len(ok)} collected, {sum(1 for r in ok if r.get('triggered'))} with the planted "
+              f"problem showing, {sum(1 for r in ok if r.get('lossy'))} lossy")
+        return 0
+    if args.data_cmd == "simulate":
+        from .sim.dataset import generate
+        plan = dataset.make_plan(args.per_scenario, args.seed, args.scenario or None)
+        rows = [r for r in generate(plan, args.out, args.config, plan_seed=args.seed, workers=args.workers,
+                                    keep_traces=not args.no_traces) if r.get("status") == "ok"]
+        by: dict[str, list[int]] = {}
+        for r in rows:
+            by.setdefault(r["scenario"], [0, 0])[0] += 1
+            by[r["scenario"]][1] += bool(r.get("triggered"))
+        print(f"{len(rows)} simulated traces in {args.out} (features: {Path(args.out) / 'features.jsonl'})")
+        for name, (n, t) in by.items():
+            print(f"  {name:18s} planted problem showed up in {t}/{n}")
+        return 0
+    from .ml.train import features_from_manifest
+    n = features_from_manifest(args.data, args.out, load_config(args.config))
+    print(f"wrote {n} feature rows to {args.out}")
+    return 0
+
+
+def _cmd_ml(args: argparse.Namespace) -> int:
+    from .ml import dataset, evaluate, model as ml_model, train
+    rows = dataset.read_jsonl(args.features)
+    if args.ml_cmd == "train-radar":
+        radar = train.train_radar(rows)
+        ml_model.save(radar, args.out)
+        print(f"radar: threshold {radar['threshold']:.2f}; {radar['note']} -> {args.out}")
+        return 0
+    if args.ml_cmd == "train-classifier":
+        clf = train.train_classifier(rows)
+        ml_model.save(clf, args.out)
+        print(f"classifier: {clf['note']} -> {args.out}")
+        return 0
+    radar = ml_model.load(args.radar)
+    clf = ml_model.load(args.classifier) if args.classifier else None
+    md = evaluate.markdown(evaluate.evaluate_radar(rows, radar), evaluate.evaluate_classifier(rows, clf) if clf else None)
+    if args.out:
+        Path(args.out).write_text(md, encoding="utf-8")
+    print(md)
     return 0
 
 
@@ -399,6 +507,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--sarif", help="write SARIF 2.1.0 here (GitHub code scanning)")
     a.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
     a.add_argument("-q", "--quiet", action="store_true")
+    a.add_argument("--radar", nargs="?", const="", default=None, metavar="MODEL",
+                   help="also report behaviour unlike healthy QNX traces (learned model; default: the bundled one)")
     a.set_defaults(func=_cmd_analyze)
 
     c = sub.add_parser("capture", help="run a workload on the QNX target under a kernel trace and fetch it")
@@ -452,6 +562,9 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--before", nargs="+", metavar="TRACE", help="reuse existing 'before' traces")
     f.add_argument("--include", action="append", default=[], help="read-only include dir (default: ../common)")
     f.add_argument("--out", help="evidence bundle folder (default: fixes/<workload>)")
+    f.add_argument("--watch", action="store_true", help="open a live view of the fix in your browser")
+    f.add_argument("--watch-port", type=int, default=8777, help="port for --watch (default 8777)")
+    f.add_argument("--no-browser", action="store_true", help="with --watch: print the URL, do not open a browser")
     f.set_defaults(func=_cmd_fix)
 
     fr = sub.add_parser("fix-report", help="before/after HTML page for a fix bundle (from its traces)")
@@ -479,6 +592,15 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--no-calls", action="store_true", help="leave out kernel-call instants (smaller file)")
     e.set_defaults(func=_cmd_export)
 
+    sm = sub.add_parser("simulate", help="write one simulated QNX 8.0 trace of a tlgen scenario (no target needed)")
+    sm.add_argument("scenario", help="healthy_periodic, sem_inversion, ... (tracelens data plan lists them all)")
+    sm.add_argument("-o", "--out", required=True, help="trace file (.txt or .txt.gz)")
+    sm.add_argument("--seed", type=int, default=0)
+    sm.add_argument("--seconds", type=int, default=2)
+    sm.add_argument("--param", action="append", default=[], metavar="NAME=VALUE",
+                    help="scenario parameter, e.g. cs_us=2500 (repeatable)")
+    sm.set_defaults(func=_cmd_simulate)
+
     tg = sub.add_parser("target", help="QNX QEMU target: up | ip | check | down")
     tg.add_argument("action", choices=["up", "ip", "check", "down"])
     tg.add_argument("--image-dir", default="~/qnx-vm", help="folder of a mkqnximage-built VM")
@@ -488,6 +610,52 @@ def build_parser() -> argparse.ArgumentParser:
     tg.add_argument("--key")
     tg.add_argument("-c", "--config")
     tg.set_defaults(func=_cmd_target)
+
+    dp = sub.add_parser("data", help="ML data engine: plan, collect and featurize labelled QNX traces")
+    dps = dp.add_subparsers(dest="data_cmd", required=True)
+    d1 = dps.add_parser("plan", help="seeded scenario/parameter plan with the evaluation split fixed in advance")
+    d1.add_argument("--per-scenario", type=int, default=150)
+    d1.add_argument("--seed", type=int, default=7)
+    d1.add_argument("--scenario", action="append", help="only these scenarios (repeatable)")
+    d1.add_argument("--out", default="data/plan.jsonl")
+    d2 = dps.add_parser("collect", help="run the plan on the QNX target (resumable; keep the host idle)")
+    d2.add_argument("--plan", default="data/plan.jsonl")
+    d2.add_argument("--binary", default="bugzoo/out/tlgen")
+    d2.add_argument("--out", default="data")
+    d2.add_argument("--limit", type=int)
+    d2.add_argument("--seconds", type=int, default=4)
+    d2.add_argument("--host")
+    d2.add_argument("--user")
+    d2.add_argument("--key")
+    d2.add_argument("-c", "--config", default="bugzoo/gen/tlgen.toml")
+    d4 = dps.add_parser("simulate", help="run the plan through the QNX scheduling simulator (no target; parallel)")
+    d4.add_argument("--per-scenario", type=int, default=40)
+    d4.add_argument("--seed", type=int, default=7)
+    d4.add_argument("--scenario", action="append", help="only these scenarios (repeatable)")
+    d4.add_argument("--out", default="data/sim")
+    d4.add_argument("--workers", type=int, default=0, help="processes (default: all CPUs)")
+    d4.add_argument("--no-traces", action="store_true", help="keep manifest and features only")
+    d4.add_argument("-c", "--config", default="bugzoo/gen/tlgen.toml")
+    d3 = dps.add_parser("features", help="one feature row per (thread, 20 ms window) of every collected trace")
+    d3.add_argument("--data", default="data")
+    d3.add_argument("--out", default="data/features.jsonl")
+    d3.add_argument("-c", "--config", default="bugzoo/gen/tlgen.toml")
+    for d in (d1, d2, d3, d4):
+        d.set_defaults(func=_cmd_data)
+
+    mp = sub.add_parser("ml", help="train and evaluate the radar and the classifier")
+    mps = mp.add_subparsers(dest="ml_cmd", required=True)
+    m1 = mps.add_parser("train-radar", help="fit the radar on healthy training windows (pure Python)")
+    m1.add_argument("--out", default="src/tracelens/ml/radar.json")
+    m2 = mps.add_parser("train-classifier", help="fit the root-cause classifier (needs .[ml])")
+    m2.add_argument("--out", default="src/tracelens/ml/classifier.json")
+    m3 = mps.add_parser("eval", help="the evaluation protocol on held-out data (docs/ml/DESIGN.md)")
+    m3.add_argument("--radar", default="src/tracelens/ml/radar.json")
+    m3.add_argument("--classifier")
+    m3.add_argument("--out", help="write the markdown report here")
+    for m in (m1, m2, m3):
+        m.add_argument("--features", default="data/features.jsonl")
+        m.set_defaults(func=_cmd_ml)
 
     ev = sub.add_parser("eval", help="bug-zoo evaluation on the QNX target: detection table, fix ablation")
     evs = ev.add_subparsers(dest="eval_cmd", required=True)

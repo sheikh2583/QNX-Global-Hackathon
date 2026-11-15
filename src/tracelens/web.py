@@ -5,6 +5,7 @@
   /analyze          upload a recording (optionally C source and deadlines): plain-language report and patch
   /examples         the five real QNX programs; /example/<w> their reports, /proof/<w> their before/after
   /guide            how to read a report
+  /replay/<bundle>  a real fix on the QNX VM, replayed step by step (from its recorded events.jsonl)
   /trace/<name>     engineer's view of a committed trace (full detector report)
   /healthz          liveness
 
@@ -79,6 +80,11 @@ class Site:
 
     def results_data(self) -> app.Results:
         return app.Results(self.root)
+
+    def replays(self) -> dict[str, Path]:
+        """bundle name -> recorded events of a real fix (docs/results/fixes/<bundle>/events.jsonl)."""
+        d = self.results / "fixes"
+        return {p.parent.name: p for p in sorted(d.glob("*/events.jsonl"))} if d.is_dir() else {}
 
 
 # ----------------------------------------------------------------------------- engineer's view
@@ -225,6 +231,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(app.analyze_page())
             if path == "/guide":
                 return self._send(app.guide_page())
+            if path == "/live.js":
+                from .live import live_js
+                return self._send(live_js(), ctype="text/javascript; charset=utf-8")
+            if len(parts) == 2 and parts[0] == "replay" and parts[1] in site.replays():
+                w = parts[1].split("_codelab")[0]
+                name = app.WORKLOADS.get(w, (parts[1],))[0]
+                return self._send(app.live_page("replay", f"/replay/{parts[1]}/events.json", f"Fixing the {name.lower()}",
+                                                "A real run of `tracelens fix` on our QNX 8.0 machine, recorded event by "
+                                                "event and played back faster than it happened."))
+            if len(parts) == 3 and parts[0] == "replay" and parts[2] == "events.json" and parts[1] in site.replays():
+                lines = site.replays()[parts[1]].read_text(encoding="utf-8").splitlines()
+                body = ("[" + ",".join(line for line in lines if line.strip()) + "]").encode("utf-8")
+                return self._send(body, ctype="application/json")
             if path == "/examples":
                 return self._send(app.examples_page(site.results_data()))
             if len(parts) == 2 and parts[0] == "example" and parts[1] in WORKLOADS:

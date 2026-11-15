@@ -13,6 +13,7 @@ dependencies = []  # core is stdlib-only on purpose: judges can run it anywhere
 
 [project.optional-dependencies]
 dev = ["pytest"]
+ml = ["scikit-learn>=1.4"]  # offline training only; inference is stdlib
 
 [project.scripts]
 tracelens = "tracelens.cli:main"
@@ -21,7 +22,7 @@ tracelens = "tracelens.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-tracelens = ["py.typed"]
+tracelens = ["py.typed", "live.js", "ml/radar.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
