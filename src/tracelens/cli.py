@@ -102,8 +102,10 @@ def _cmd_capture(args: argparse.Namespace) -> int:
               "`mkqnximage --getip` prints it), set TRACELENS_TARGET, or add [target] host to tracelens.toml.",
               file=sys.stderr)
         return 2
+    host, host_port = _split_host(host)
     target = Target(host=host, user=args.user or cfg_target.get("user", "root"),
-                    port=args.port or int(cfg_target.get("port", 22)), key=args.key or cfg_target.get("key"))
+                    port=args.port or host_port or int(cfg_target.get("port", 22)),
+                    key=args.key or cfg_target.get("key"))
     wargs = args.workload_args
     try:
         res = capture(target, args.binary, wargs, args.out, seconds=args.seconds, name=args.name,
@@ -190,6 +192,23 @@ def _cmd_remedy(args: argparse.Namespace) -> int:
     return 0
 
 
+def _zoo_background(workload: Path) -> str | None:
+    """The load a workload needs while it is captured, from its bug-zoo entry.
+
+    Z5's interrupt-handler bug only appears while something drives the serial line, so running
+    `tracelens fix bugzoo/z5_motor_encoder` without the flag reported "nothing to fix" on a workload
+    that is genuinely broken (measured 2026-11-16). The zoo already records the command; use it.
+    """
+    zoo = workload.parent / "zoo.toml"
+    if not zoo.is_file():
+        return None
+    try:
+        import tomllib
+        return tomllib.loads(zoo.read_text(encoding="utf-8")).get(workload.name, {}).get("background")
+    except (OSError, ValueError):
+        return None
+
+
 def _cmd_fix(args: argparse.Namespace) -> int:
     import os
     from .fix import FixEngine, QccBuilder
@@ -204,13 +223,16 @@ def _cmd_fix(args: argparse.Namespace) -> int:
     if not host:
         print("tracelens fix: no target host (--host, TRACELENS_TARGET or [target] host)", file=sys.stderr)
         return 2
+    host, host_port = _split_host(host)
     target = Target(host=host, user=args.user or cfg.target.get("user", "root"),
-                    port=args.port or int(cfg.target.get("port", 22)), key=args.key or cfg.target.get("key"))
+                    port=args.port or host_port or int(cfg.target.get("port", 22)),
+                    key=args.key or cfg.target.get("key"))
     wargs = args.workload_args
+    background = args.background or _zoo_background(workload)
 
     def capturer(binary, _ws, label, i, out):
         res = capture(target, binary, wargs, Path(out), seconds=args.seconds, name=f"{label}-{i}",
-                      background=args.background)
+                      background=background)
         return res.text
 
     includes = [Path(d) for d in args.include] or [d for d in [workload.parent / "common"] if d.is_dir()]
@@ -258,6 +280,12 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _split_host(host: str) -> tuple[str, int | None]:
+    """``host`` may carry a port, as ``127.0.0.1:2222`` (QEMU's own NAT forwards ssh to one)."""
+    name, _, port = str(host).partition(":")
+    return name, (int(port) if port.isdigit() else None)
+
+
 def _cmd_simulate(args: argparse.Namespace) -> int:
     from .ml.dataset import SCENARIOS
     from .sim import simulate, write_trace
@@ -293,7 +321,8 @@ def _cmd_data(args: argparse.Namespace) -> int:
         if not host:
             print("tracelens data collect: no target host (--host or TRACELENS_TARGET)", file=sys.stderr)
             return 2
-        target = Target(host=host, user=args.user or "root", key=args.key)
+        host, host_port = _split_host(host)
+        target = Target(host=host, user=args.user or "root", port=host_port or 22, key=args.key)
 
         def cap(item, out):
             return capture(target, args.binary, item["args"], out, seconds=args.seconds, name=item["id"],
@@ -364,10 +393,11 @@ def _cmd_target(args: argparse.Namespace) -> int:
     qemu = QemuImage(args.image_dir)
     try:
         if args.action == "up":
-            ip = qemu.up(timeout=args.timeout)
+            ip = qemu.up(timeout=args.timeout, user_net=args.user_net)
             for line in qemu.log:
                 print(f"  {line}")
-            print(f"  export TRACELENS_TARGET={ip}")
+            where = ip if qemu.ssh_port == 22 else f"{ip}:{qemu.ssh_port}"
+            print(f"  export TRACELENS_TARGET={where}")
             return 0
         if args.action == "ip":
             ip = qemu.ip()
@@ -392,7 +422,9 @@ def _cmd_target(args: argparse.Namespace) -> int:
         print("tracelens target check: no target (pass --host, set TRACELENS_TARGET, or start one with "
               "`tracelens target up`)", file=sys.stderr)
         return 2
-    t = Target(host=host, user=args.user or cfg_target.get("user", "root"), key=args.key or cfg_target.get("key"))
+    host, host_port = _split_host(host)
+    t = Target(host=host, user=args.user or cfg_target.get("user", "root"), port=host_port or 22,
+               key=args.key or cfg_target.get("key"))
     checks = preflight(t)
     for c in checks:
         print(f"  [{c.status}] {c.name:<20} {c.detail}")
@@ -413,7 +445,9 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     if not host:
         print("tracelens eval: no target host (--host, TRACELENS_TARGET or [target] host)", file=sys.stderr)
         return 2
-    target = Target(host=host, user=args.user or cfg.target.get("user", "root"), key=args.key or cfg.target.get("key"))
+    host, host_port = _split_host(host)
+    target = Target(host=host, user=args.user or cfg.target.get("user", "root"), port=host_port or 22,
+                    key=args.key or cfg.target.get("key"))
 
     def cap(label, i, binary, command, wargs, out, background=None):
         if binary is not None and not Path(binary).exists():
@@ -554,7 +588,8 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--key")
     f.add_argument("--runs", type=int, default=5, help="captures per side (>= 5 for a verified claim)")
     f.add_argument("--seconds", type=int, default=4)
-    f.add_argument("--background", help="shell command run on the target during each capture")
+    f.add_argument("--background", help="shell command run on the target during each capture "
+                   "(default: the workload's bug-zoo entry, e.g. z5's serial load)")
     f.add_argument("--kind", action="append", help="finding kind the fix must remove")
     f.add_argument("--before", nargs="+", metavar="TRACE", help="reuse existing 'before' traces")
     f.add_argument("--include", action="append", default=[], help="read-only include dir (default: ../common)")
@@ -602,6 +637,11 @@ def build_parser() -> argparse.ArgumentParser:
     tg.add_argument("action", choices=["up", "ip", "check", "down"])
     tg.add_argument("--image-dir", default="~/qnx-vm", help="folder of a mkqnximage-built VM")
     tg.add_argument("--timeout", type=float, default=180, help="seconds to wait for an IP (up)")
+    tg.add_argument("--user-net", dest="user_net", action="store_true", default=None,
+                    help="up: run the VM on QEMU's own network with ssh forwarded to 127.0.0.1:2222 "
+                         "(no bridge, no DHCP server, no sudo; the default when libvirt's DHCP is not serving)")
+    tg.add_argument("--bridge", dest="user_net", action="store_false",
+                    help="up: use libvirt's bridge even if its DHCP looks down")
     tg.add_argument("--host", help="target address for check (default: TRACELENS_TARGET or mkqnximage --getip)")
     tg.add_argument("--user")
     tg.add_argument("--key")

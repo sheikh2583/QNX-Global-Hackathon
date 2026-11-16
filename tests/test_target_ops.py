@@ -1,6 +1,7 @@
 """QEMU image control and target preflight, against scripted fakes."""
 
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
@@ -87,13 +88,13 @@ def test_qemu_up_explains_the_known_setup_problems(tmp_path):
     q = QemuImage(str(tmp_path), dhcp_running=lambda: True, spawn=lambda a, c, p: None, sleep=lambda s: None,
                   leases_path=str(tmp_path / "missing"))
     with pytest.raises(RuntimeError, match="virsh net-start default"):
-        q.up()
+        q.up(user_net=False)
     (tmp_path / "virbr0.status").write_text("[]")
     not_setuid = "/usr/lib/qemu/qemu-bridge-helper not setuid"
     q = QemuImage(str(tmp_path), dhcp_running=lambda: True, spawn=lambda a, c, p: p.write_text(not_setuid),
                   sleep=lambda s: None, leases_path=str(tmp_path / "virbr0.status"))
     with pytest.raises(RuntimeError, match=r"chmod u\+s"):
-        q.up()
+        q.up(user_net=False)
     with pytest.raises(RuntimeError, match="no VM image"):
         QemuImage(str(tmp_path / "nothing")).up()
 
@@ -113,11 +114,46 @@ def test_qemu_up_reuses_a_running_target(tmp_path):
 
 
 def test_qemu_up_names_a_missing_dhcp_server(tmp_path):
-    """After a reboot the lease file survives but libvirt's dnsmasq does not (seen on WSL2)."""
+    """After a reboot the lease file survives but libvirt's dnsmasq does not (seen on WSL2). With
+    `--bridge` the user asked for libvirt, so say how to repair it; left to itself, `up()` uses QEMU's
+    own network instead (the next test)."""
     (tmp_path / "output").mkdir()
     (tmp_path / "virbr0.status").write_text("[]")
     q = QemuImage(str(tmp_path), dhcp_running=lambda: False, leases_path=str(tmp_path / "virbr0.status"),
                   spawn=lambda a, c, p: (_ for _ in ()).throw(AssertionError("must not start the VM")))
     with pytest.raises(RuntimeError, match="virsh net-start default"):
-        q.up()
+        q.up(user_net=False)
 
+
+
+# --------------------------------------------------------------------- QEMU's own network
+def test_user_net_swaps_the_bridge_for_a_forwarded_ssh_port():
+    from tracelens.target.qemu import user_net_argv
+    cmd = ("qemu-system-x86_64 -smp 4 --enable-kvm -m 2G -drive file=output/disk-qemu.vmdk,if=ide,id=drv0 "
+           "-netdev bridge,br=virbr0,id=net0 -device virtio-net-pci,netdev=net0,mac=52:54:00:94:22:ff "
+           "-nographic -kernel output/ifs.bin")
+    argv = user_net_argv(cmd, ssh_port=2222)
+    line = " ".join(argv)
+    assert "bridge" not in line and "virbr0" not in line
+    assert "-netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22" in line
+    assert "-device virtio-net-pci,netdev=net0,mac=52:54:00:94:22:ff" in line  # the NIC itself is kept
+    assert argv[0] == "qemu-system-x86_64" and "output/ifs.bin" in line
+
+
+def test_up_falls_back_to_qemus_own_network_when_the_dhcp_server_is_down(tmp_path):
+    """libvirt's DHCP orphaned itself three times in one evening and each repair needed a password;
+    an unattended collection must not depend on it."""
+    (tmp_path / "output").mkdir()
+    (tmp_path / "tracelens-qemu.log").write_text(
+        "QEMU Command: qemu-system-x86_64 -netdev bridge,br=virbr0,id=net0 -kernel output/ifs.bin\n")
+    started = {}
+
+    def spawn(argv, cwd, log):
+        started["argv"] = argv
+        return SimpleNamespace(poll=lambda: None)
+
+    q = QemuImage(str(tmp_path), dhcp_running=lambda: False, spawn=spawn,
+                  reachable=lambda where: where == "127.0.0.1:2222" and "argv" in started)
+    assert q.up(timeout=5, poll=0) == "127.0.0.1"
+    assert q.ssh_port == 2222
+    assert "user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22" in " ".join(started["argv"])

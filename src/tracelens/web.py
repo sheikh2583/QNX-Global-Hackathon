@@ -239,7 +239,7 @@ class Handler(BaseHTTPRequestHandler):
                 from .live import live_js
                 return self._send(live_js(), ctype="text/javascript; charset=utf-8")
             if len(parts) == 2 and parts[0] == "replay" and parts[1] in site.replays():
-                w = parts[1].split("_codelab")[0]
+                w = parts[1].split("_codelab")[0].removesuffix("_live")  # bundle name, not a program name
                 name = app.WORKLOADS.get(w, (parts[1],))[0]
                 return self._send(app.live_page("replay", f"/replay/{parts[1]}/events.json", f"Fixing the {name.lower()}",
                                                 "A real run of `tracelens fix` on our QNX 8.0 machine, recorded event by "

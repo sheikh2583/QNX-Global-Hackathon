@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import socket
 import subprocess
 import time
@@ -80,9 +81,41 @@ def _dhcp_running() -> bool:
     return _bridge_has_address()
 
 
+_QEMU_CMD = re.compile(r"QEMU Command:\s*(qemu-system-\S+.*)")
+_NETDEV = re.compile(r"-netdev\s+\S+\s+-device\s+(\S*virtio-net\S*)")
+USER_NET_PORT = 2222
+
+
+def user_net_argv(logged_command: str, ssh_port: int = USER_NET_PORT) -> list[str]:
+    """The same QEMU command, with its bridge swapped for QEMU's own NAT and an ssh forward.
+
+    `-netdev user` needs no bridge, no DHCP server on the host and no root: QEMU answers the guest's
+    DHCP itself and forwards one host port to the guest's ssh. On WSL that matters - libvirt's DHCP
+    orphaned itself three times in one evening (2026-11-16), each time needing a password to repair,
+    which no unattended collection can survive.
+    """
+    argv, out = shlex.split(logged_command), []
+    skip = False
+    for token in argv:
+        if skip:
+            skip = False
+            continue
+        if token == "-netdev":
+            skip = True  # drop its value too
+            out += ["-netdev", f"user,id=net0,hostfwd=tcp:127.0.0.1:{ssh_port}-:22"]
+            continue
+        out.append(token)
+    if "-netdev" not in out:  # the logged command had none: add a NIC as well
+        out += ["-netdev", f"user,id=net0,hostfwd=tcp:127.0.0.1:{ssh_port}-:22",
+                "-device", "virtio-net-pci,netdev=net0"]
+    return out
+
+
 def _ssh_open(ip: str, timeout: float = 2.0) -> bool:
+    """Is ssh answering? ``ip`` may carry a port, as ``127.0.0.1:2222``."""
+    host, _, port = ip.partition(":")
     try:
-        with socket.create_connection((ip, 22), timeout=timeout):
+        with socket.create_connection((host, int(port or 22)), timeout=timeout):
             return True
     except OSError:
         return False
@@ -98,6 +131,7 @@ class QemuImage:
     reachable: Callable[[str], bool] = _ssh_open
     spawn: Callable[[list[str], str, Path], object] = _spawn
     dhcp_running: Callable[[], bool] = _dhcp_running
+    ssh_port: int = 22  # set to the forwarded port when the VM runs on QEMU's own NAT
 
     @property
     def dir(self) -> str:
@@ -136,16 +170,26 @@ class QemuImage:
         m = _IP.search(cp.stdout or "") if cp.returncode == 0 else None
         return m.group(1) if m else None
 
-    def up(self, timeout: float = 180, poll: float = 3) -> str:
+    def up(self, timeout: float = 180, poll: float = 3, user_net: bool | None = None) -> str:
+        """Start the VM and return the host to reach it on (``ssh_port`` carries the port).
+
+        ``user_net``: None picks it - libvirt's bridge when its DHCP is actually serving, else QEMU's
+        own NAT, which needs nothing from the host and no root.
+        """
         if not (Path(self.dir) / "output").is_dir():
             raise RuntimeError(f"no VM image in {self.dir}: build one with mkqnximage (see `tracelens target --help`)")
+        if user_net is None:
+            user_net = not (Path(self.leases_path).exists() and self.dhcp_running())
+        if user_net:
+            return self._up_user_net(timeout, poll)
         if not Path(self.leases_path).exists():
             raise RuntimeError("libvirt's network is not running (no DHCP): "
-                               "sudo virsh net-start default   (if virbr0 is stale: sudo ip link delete virbr0 first)")
+                               "sudo virsh net-start default   (if virbr0 is stale: sudo ip link delete virbr0 "
+                               "first), or drop the bridge entirely with `tracelens target up --user-net`")
         if not self.dhcp_running():
             raise RuntimeError("libvirt's DHCP server is not running, so the VM would boot without an address. "
                                "Run once: sudo systemctl enable --now libvirtd && sudo virsh net-start default "
-                               "&& sudo virsh net-autostart default")
+                               "&& sudo virsh net-autostart default, or use `tracelens target up --user-net`")
         running = self.lease_ip()
         if running and self.reachable(running):  # never start a second QEMU on the same disk image
             self.log.append(f"target already running at {running}")
@@ -172,6 +216,33 @@ class QemuImage:
                 self.log.append(f"target is up at {ip} after {waited:.0f}s")
                 return ip
             self.sleep(poll)
+            waited += poll
+        raise RuntimeError(f"the VM did not answer on ssh after {timeout:.0f}s; see {self.dir}/output/qemu.out")
+
+    def _up_user_net(self, timeout: float, poll: float) -> str:
+        """Run QEMU ourselves on its own NAT, with ssh forwarded to 127.0.0.1."""
+        host, log_path = "127.0.0.1", Path(self.dir) / "tracelens-qemu.log"
+        self.ssh_port = USER_NET_PORT
+        if self.reachable(f"{host}:{self.ssh_port}"):
+            self.log.append(f"target already running at {host}:{self.ssh_port}")
+            return host
+        logged = _QEMU_CMD.search(log_path.read_text(errors="ignore")) if log_path.exists() else None
+        if logged is None:
+            raise RuntimeError(
+                f"no QEMU command recorded in {log_path}: start the VM once with libvirt's network "
+                "(sudo virsh net-start default) so the command is logged, then this works without it")
+        argv = user_net_argv(logged.group(1), self.ssh_port)
+        self.log.append(f"starting the VM on QEMU's own network, ssh on {host}:{self.ssh_port} (no bridge, no sudo)")
+        proc = self.spawn(argv, self.dir, Path(self.dir) / "tracelens-qemu-usernet.log")
+        waited = 0.0
+        while waited < timeout:
+            code = proc.poll() if hasattr(proc, "poll") else None
+            if code not in (None, 0):
+                raise RuntimeError(f"the VM did not start (exit {code}); see {self.dir}/tracelens-qemu-usernet.log")
+            if self.reachable(f"{host}:{self.ssh_port}"):
+                self.log.append(f"VM answering ssh on {host}:{self.ssh_port}")
+                return host
+            time.sleep(poll)
             waited += poll
         raise RuntimeError(f"the VM did not answer on ssh after {timeout:.0f}s; see {self.dir}/output/qemu.out")
 
