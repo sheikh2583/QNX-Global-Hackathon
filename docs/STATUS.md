@@ -39,9 +39,12 @@ Recorded runs: [results_real.md](ml/results_real.md), [results_sim.md](ml/result
 ## Left to do
 
 ### 1. The dataset that upgrades every ML number — *biggest win left*
-- [~] **Overnight collection running** since 2026-11-16 18:33: 1,920 planned runs (~5.3 h), resumable,
-      detached so it survives this session. Progress: `tail -f data/overnight.log`.
-- [ ] Retrain on simulated + real-train, test on **real held-out**; publish only those numbers.
+- [x] **Overnight collection done** (2026-11-16): 1,920 captures, 1,846 triggered, 11 lossy, 0 errors.
+- [x] **Trained on simulated + real, tested on real held-out**: 0 false alarms in 148 healthy real
+      traces; inversions and `ipc_deadlock` 100%, `irq_overrun` 85%, `lock_contention` 70%; of the
+      families with no rule, `lost_wakeup`/`period_overrun` 100%, `mutex_abba` 84%, `cpu_starvation` 0%
+      (the documented blind spot). See [ml/results_train.md](ml/results_train.md).
+- [ ] Put those numbers in README and Devpost, replacing the simulated-only ones.
 
 ### 2. Live debugging in the demo
 - [x] **Z1 recorded** (2026-11-16): a real `tracelens fix` run on the target, 32 events, VERIFIED in one

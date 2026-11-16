@@ -347,7 +347,8 @@ def _cmd_data(args: argparse.Namespace) -> int:
             print(f"  {name:18s} planted problem showed up in {t}/{n}")
         return 0
     from .ml.train import features_from_manifest
-    n = features_from_manifest(args.data, args.out, load_config(args.config))
+    n = features_from_manifest(args.data, args.out, load_config(args.config), workers=args.workers,
+                               config_path=args.config, resume=args.resume)
     print(f"wrote {n} feature rows to {args.out}")
     return 0
 
@@ -677,6 +678,9 @@ def build_parser() -> argparse.ArgumentParser:
     d3.add_argument("--data", default="data")
     d3.add_argument("--out", default="data/features.jsonl")
     d3.add_argument("-c", "--config", default="bugzoo/gen/tlgen.toml")
+    d3.add_argument("--workers", type=int, default=0,
+                    help="processes to parse traces in (default: one per CPU; 1 = no parallelism)")
+    d3.add_argument("--resume", action="store_true", help="keep the rows already written and add the missing traces")
     for d in (d1, d2, d3, d4):
         d.set_defaults(func=_cmd_data)
 
