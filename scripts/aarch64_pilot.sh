@@ -85,12 +85,13 @@ step "7. the bug zoo on aarch64: does every rule still fire on the right thread?
 tracelens eval detect --zoo "$ROOT/bugzoo" --bin-dir "$BINS" -c "$ROOT/bugzoo/tracelens.toml" \
   --runs 5 --out "$ROOT/docs/results/aarch64" || true   # a failing table is a result, not an error
 
-step "8. the interrupt workloads, on the virtio disk's interrupt (the serial port's never reaches a 2nd listener)"
-# x86 drives these by flooding /dev/ser1 (COM1, interrupt 4). On the QEMU virt guest that source delivers
-# nothing; the virtio-blk interrupt (79) does, driven by a write-and-sync loop (docs/results/aarch64.md 6).
+step "8. the interrupt workloads, on the UART's interrupt (33) driven by large writes"
+# x86 drives these with a loop of `echo` writes to /dev/ser1 (COM1, interrupt 4). On the QEMU virt guest
+# the PL011 is interrupt 33, and `echo` writes (65 bytes) fit in its transmit FIFO, so they raise no
+# interrupt at all; 4 KB writes overflow the FIFO and deliver ~290/s (docs/results/aarch64.md section 6).
 # bugzoo/out-aarch64le/irqprobe <irq> <seconds> on the guest says whether an interrupt arrives at all.
-IRQ="${IRQ:-79}"
-IRQ_LOAD='while :; do dd if=/dev/zero of=/data/irqload bs=64k count=32 2>/dev/null; sync; done'
+IRQ="${IRQ:-33}"
+IRQ_LOAD='while :; do dd if=/dev/zero of=/dev/ser1 bs=4k count=64 2>/dev/null; done'
 DI="$ROOT/data/aarch64_irq"
 tracelens data plan --per-scenario 3 --scenario healthy_irq --scenario irq_overrun --scenario healthy_irq_deferred \
   --irq "$IRQ" --irq-load "$IRQ_LOAD" --out "$DI/plan.jsonl"
@@ -99,7 +100,7 @@ tracelens data features --data "$DI" --out "$DI/features.jsonl" -c "$CFG" --incl
 python "$ROOT/scripts/arch_compare.py" --a "$DI" --b "$REF" --label-a aarch64le --label-b x86_64 \
   --out "$ROOT/docs/results/aarch64_irq_features.md" >/dev/null
 tracelens eval detect --zoo "$ROOT/bugzoo" --bin-dir "$BINS" -c "$ROOT/bugzoo/tracelens.aarch64.toml" --runs 5 \
-  --irq "$IRQ" --irq-load "$IRQ_LOAD" --only z5_motor_encoder --out "$ROOT/docs/results/aarch64_z5" || true
+  --irq "$IRQ" --irq-load "$IRQ_LOAD" --only z5_motor_encoder --allow-lossy --out "$ROOT/docs/results/aarch64_z5" || true
 
 cat <<EOF
 

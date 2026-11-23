@@ -1,0 +1,30 @@
+{
+  "runs_per_build": 5,
+  "fail_on": "high",
+  "allow_lossy": true,
+  "workloads": [
+    {
+      "name": "z5_motor_encoder",
+      "expect": [
+        "irq_handler_overrun"
+      ],
+      "runs": 5,
+      "skipped": "",
+      "lossy": 0,
+      "lossy_included": 9,
+      "buggy_clean_runs": 5,
+      "detected_runs": 5,
+      "kind_rates": {
+        "irq_handler_overrun": 1.0
+      },
+      "unexpected_kinds": [],
+      "reference_runs_with_findings": 2,
+      "reference_clean_runs": 5,
+      "reference_kinds": [
+        "irq_handler_overrun"
+      ],
+      "reference_verdict": "NOT FIXED"
+    }
+  ],
+  "negatives": []
+}
