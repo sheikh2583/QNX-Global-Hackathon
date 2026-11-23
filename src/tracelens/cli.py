@@ -467,7 +467,7 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     try:
         if args.eval_cmd == "detect":
             eval_detect(args.zoo, cfg, cap, out, runs=args.runs, irq=args.irq, only=only,
-                        bin_dir=args.bin_dir, irq_load=args.irq_load)
+                        bin_dir=args.bin_dir, irq_load=args.irq_load, allow_lossy=args.allow_lossy)
             print((out / "detect.md").read_text(encoding="utf-8"))
             return 0
         from .fix import FixEngine, QccBuilder
@@ -730,6 +730,9 @@ def build_parser() -> argparse.ArgumentParser:
         e2.add_argument("--runs", type=int, default=5)
         e2.add_argument("--seconds", type=int, default=4)
         e2.add_argument("--irq", type=int, help="interrupt for z5 (skipped without it)")
+        e2.add_argument("--allow-lossy", action="store_true",
+                        help="detect: keep traces the integrity check called lossy, and say how many were "
+                             "kept (for a machine whose clocks make most traces lossy)")
         e2.add_argument("--irq-load", help="shell command that drives that interrupt (default: the zoo's, a "
                         "serial flood that works on the x86 guest; see docs/results/aarch64.md section 6)")
         e2.add_argument("--only", help="comma-separated workload names")

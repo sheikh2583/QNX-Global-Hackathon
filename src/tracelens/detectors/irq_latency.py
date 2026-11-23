@@ -65,6 +65,7 @@ def detect(model: TraceModel, cfg: Config) -> list[Finding]:
             "p50_latency_us": round(us(percentile(lat, 50)), 1),
             "p99_latency_us": round(us(p99_lat), 1),
             "max_latency_us": round(us(max(lat)), 1),
+            "p50_handler_us": round(us(percentile(work, 50)), 1) if work else 0,
             "p99_handler_us": round(us(percentile(work, 99)), 1) if work else 0,
             "max_handler_us": round(us(max_work), 1),
             "handler_prio": model.threads[key].prio,
@@ -84,14 +85,16 @@ def detect(model: TraceModel, cfg: Config) -> list[Finding]:
                 evidence=[worst[0].id, worst[1].id],
                 metrics=metrics, qnx_note=QNX_NOTE,
             ))
-        if work and us(max_work) > t.irq_max_handler_us:
+        median_over = bool(work) and t.irq_median_handler_us > 0 and us(percentile(work, 50)) > t.irq_median_handler_us
+        if work and (us(max_work) > t.irq_max_handler_us or median_over):
             worst = max((s for s in items if s[4] is not None), key=lambda s: s[4])
             over = sum(1 for w in work if us(w) > t.irq_max_handler_us)
             p99_work = percentile(work, 99)
             # Systematic (p99 over budget) or gross (> 2x budget) overruns fail the gate. A rare,
             # small one is reported at MEDIUM: on the QEMU VM the reference handler (p99 81 us)
             # once ran 564 us in 9,686 interrupts, which is vCPU noise, not a code defect (measured).
-            systematic = us(p99_work) > t.irq_max_handler_us or us(max_work) > 2 * t.irq_max_handler_us
+            systematic = (median_over or us(p99_work) > t.irq_max_handler_us
+                          or us(max_work) > 2 * t.irq_max_handler_us)
             findings.append(Finding(
                 kind="irq_handler_overrun",
                 severity="high" if systematic else "medium",
@@ -99,6 +102,8 @@ def detect(model: TraceModel, cfg: Config) -> list[Finding]:
                 summary=(f"Handler {model.describe(key)} kept IRQ {vec} masked for up to "
                          f"{fmt_ms(max_work)} ({over}/{len(work)} interrupts over the "
                          f"{t.irq_max_handler_us:.0f} us budget)."
+                         + (f" The median handler time is {us(percentile(work, 50)):.0f} us "
+                            f"(budget {t.irq_median_handler_us:.0f} us)." if median_over else "")
                          + ("" if systematic else
                             f" Isolated: p99 handler time is {us(p99_work):.0f} us, within budget.")),
                 t_start=worst[1].t_ns, t_end=worst[2].t_ns,

@@ -183,3 +183,27 @@ def test_irq_load_replaces_only_the_interrupt_workloads_background(zoo, cfg, tmp
     mixed = FakeTarget()
     eval_detect(zoo, cfg, mixed, tmp_path / "c", runs=5, only=["z1_infusion_pump"], irq_load="DISK-LOOP")
     assert "DISK-LOOP" not in {b for _, b in mixed.backgrounds}
+
+
+def test_allow_lossy_keeps_the_traces_and_says_how_many(zoo, cfg, tmp_path):
+    """On emulated aarch64 most traces are 'lossy' by an x86-calibrated check, so excluding them left z5 with
+    no data at all. --allow-lossy keeps them, and the table says how many were kept."""
+    class Lossy(FakeTarget):
+        def __call__(self, label, i, binary, command, args, out, background=None):
+            p = super().__call__(label, i, binary, command, args, out, background)
+            p.write_text(p.read_text(encoding="utf-8") + "\nthis is not a trace line\n", encoding="utf-8")
+            return p
+
+    import tracelens.evaluation as ev
+
+    real = ev.summarize
+    ev.summarize = lambda a, c, path="": ev.replace(real(a, c, path), lossy=True)  # every trace judged lossy
+    try:
+        strict = eval_detect(zoo, cfg, FakeTarget(), tmp_path / "a", runs=5, only=["z1_infusion_pump"])
+        kept = eval_detect(zoo, cfg, FakeTarget(), tmp_path / "b", runs=5, only=["z1_infusion_pump"], allow_lossy=True)
+    finally:
+        ev.summarize = real
+    s, k = strict["workloads"][0], kept["workloads"][0]
+    assert s["buggy_clean_runs"] == 0 and s["lossy_included"] == 0 and s["reference_verdict"] == "INCONCLUSIVE"
+    assert k["buggy_clean_runs"] == 5 and k["lossy_included"] == 10 and k["detected_runs"] == 5
+    assert "10 kept" in (tmp_path / "b" / "detect.md").read_text(encoding="utf-8")
