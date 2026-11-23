@@ -111,6 +111,29 @@ def _stream_releases(items: list, period: int | None, markers: list) -> list[int
     return out
 
 
+def response_streams(model: TraceModel, cfg: Config) -> dict[str, dict[str, list[int]]]:
+    """Per declared deadline, per job stream: each job's response time in ns, measured from release.
+
+    A "stream" is the thread that ran the job. Several threads can serve one deadline name (Z4's
+    four tile workers all emit ``frame``), and each has its own phase and its own release grid, so
+    the regression gate can see one worker slow down while the pooled distribution barely moves.
+    Shares ``_jobs`` and ``_stream_releases`` with :func:`responses`, which pools the streams.
+    """
+    jobs, releases = _jobs(model)
+    out: dict[str, dict[str, list[int]]] = {}
+    for name, dl in cfg.deadlines.items():
+        items = sorted(jobs.get(name, []), key=lambda x: x[0].t_ns)
+        if not items:
+            continue
+        period = int(dl.period_us * 1000) if dl.period_us else None
+        rel = _stream_releases(items, period, releases.get(name, []))
+        per: dict[str, list[int]] = {}
+        for (start, end), r in zip(items, rel, strict=True):
+            per.setdefault(model.label(start.key), []).append(end.t_ns - r)
+        out[name] = per
+    return out
+
+
 def responses(model: TraceModel, cfg: Config) -> dict[str, list[int]]:
     """Per declared deadline: each job's response time in ns, measured from its release."""
     jobs, releases = _jobs(model)
