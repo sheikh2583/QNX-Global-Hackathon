@@ -1,0 +1,20 @@
+{
+  "tool": "tracelens",
+  "version": "0.1.0.dev0",
+  "trace": {
+    "source": "/tmp/tp/pi_stress_uniproc_1.txt",
+    "events": 81429,
+    "duration_ms": 4000.241,
+    "cycles_per_sec": 2419815204,
+    "threads": 160,
+    "unparsed_lines": 0
+  },
+  "summary": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0
+  },
+  "findings": [],
+  "errors": []
+}

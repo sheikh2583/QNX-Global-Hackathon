@@ -112,6 +112,11 @@ def parse_text(lines: str | Iterable[str], source: str = "<memory>",
     trace = ParsedTrace(source=source)
     raw_events: list[tuple[int, Event]] = []  # (cycles, event)
     last: Event | None = None
+    # A quoted argument whose text contains a newline is printed across lines: the line that
+    # opens it ends with an unbalanced `"` and the rest follows until a line closes the quote.
+    # Seen on QNX 8.0 with a message payload holding multi-line console output.
+    open_quote_key: str | None = None
+    in_quote = False
     wrap_hi = 0
     high_low: int | None = None  # highest low-32-bit value seen in the current wrap epoch
     running: dict[int, tuple[int, int]] = {}
@@ -119,6 +124,22 @@ def parse_text(lines: str | Iterable[str], source: str = "<memory>",
     for lineno, line in enumerate(lines, start=1):
         line = line.rstrip("\r\n")
         if not line.strip():
+            continue
+
+        if in_quote and LINE_RE.match(line):
+            # A line that is itself an event wins: an unterminated quote (truncated trace,
+            # a quote inside the text) must never swallow the rest of the file.
+            in_quote, open_quote_key = False, None
+
+        if in_quote:
+            # Inside a multi-line quoted argument: this line is text, not an event.
+            if last is not None:
+                last.raw += "\n" + line
+                if open_quote_key is not None:
+                    tail = line.split('"', 1)[0] if '"' in line else line
+                    last.args[open_quote_key] = last.args.get(open_quote_key, "") + "\n" + tail
+            if line.count('"') % 2 == 1:  # the closing quote
+                in_quote, open_quote_key = False, None
             continue
 
         m = LINE_RE.match(line)
@@ -132,6 +153,8 @@ def parse_text(lines: str | Iterable[str], source: str = "<memory>",
                 if k in ARG_ALIASES:
                     last.args.setdefault(ARG_ALIASES[k], c["v"])
                 last.raw += "\n" + line
+                if line.count('"') % 2 == 1:
+                    in_quote, open_quote_key = True, k
                 continue
             if h := HEADER_RE.match(line):
                 trace.header[h["k"]] = h["v"]
@@ -188,6 +211,8 @@ def parse_text(lines: str | Iterable[str], source: str = "<memory>",
 
         raw_events.append((cycles, ev))
         last = ev
+        if line.count('"') % 2 == 1:
+            in_quote, open_quote_key = True, None
 
     cps = cycles_per_sec or _header_cps(trace.header)
     if cps is None:
