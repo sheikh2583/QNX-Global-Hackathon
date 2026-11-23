@@ -157,3 +157,65 @@ def test_up_falls_back_to_qemus_own_network_when_the_dhcp_server_is_down(tmp_pat
     assert q.up(timeout=5, poll=0) == "127.0.0.1"
     assert q.ssh_port == 2222
     assert "user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22" in " ".join(started["argv"])
+
+
+# ------------------------------------------- a second VM: another architecture, another port
+def test_a_second_vm_gets_its_own_port_and_keeps_the_aarch64_nic():
+    """mkqnximage's own runimage gives the aarch64 `virt` machine virtio-mmio devices, not PCI ones,
+    so swapping the bridge must keep whatever device the logged command names - and must add the
+    right one when the logged command has no NIC at all (networking disabled at build time)."""
+    from tracelens.target.qemu import user_net_argv
+    cmd = ("qemu-system-aarch64 -machine virt-4.2 -cpu cortex-a57 -smp 4 -m 2G "
+           "-drive file=output/disk-qemu.vmdk,if=none,id=drv0 -device virtio-blk-device,drive=drv0 "
+           "-netdev bridge,br=virbr0,id=net0 -device virtio-net-device,netdev=net0,mac=52:54:00:94:22:fe "
+           "-kernel output/ifs.bin")
+    line = " ".join(user_net_argv(cmd, ssh_port=2223))
+    assert "bridge" not in line and "virbr0" not in line
+    assert "-netdev user,id=net0,hostfwd=tcp:127.0.0.1:2223-:22" in line
+    assert "-device virtio-net-device,netdev=net0,mac=52:54:00:94:22:fe" in line
+    assert "-machine virt-4.2 -cpu cortex-a57" in line  # the machine is left exactly as mkqnximage built it
+
+    bare = " ".join(user_net_argv("qemu-system-aarch64 -machine virt-4.2 -kernel output/ifs.bin", 2223))
+    assert "-device virtio-net-device,netdev=net0" in bare and "virtio-net-pci" not in bare
+    bare_x86 = " ".join(user_net_argv("qemu-system-x86_64 -kernel output/ifs.bin", 2223))
+    assert "-device virtio-net-pci,netdev=net0" in bare_x86
+
+
+def test_up_user_net_honours_its_own_port(tmp_path):
+    (tmp_path / "output").mkdir()
+    (tmp_path / "tracelens-qemu.log").write_text(
+        "QEMU Command: qemu-system-aarch64 -netdev bridge,br=virbr0,id=net0 -kernel output/ifs.bin\n")
+    started = {}
+
+    def spawn(argv, cwd, log):
+        started["argv"] = argv
+        return SimpleNamespace(poll=lambda: None)
+
+    q = QemuImage(str(tmp_path), user_net_port=2223, dhcp_running=lambda: False, spawn=spawn,
+                  reachable=lambda where: where == "127.0.0.1:2223" and "argv" in started)
+    assert q.up(timeout=5, poll=0) == "127.0.0.1" and q.ssh_port == 2223
+    assert "hostfwd=tcp:127.0.0.1:2223-:22" in " ".join(started["argv"])
+
+
+def test_up_user_net_refuses_a_port_that_belongs_to_another_vm(tmp_path):
+    """Two VMs can be up at once (x86 on 2222, aarch64 on 2223). If the port answers but this image
+    dir has no live QEMU, the VM there is someone else's: say so instead of analysing the wrong
+    target - and never start a second QEMU on this disk image either."""
+    (tmp_path / "output").mkdir()
+    q = QemuImage(str(tmp_path), dhcp_running=lambda: False, reachable=lambda where: True,
+                  spawn=lambda a, c, p: (_ for _ in ()).throw(AssertionError("must not start a VM")))
+    with pytest.raises(RuntimeError, match="already in use"):
+        q.up()
+    # its own live QEMU on that port is reused, not restarted
+    (tmp_path / "output" / "qemu.pid").write_text("4242\n")
+    q = QemuImage(str(tmp_path), dhcp_running=lambda: False, reachable=lambda where: True,
+                  alive=lambda pid: pid == 4242,
+                  spawn=lambda a, c, p: (_ for _ in ()).throw(AssertionError("must not start a VM")))
+    assert q.up() == "127.0.0.1" and "already running at 127.0.0.1:2222" in q.log[0]
+
+
+def test_up_user_net_says_how_to_log_the_qemu_command_for_a_fresh_image(tmp_path):
+    (tmp_path / "output").mkdir()
+    q = QemuImage(str(tmp_path), dhcp_running=lambda: False, reachable=lambda where: False)
+    with pytest.raises(RuntimeError, match="mkqnximage --run=-h"):
+        q.up()

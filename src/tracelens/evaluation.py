@@ -95,8 +95,10 @@ def _runs(capture: EvalCapturer, label: str, n: int, binary, command, args, out,
 
 
 def eval_detect(zoo_dir: str | Path, cfg: Config, capture: EvalCapturer, out_dir: str | Path,
-                runs: int = 5, irq: int | None = None, only: list[str] | None = None) -> dict:
+                runs: int = 5, irq: int | None = None, only: list[str] | None = None,
+                bin_dir: str | Path | None = None) -> dict:
     zoo_dir, out = Path(zoo_dir), Path(out_dir)
+    bins = Path(bin_dir) if bin_dir else zoo_dir / "out"
     out.mkdir(parents=True, exist_ok=True)
     zoo, negatives = load_zoo(zoo_dir / "zoo.toml")
     results: list[WorkloadResult] = []
@@ -110,9 +112,9 @@ def eval_detect(zoo_dir: str | Path, cfg: Config, capture: EvalCapturer, out_dir
             continue
         args = [a.replace("{irq}", str(irq)) for a in z.args]
         tdir = out / "traces" / z.name
-        buggy, buggy_kinds = _runs(capture, f"{z.name}-buggy", runs, zoo_dir / "out" / z.name, None, args, tdir,
+        buggy, buggy_kinds = _runs(capture, f"{z.name}-buggy", runs, bins / z.name, None, args, tdir,
                                    cfg, z.background)
-        fixed, fixed_kinds = _runs(capture, f"{z.name}-fixed", runs, zoo_dir / "out" / f"{z.name}_fixed", None,
+        fixed, fixed_kinds = _runs(capture, f"{z.name}-fixed", runs, bins / f"{z.name}_fixed", None,
                                    args, tdir, cfg, z.background)
         clean_b = [k for k in buggy_kinds if k is not None]
         clean_f = [k for k in fixed_kinds if k is not None]
@@ -174,9 +176,11 @@ def detect_markdown(report: dict) -> str:
 
 
 def eval_fix(zoo_dir: str | Path, cfg: Config, make_engine: Callable[..., Any], capture: EvalCapturer,
-             out_dir: str | Path, runs: int = 5, irq: int | None = None, only: list[str] | None = None) -> dict:
+             out_dir: str | Path, runs: int = 5, irq: int | None = None, only: list[str] | None = None,
+             bin_dir: str | Path | None = None) -> dict:
     """``make_engine(workload_dir, out_dir) -> FixEngine`` builds a configured engine."""
     zoo_dir, out = Path(zoo_dir), Path(out_dir)
+    bins = Path(bin_dir) if bin_dir else zoo_dir / "out"
     out.mkdir(parents=True, exist_ok=True)
     zoo, _ = load_zoo(zoo_dir / "zoo.toml")
     rows = []
@@ -189,7 +193,7 @@ def eval_fix(zoo_dir: str | Path, cfg: Config, make_engine: Callable[..., Any], 
         args = [a.replace("{irq}", str(irq)) for a in z.args]
         before, clean, i = [], 0, 0
         while clean < runs and i < 2 * runs:  # replace lossy captures, as eval detect does
-            t = capture(f"{z.name}-before", i, zoo_dir / "out" / z.name, None, args, out / z.name / "before",
+            t = capture(f"{z.name}-before", i, bins / z.name, None, args, out / z.name / "before",
                         background=z.background)
             i += 1
             before.append(t)

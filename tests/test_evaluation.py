@@ -155,3 +155,15 @@ def test_a_lossy_run_is_replaced_by_a_fresh_capture(zoo, cfg, tmp_path):
     assert w["reference_verdict"] == "VERIFIED"
     assert sum(1 for c in inner.calls if c[0] == "z3_sensor_fusion-buggy") == 6
 
+
+
+def test_bin_dir_selects_another_architectures_build(zoo, cfg, tmp_path):
+    """QNX ships mostly on ARM: an aarch64le bug zoo is built beside the x86 one
+    (`make -C bugzoo ARCH=aarch64le OUT=out-aarch64le`), and the evaluation must be able to run that
+    build without moving binaries around. Default behaviour is unchanged (<zoo>/out)."""
+    fake = FakeTarget()
+    eval_detect(zoo, cfg, fake, tmp_path / "res", runs=5, bin_dir=zoo / "out-aarch64le")
+    assert ("z1_infusion_pump-buggy", zoo / "out-aarch64le" / "z1_infusion_pump", None, ("-d", "2")) in fake.calls
+    assert any(c[1] == zoo / "out-aarch64le" / "z1_infusion_pump_fixed" for c in fake.calls)
+    # nothing reached for the x86 build; the healthy negatives are shell commands, not binaries
+    assert all("out-aarch64le" in str(c[1]) for c in fake.calls if c[1] is not None)

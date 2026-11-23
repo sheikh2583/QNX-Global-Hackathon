@@ -12,6 +12,18 @@ Verified on QNX SDP 8.0 + WSL2 Ubuntu 24.04 (2026-11-14):
     root and libvirt's "default" network must be active (it provides DHCP via dnsmasq);
   * ``mkqnximage --getip`` can hang, so the IP is read from libvirt's lease file by MAC instead.
 ``mkqnximage`` must be on PATH (``source ~/qnx800/qnxsdp-env.sh``).
+
+Another architecture, or a second VM beside a running one, is its own image directory and its own
+forwarded port - nothing here is x86-specific:
+
+    mkdir ~/qnx-vm-aarch64 && cd ~/qnx-vm-aarch64
+    mkqnximage --type=qemu --arch=aarch64le --cpu=4 --ram=2G --noprompt
+               --ssh-ident=$HOME/.ssh/id_ed25519.pub --sshd-pregen=yes
+    tracelens target up --user-net --image-dir ~/qnx-vm-aarch64 --ssh-port 2223
+
+An aarch64le image additionally needs the SDP package "QNX SDP 8.0 QEMU Virtualization Drivers
+(Startup)" (``com.qnx.qnx800.target.qemuvirt``), which provides ``startup-qemu-virt``; without it
+mkqnximage stops at "Host file 'startup-qemu-virt' not available" (see docs/results/aarch64.md).
 """
 
 from __future__ import annotations
@@ -106,9 +118,21 @@ def user_net_argv(logged_command: str, ssh_port: int = USER_NET_PORT) -> list[st
             continue
         out.append(token)
     if "-netdev" not in out:  # the logged command had none: add a NIC as well
+        # The device name differs by architecture: QEMU's aarch64 `virt` machine has no PCI NIC in
+        # mkqnximage's command (it uses virtio-mmio devices), so copy what runimage uses there.
+        nic = "virtio-net-device" if "aarch64" in Path(argv[0]).name else "virtio-net-pci"
         out += ["-netdev", f"user,id=net0,hostfwd=tcp:127.0.0.1:{ssh_port}-:22",
-                "-device", "virtio-net-pci,netdev=net0"]
+                "-device", f"{nic},netdev=net0"]
     return out
+
+
+def _pid_alive(pid: int) -> bool:
+    """Is that process still there? (``os.kill(pid, 0)`` raises only when it is gone or not ours.)"""
+    try:
+        os.kill(pid, 0)
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def _ssh_open(ip: str, timeout: float = 2.0) -> bool:
@@ -132,6 +156,8 @@ class QemuImage:
     spawn: Callable[[list[str], str, Path], object] = _spawn
     dhcp_running: Callable[[], bool] = _dhcp_running
     ssh_port: int = 22  # set to the forwarded port when the VM runs on QEMU's own NAT
+    user_net_port: int = USER_NET_PORT  # host port forwarded to the guest's ssh on QEMU's own NAT
+    alive: Callable[[int], bool] = staticmethod(_pid_alive)
 
     @property
     def dir(self) -> str:
@@ -219,18 +245,42 @@ class QemuImage:
             waited += poll
         raise RuntimeError(f"the VM did not answer on ssh after {timeout:.0f}s; see {self.dir}/output/qemu.out")
 
+    def my_pid(self) -> int | None:
+        """The pid of the QEMU serving *this* image dir, if it is still alive.
+
+        QEMU writes ``output/qemu.pid`` relative to the directory it was started in (mkqnximage puts
+        ``-pidfile output/qemu.pid`` in every command it builds), so the file answers "is the VM on
+        this port mine?" - which is what keeps a second image dir from adopting, or killing, the
+        first one's VM when both are reached through 127.0.0.1.
+        """
+        try:
+            pid = int((Path(self.dir) / "output" / "qemu.pid").read_text().strip())
+        except (OSError, ValueError):
+            return None
+        return pid if self.alive(pid) else None
+
     def _up_user_net(self, timeout: float, poll: float) -> str:
         """Run QEMU ourselves on its own NAT, with ssh forwarded to 127.0.0.1."""
         host, log_path = "127.0.0.1", Path(self.dir) / "tracelens-qemu.log"
-        self.ssh_port = USER_NET_PORT
-        if self.reachable(f"{host}:{self.ssh_port}"):
-            self.log.append(f"target already running at {host}:{self.ssh_port}")
-            return host
+        self.ssh_port = self.user_net_port
+        where = f"{host}:{self.ssh_port}"
+        if self.reachable(where):
+            # Something answers there. Only reuse it when it is this image dir's own VM: several VMs
+            # (another architecture, another session) can be up at once, and taking the wrong one
+            # would analyse the wrong target.
+            if self.my_pid() is not None:
+                self.log.append(f"target already running at {where}")
+                return host
+            raise RuntimeError(
+                f"{where} is already in use by something that is not the VM in {self.dir} "
+                f"(no live {self.dir}/output/qemu.pid): give this VM its own port with "
+                "`tracelens target up --user-net --ssh-port <port>`")
         logged = _QEMU_CMD.search(log_path.read_text(errors="ignore")) if log_path.exists() else None
         if logged is None:
             raise RuntimeError(
-                f"no QEMU command recorded in {log_path}: start the VM once with libvirt's network "
-                "(sudo virsh net-start default) so the command is logged, then this works without it")
+                f"no QEMU command recorded in {log_path}: run `mkqnximage --run=-h --noprompt` once in "
+                f"{self.dir} so the command is logged (it prints it before starting QEMU, and it is "
+                "logged even if the bridge then refuses), after which this works without any bridge")
         argv = user_net_argv(logged.group(1), self.ssh_port)
         self.log.append(f"starting the VM on QEMU's own network, ssh on {host}:{self.ssh_port} (no bridge, no sudo)")
         proc = self.spawn(argv, self.dir, Path(self.dir) / "tracelens-qemu-usernet.log")
@@ -239,8 +289,8 @@ class QemuImage:
             code = proc.poll() if hasattr(proc, "poll") else None
             if code not in (None, 0):
                 raise RuntimeError(f"the VM did not start (exit {code}); see {self.dir}/tracelens-qemu-usernet.log")
-            if self.reachable(f"{host}:{self.ssh_port}"):
-                self.log.append(f"VM answering ssh on {host}:{self.ssh_port}")
+            if self.reachable(where):
+                self.log.append(f"VM answering ssh on {where}")
                 return host
             time.sleep(poll)
             waited += poll

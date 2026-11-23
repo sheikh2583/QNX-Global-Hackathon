@@ -22,6 +22,10 @@ from .config import load_config
 from .findings import at_least
 from .ingest.traceprinter import TraceFormatError
 
+#: qcc target the fix loop rebuilds for. The QEMU guest every published number comes from is x86_64;
+#: an ARM image needs ``--arch aarch64le`` so the rebuilt binary runs on it (docs/results/aarch64.md).
+ARCH = "x86_64"
+
 EXIT_LOSSY = 3
 
 SEV_TAG = {"critical": "CRITICAL", "high": "HIGH", "medium": "MEDIUM", "low": "LOW"}
@@ -244,7 +248,7 @@ def _cmd_fix(args: argparse.Namespace) -> int:
         url = start_live_view(feed, args.watch_port, f"Fixing {workload.name}", open_browser=not args.no_browser)
         print(f"  live view: {url}  (it updates as the fix runs)", flush=True)
         on_event = feed.publish
-    engine = FixEngine(workload, includes, cfg, QccBuilder(), capturer, out, runs=args.runs,
+    engine = FixEngine(workload, includes, cfg, QccBuilder(arch=args.arch), capturer, out, runs=args.runs,
                        target_kinds=args.kind or None, on_event=on_event)
     res = engine.run(before_traces=args.before or None)
     if args.watch:
@@ -389,9 +393,9 @@ def _cmd_target(args: argparse.Namespace) -> int:
     import os
     from .target import Target
     from .target.check import FAIL, preflight, summary_status
-    from .target.qemu import QemuImage
+    from .target.qemu import USER_NET_PORT, QemuImage
 
-    qemu = QemuImage(args.image_dir)
+    qemu = QemuImage(args.image_dir, user_net_port=args.ssh_port or USER_NET_PORT)
     try:
         if args.action == "up":
             ip = qemu.up(timeout=args.timeout, user_net=args.user_net)
@@ -460,7 +464,8 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     out = Path(args.out)
     try:
         if args.eval_cmd == "detect":
-            eval_detect(args.zoo, cfg, cap, out, runs=args.runs, irq=args.irq, only=only)
+            eval_detect(args.zoo, cfg, cap, out, runs=args.runs, irq=args.irq, only=only,
+                        bin_dir=args.bin_dir)
             print((out / "detect.md").read_text(encoding="utf-8"))
             return 0
         from .fix import FixEngine, QccBuilder
@@ -470,10 +475,11 @@ def _cmd_eval(args: argparse.Namespace) -> int:
                 entry = _zoo_entry(args.zoo, Path(workload_dir).name)
                 wargs = [a.replace("{irq}", str(args.irq)) for a in entry.args]
                 return cap(label, i, binary, None, wargs, o, background=entry.background)
-            return FixEngine(workload_dir, [Path(args.zoo) / "common"], cfg, QccBuilder(), fix_cap, engine_out,
-                             runs=args.runs)
+            return FixEngine(workload_dir, [Path(args.zoo) / "common"], cfg, QccBuilder(arch=args.arch), fix_cap,
+                             engine_out, runs=args.runs)
 
-        eval_fix(args.zoo, cfg, make_engine, cap, out, runs=args.runs, irq=args.irq, only=only)
+        eval_fix(args.zoo, cfg, make_engine, cap, out, runs=args.runs, irq=args.irq, only=only,
+                 bin_dir=args.bin_dir)
         print((out / "fix.md").read_text(encoding="utf-8"))
         return 0
     except (FileNotFoundError, ImportError) as exc:
@@ -594,6 +600,8 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--kind", action="append", help="finding kind the fix must remove")
     f.add_argument("--before", nargs="+", metavar="TRACE", help="reuse existing 'before' traces")
     f.add_argument("--include", action="append", default=[], help="read-only include dir (default: ../common)")
+    f.add_argument("--arch", default=ARCH, help=f"qcc target for the rebuilt binary (default {ARCH}); use "
+                   "aarch64le when the target is an ARM image, or the patched program will not run on it")
     f.add_argument("--out", help="evidence bundle folder (default: fixes/<workload>)")
     f.add_argument("--watch", action="store_true", help="open a live view of the fix in your browser")
     f.add_argument("--watch-port", type=int, default=8777, help="port for --watch (default 8777)")
@@ -641,6 +649,10 @@ def build_parser() -> argparse.ArgumentParser:
     tg.add_argument("--user-net", dest="user_net", action="store_true", default=None,
                     help="up: run the VM on QEMU's own network with ssh forwarded to 127.0.0.1:2222 "
                          "(no bridge, no DHCP server, no sudo; the default when libvirt's DHCP is not serving)")
+    tg.add_argument("--ssh-port", type=int,
+                    help="up --user-net: host port forwarded to the guest's ssh (default 2222). Give a "
+                         "second VM - another architecture, another session - its own port and its own "
+                         "--image-dir so the two never adopt or stop each other.")
     tg.add_argument("--bridge", dest="user_net", action="store_false",
                     help="up: use libvirt's bridge even if its DHCP looks down")
     tg.add_argument("--host", help="target address for check (default: TRACELENS_TARGET or mkqnximage --getip)")
@@ -710,6 +722,9 @@ def build_parser() -> argparse.ArgumentParser:
         e2.add_argument("--irq", type=int, help="interrupt for z5 (skipped without it)")
         e2.add_argument("--only", help="comma-separated workload names")
         e2.add_argument("--out", default="docs/results")
+        e2.add_argument("--arch", default=ARCH, help=f"qcc target for rebuilt binaries (default {ARCH})")
+        e2.add_argument("--bin-dir", help="folder holding the prebuilt workloads (default <zoo>/out); an "
+                        "aarch64le build lives beside the x86 one, e.g. bugzoo/out-aarch64le")
         e2.add_argument("--host")
         e2.add_argument("--user")
         e2.add_argument("--key")
