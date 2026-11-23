@@ -6,7 +6,7 @@ Exit codes (CI contract):
   2  usage or input error (including a trace without a clock rate)
   3  inconclusive: the trace is lossy (scheduler state machine broken, usually dropped
      events), so no verdict is given; rerun the capture or pass --allow-lossy.
-     For `compare`: too few clean runs to decide.
+     For `compare` and `gate`: too few clean runs to decide.
 """
 
 from __future__ import annotations
@@ -152,6 +152,106 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     if args.json:
         Path(args.json).write_text(json.dumps(v.to_dict(), indent=2), encoding="utf-8")
     return {VERIFIED: 0, INCONCLUSIVE: EXIT_LOSSY}.get(v.verdict, 1)
+
+
+def _cmd_baseline(args: argparse.Namespace) -> int:
+    """Record a timing baseline that a later `tracelens gate` run can be measured against."""
+    from .gate import build_baseline, load_baseline, save_baseline, stats_of
+
+    if args.baseline_cmd == "show":
+        try:
+            doc = load_baseline(args.baseline)
+        except ValueError as exc:
+            print(f"tracelens baseline show: {exc}", file=sys.stderr)
+            return 2
+        print(f"TraceLens baseline '{doc['name']}' | {doc['runs']} clean capture(s) | recorded {doc['created']} "
+              f"by TraceLens {doc['tool_version']}")
+        print(f"  config: {doc['config'].get('path') or '(defaults)'}  fail_on={doc['config'].get('fail_on')}")
+        for t in doc["traces"]:
+            print(f"  {'LOSSY ' if t['lossy'] else '      '}{t['name']}  {t['jobs']} jobs  {t['sha256'][:12]}")
+        for kind, rate in doc["finding_rates"].items():
+            print(f"  finding {kind:<24} {rate:.0%} of runs")
+        if not doc["finding_rates"]:
+            print("  no finding at or above the gate severity in any capture")
+        for key, m in doc["metrics"].items():
+            budget = f", budget {m['budget_ms']:.2f} ms" if m.get("budget_ms") else ""
+            print(f"  {key:<24} p99 {min(m['p99_ms']):.2f}-{max(m['p99_ms']):.2f} ms over "
+                  f"{len(m['p99_ms'])} run(s){budget}")
+        for key in doc.get("metrics_not_in_every_run", []):
+            print(f"  note: '{key}' was not in every capture, so it is not part of the baseline", file=sys.stderr)
+        return 0
+
+    cfg = load_config(args.config)
+    if args.fail_on:
+        cfg.fail_on = args.fail_on
+    caps = [stats_of(t, cfg) for t in args.trace]
+    doc = build_baseline(caps, cfg, args.name or Path(args.out).stem, args.config)
+    if not doc["runs"]:
+        print(f"tracelens baseline save: all {len(caps)} captures are lossy, so there is nothing to base a gate "
+              f"on. Recapture (keep the host idle) and try again.", file=sys.stderr)
+        return EXIT_LOSSY
+    out = save_baseline(args.out, doc)
+    print(f"TraceLens {__version__} | baseline '{doc['name']}' -> {out}")
+    print(f"  {doc['runs']} clean capture(s)"
+          + (f", {doc['lossy_excluded']} lossy excluded" if doc["lossy_excluded"] else ""))
+    for key, m in doc["metrics"].items():
+        print(f"  {key:<24} p99 {min(m['p99_ms']):.2f}-{max(m['p99_ms']):.2f} ms, {sum(m['jobs_per_run'])} jobs")
+    if doc["finding_rates"]:
+        print("  findings already in the baseline (the gate reports what *changes*): "
+              + ", ".join(f"{k} {v:.0%}" for k, v in doc["finding_rates"].items()))
+    if doc["runs"] < 5:
+        print(f"  note: {doc['runs']} capture(s) is too few for a rank test; `tracelens gate` will fall back to a "
+              f"threshold rule and say so. 5+ captures per build make the verdict statistical.", file=sys.stderr)
+    return 0
+
+
+def _cmd_gate(args: argparse.Namespace) -> int:
+    """Fail a build whose timing or findings got worse than a recorded baseline."""
+    from .gate import BETTER, PASS, REGRESSION, UNKNOWN, WORSE, gate_files
+
+    cfg = load_config(args.config)
+    if args.fail_on:
+        cfg.fail_on = args.fail_on
+    try:
+        r = gate_files(args.trace, args.baseline, cfg, min_runs=args.min_runs, alpha=args.alpha,
+                       min_regression_pct=args.min_regression_pct, min_regression_us=args.min_regression_us,
+                       strict=args.strict)
+    except ValueError as exc:
+        print(f"tracelens gate: {exc}", file=sys.stderr)
+        return 2
+
+    tag = {WORSE: "WORSE", BETTER: "faster", UNKNOWN: "NO ANSWER"}
+    if not args.quiet:
+        created = r.baseline.get("created")
+        print(f"TraceLens {__version__} | gate '{r.name}' vs baseline from {created} "
+              f"({r.runs_base} capture(s)) | this build: {r.runs_new} clean capture(s)"
+              + (f", {r.lossy_excluded} LOSSY EXCLUDED" if r.lossy_excluded else ""))
+        tested = sum(1 for m in r.metrics if m.p_value is not None)
+        if r.statistical:
+            print(f"  evidence: one-sided Mann-Whitney U on per-capture p99, Holm-adjusted across {tested} "
+                  f"metric(s), alpha {args.alpha:g}")
+        else:
+            print(f"  evidence: threshold rule - {r.runs_base}+{r.runs_new} captures is too few for a p-value")
+        print()
+        for kind, (rb, ra) in r.kind_rates.items():
+            mark = "   NEW: a finding kind the baseline never had" if kind in r.new_kinds else (
+                "   gone" if kind in r.gone_kinds else "")
+            print(f"  {kind:<22} baseline {rb:>4.0%} of runs  ->  now {ra:>4.0%}{mark}")
+        for m in r.metrics:
+            print(f"  {m.key:<22} p99 {m.base_p99_ms:>7.2f} -> {m.new_p99_ms:>7.2f} ms  "
+                  f"{tag.get(m.status, 'same'):<9} {m.reason}")
+        for x in r.reasons:
+            print(f"  - {x}")
+        for w in r.warnings:
+            print(f"  warning: {w}")
+        print(f"  VERDICT: {r.verdict}")
+
+    if args.json:
+        Path(args.json).write_text(json.dumps(r.to_dict(), indent=2) + "\n", encoding="utf-8")
+    if args.html:
+        from .report.gate_html import render_gate
+        Path(args.html).write_text(render_gate(r), encoding="utf-8")
+    return {PASS: 0, REGRESSION: 1}.get(r.verdict, EXIT_LOSSY)
 
 
 def _cmd_remedy(args: argparse.Namespace) -> int:
@@ -578,6 +678,41 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
     v.add_argument("--json", help="write the verdict as JSON here")
     v.set_defaults(func=_cmd_compare)
+
+    bl = sub.add_parser("baseline", help="record a timing baseline for `tracelens gate` (save | show)")
+    bls = bl.add_subparsers(dest="baseline_cmd", required=True)
+    b1 = bls.add_parser("save", help="per deadline and per job stream, the response-time distribution of N captures")
+    b1.add_argument("trace", nargs="+", help="captures of ONE build (several runs of the same binary)")
+    b1.add_argument("--name", help="what this baseline is of (default: the --out file stem)")
+    b1.add_argument("--out", required=True, help="where to write the baseline JSON (commit it)")
+    b1.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines); fingerprinted in the baseline")
+    b1.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
+    b1.set_defaults(func=_cmd_baseline)
+    b2 = bls.add_parser("show", help="print a baseline file")
+    b2.add_argument("baseline")
+    b2.set_defaults(func=_cmd_baseline)
+
+    g = sub.add_parser("gate", help="fail a build that is statistically slower than a recorded baseline")
+    g.add_argument("trace", nargs="+", help="captures of the build under test")
+    g.add_argument("--baseline", required=True, help="baseline JSON from `tracelens baseline save`")
+    g.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines)")
+    g.add_argument("--min-runs", type=int, default=5,
+                   help="clean captures needed on each side for a p-value (default 5; below it, a stated "
+                        "threshold rule and a loud caveat)")
+    g.add_argument("--alpha", type=float, default=0.05,
+                   help="family-wise significance level across every metric tested (default 0.05)")
+    g.add_argument("--min-regression-pct", type=float, default=10.0,
+                   help="a regression must also be this much worse in percent (default 10; 0 disables)")
+    g.add_argument("--min-regression-us", type=float, default=50.0,
+                   help="...and this much worse in absolute microseconds (default 50; 0 disables)")
+    g.add_argument("--strict", action="store_true",
+                   help="withhold a verdict (exit 3) rather than decide without a p-value, or with any lossy "
+                        "capture in the set")
+    g.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
+    g.add_argument("--json", help="write the gate result as JSON here")
+    g.add_argument("--html", help="write an HTML gate report here")
+    g.add_argument("-q", "--quiet", action="store_true")
+    g.set_defaults(func=_cmd_gate)
 
     r = sub.add_parser("remedy", help="plan QNX fixes from a trace + source (no target needed); writes a patch")
     r.add_argument("trace")

@@ -1,0 +1,243 @@
+{
+  "tool": "tracelens",
+  "version": "0.1.0.dev0",
+  "trace": {
+    "source": "/tmp/tp/ptsematest_2.txt",
+    "events": 21170,
+    "duration_ms": 4000.371,
+    "cycles_per_sec": 2419815204,
+    "threads": 155,
+    "unparsed_lines": 0
+  },
+  "summary": {
+    "critical": 0,
+    "high": 0,
+    "medium": 2,
+    "low": 0
+  },
+  "findings": [
+    {
+      "kind": "unusual_behavior",
+      "severity": "medium",
+      "title": "Unusual behaviour in ptsematest[2]",
+      "summary": "ptsematest[2] (prio 80) behaved unlike healthy QNX programs in 4 of its 4 time windows; the most unusual stretch lasted 80 ms. It stands out in: time blocked on a mutex (higher than healthy), longest single block (higher than healthy), time asleep (lower than healthy). The closest pattern TraceLens has seen is many threads serialised on one mutex, but only loosely (distance 3.78 against 1.716 typical for it): treat this as behaviour of its own.",
+      "t_start": 1040000000,
+      "t_end": 1120000000,
+      "threads": [
+        "ptsematest[2]"
+      ],
+      "evidence": [
+        6309,
+        13162,
+        13166,
+        13170,
+        13201,
+        13210,
+        13226,
+        13233
+      ],
+      "metrics": {
+        "source": "radar",
+        "score": 28.4,
+        "threshold": 3.46,
+        "unusual_windows": 4,
+        "like": "lock_contention",
+        "like_label": "mutex_contention",
+        "like_distance": 3.78,
+        "like_radius": 1.716,
+        "like_within": false,
+        "z_share_mutex": 50.0,
+        "z_max_block_frac": 32.2,
+        "z_share_sleep": -3.0
+      },
+      "qnx_note": "Learned from healthy QNX 8.0 traces: this thread behaved unlike any healthy run in the features listed. It is not a proven bug and gets no automatic fix: look at the timeline around it. Any resemblance to a known pattern is measured against labelled example windows, never a rule that fired.",
+      "id": "TL-001",
+      "evidence_events": [
+        {
+          "id": 6309,
+          "t_ms": 1003.552616,
+          "cpu": 0,
+          "line": 15401,
+          "pid": 5050390,
+          "tid": 2,
+          "raw": "t:0x20e9c3f8c8c CPU:00 THREAD          :THMUTEX            pid:5050390 tid:2 priority:80 policy:1"
+        },
+        {
+          "id": 13162,
+          "t_ms": 1106.189547,
+          "cpu": 3,
+          "line": 32374,
+          "pid": 5050390,
+          "tid": 2,
+          "raw": "t:0x20eab0d4232 CPU:03 THREAD          :THREADY            pid:5050390 tid:2 priority:80 policy:1"
+        },
+        {
+          "id": 13166,
+          "t_ms": 1106.190088,
+          "cpu": 3,
+          "line": 32378,
+          "pid": 5050390,
+          "tid": 2,
+          "raw": "t:0x20eab0d474f CPU:03 THREAD          :THRUNNING          pid:5050390 tid:2 priority:80 policy:1"
+        },
+        {
+          "id": 13170,
+          "t_ms": 1106.199031,
+          "cpu": 3,
+          "line": 32390,
+          "pid": 5050390,
+          "tid": 2,
+          "raw": "t:0x20eab0d9bd8 CPU:03 THREAD          :THNANOSLEEP        pid:5050390 tid:2 priority:80 policy:1"
+        },
+        {
+          "id": 13201,
+          "t_ms": 1108.049628,
+          "cpu": 3,
+          "line": 32446,
+          "pid": 5050390,
+          "tid": 2,
+          "raw": "t:0x20eab51f06e CPU:03 THREAD          :THREADY            pid:5050390 tid:2 priority:80 policy:1"
+        },
+        {
+          "id": 13210,
+          "t_ms": 1108.086023,
+          "cpu": 3,
+          "line": 32455,
+          "pid": 5050390,
+          "tid": 2,
+          "raw": "t:0x20eab534874 CPU:03 THREAD          :THRUNNING          pid:5050390 tid:2 priority:80 policy:1"
+        },
+        {
+          "id": 13226,
+          "t_ms": 1108.101858,
+          "cpu": 3,
+          "line": 32495,
+          "pid": 5050390,
+          "tid": 2,
+          "raw": "t:0x20eab53de22 CPU:03 THREAD          :THREPLY            pid:5050390 tid:2 priority:80 policy:1"
+        },
+        {
+          "id": 13233,
+          "t_ms": 1108.124339,
+          "cpu": 3,
+          "line": 32524,
+          "pid": 5050390,
+          "tid": 2,
+          "raw": "t:0x20eab54b2a2 CPU:03 THREAD          :THREADY            pid:5050390 tid:2 priority:80 policy:1"
+        }
+      ]
+    },
+    {
+      "kind": "unusual_behavior",
+      "severity": "medium",
+      "title": "Unusual behaviour in ptsematest[4]",
+      "summary": "ptsematest[4] (prio 79) behaved unlike healthy QNX programs in 4 of its 4 time windows; the most unusual stretch lasted 80 ms. It stands out in: time blocked on a mutex (higher than healthy), longest single block (higher than healthy), time asleep (lower than healthy). The closest pattern TraceLens has seen is many threads serialised on one mutex, but only loosely (distance 3.78 against 1.716 typical for it): treat this as behaviour of its own.",
+      "t_start": 1040000000,
+      "t_end": 1120000000,
+      "threads": [
+        "ptsematest[4]"
+      ],
+      "evidence": [
+        8050,
+        13175,
+        13179,
+        13183,
+        13207,
+        13244,
+        13256,
+        13263
+      ],
+      "metrics": {
+        "source": "radar",
+        "score": 28.4,
+        "threshold": 3.46,
+        "unusual_windows": 4,
+        "like": "lock_contention",
+        "like_label": "mutex_contention",
+        "like_distance": 3.78,
+        "like_radius": 1.716,
+        "like_within": false,
+        "z_share_mutex": 50.0,
+        "z_max_block_frac": 32.2,
+        "z_share_sleep": -3.0
+      },
+      "qnx_note": "Learned from healthy QNX 8.0 traces: this thread behaved unlike any healthy run in the features listed. It is not a proven bug and gets no automatic fix: look at the timeline around it. Any resemblance to a known pattern is measured against labelled example windows, never a rule that fired.",
+      "id": "TL-002",
+      "evidence_events": [
+        {
+          "id": 8050,
+          "t_ms": 1004.475269,
+          "cpu": 3,
+          "line": 19689,
+          "pid": 5050390,
+          "tid": 4,
+          "raw": "t:0x20e9c619dd7 CPU:03 THREAD          :THMUTEX            pid:5050390 tid:4 priority:79 policy:1"
+        },
+        {
+          "id": 13175,
+          "t_ms": 1106.205475,
+          "cpu": 3,
+          "line": 32401,
+          "pid": 5050390,
+          "tid": 4,
+          "raw": "t:0x20eab0dd8c2 CPU:03 THREAD          :THREADY            pid:5050390 tid:4 priority:79 policy:1"
+        },
+        {
+          "id": 13179,
+          "t_ms": 1106.205845,
+          "cpu": 3,
+          "line": 32405,
+          "pid": 5050390,
+          "tid": 4,
+          "raw": "t:0x20eab0ddc40 CPU:03 THREAD          :THRUNNING          pid:5050390 tid:4 priority:79 policy:1"
+        },
+        {
+          "id": 13183,
+          "t_ms": 1106.207705,
+          "cpu": 3,
+          "line": 32417,
+          "pid": 5050390,
+          "tid": 4,
+          "raw": "t:0x20eab0dedd5 CPU:03 THREAD          :THNANOSLEEP        pid:5050390 tid:4 priority:79 policy:1"
+        },
+        {
+          "id": 13207,
+          "t_ms": 1108.080866,
+          "cpu": 3,
+          "line": 32452,
+          "pid": 5050390,
+          "tid": 4,
+          "raw": "t:0x20eab5317b6 CPU:03 THREAD          :THREADY            pid:5050390 tid:4 priority:79 policy:1"
+        },
+        {
+          "id": 13244,
+          "t_ms": 1108.12751,
+          "cpu": 3,
+          "line": 32542,
+          "pid": 5050390,
+          "tid": 4,
+          "raw": "t:0x20eab54d09a CPU:03 THREAD          :THRUNNING          pid:5050390 tid:4 priority:79 policy:1"
+        },
+        {
+          "id": 13256,
+          "t_ms": 1108.130605,
+          "cpu": 3,
+          "line": 32576,
+          "pid": 5050390,
+          "tid": 4,
+          "raw": "t:0x20eab54eddb CPU:03 THREAD          :THREPLY            pid:5050390 tid:4 priority:79 policy:1"
+        },
+        {
+          "id": 13263,
+          "t_ms": 1108.13559,
+          "cpu": 3,
+          "line": 32605,
+          "pid": 5050390,
+          "tid": 4,
+          "raw": "t:0x20eab551cfc CPU:03 THREAD          :THREADY            pid:5050390 tid:4 priority:79 policy:1"
+        }
+      ]
+    }
+  ],
+  "errors": []
+}

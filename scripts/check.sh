@@ -51,6 +51,21 @@ step_gate() {
     rc=$?; [ $rc -eq 0 ] && echo "  ok   $(basename "$t" .txt.gz) clean" || fail "healthy $(basename "$t") should pass (exit $rc)"
   done
 
+  echo "== timing regression gate: a build passes its own baseline, a buggy one fails a fixed baseline"
+  tmp=$(mktemp -d)
+  for fixed in z1_infusion_pump_fixed z2_brake_by_wire_fixed z4_camera_pipeline_fixed; do
+    buggy=${fixed%_fixed}
+    tracelens baseline save "fixtures/real/$fixed.txt.gz" --out "$tmp/$fixed.json" \
+      -c fixtures/real/tracelens.toml >/dev/null 2>&1 || fail "baseline save $fixed"
+    tracelens gate "fixtures/real/$fixed.txt.gz" --baseline "$tmp/$fixed.json" \
+      -c fixtures/real/tracelens.toml -q
+    rc=$?; [ $rc -eq 0 ] && echo "  ok   $fixed passes its own baseline" || fail "$fixed should pass its own baseline (exit $rc)"
+    tracelens gate "fixtures/real/$buggy.txt.gz" --baseline "$tmp/$fixed.json" \
+      -c fixtures/real/tracelens.toml -q --html "reports/gate_$buggy.html"
+    rc=$?; [ $rc -eq 1 ] && echo "  ok   $buggy blocked by the fixed baseline" || fail "$buggy should regress against $fixed (exit $rc)"
+  done
+  rm -rf "$tmp"
+
   echo "== every planted synthetic bug is caught"
   for t in fixtures/synthetic/z[1-9]*.txt; do
     name=$(basename "$t" .txt)

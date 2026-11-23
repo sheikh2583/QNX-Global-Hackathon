@@ -121,6 +121,97 @@ Each remedy is a source transform for one root cause the trace proved. It is app
 
 **Trust rules.** Detection is deterministic and tested, and every finding lists the trace events that prove it. A trace that looks lossy (a thread running on two CPUs, a CPU switching threads without the old one leaving) gets **exit code 3: no verdict**. A trace without a clock rate is rejected rather than guessed. A fix is accepted only over several runs, never one, and only if the bug reproduced before it.
 
+## Keeping a build fast: `tracelens gate`
+
+Finding a bug is one job; noticing that *your change* made things slower is the other. Record a
+timing baseline from a build you are happy with, commit the JSON, and gate every later build
+against it.
+
+```bash
+# Several captures of one build. 5+ per build makes the verdict statistical.
+tracelens baseline save captures/brake-*.txt.gz --name brake \
+    --out baselines/brake.json -c tracelens.toml
+tracelens baseline show baselines/brake.json
+
+# In CI, against the build under test. Exit 1 = blocked.
+tracelens gate captures/new/*.txt.gz --baseline baselines/brake.json \
+    -c tracelens.toml --json gate.json --html gate.html
+```
+
+A full example you can run now, with no QNX target — five simulated captures of a build whose
+high-priority job does 300 µs of work, gated against five captures of the same build after someone
+pushed it to 450 µs:
+
+```bash
+for s in 1 2 3 4 5;      do tracelens simulate healthy_periodic --seed $s --param work_us=300 -o base$s.txt.gz; done
+for s in 11 12 13 14 15; do tracelens simulate healthy_periodic --seed $s --param work_us=450 -o new$s.txt.gz;  done
+printf 'fail_on = "high"\n[deadlines.hi]\nbudget_us = 2500\n' > gate.toml
+tracelens baseline save base*.txt.gz --name hi --out hi.json -c gate.toml
+tracelens gate new*.txt.gz --baseline hi.json -c gate.toml
+```
+
+```
+TraceLens 0.1.0.dev0 | gate 'hi' vs baseline from 2026-11-23T13:13:02Z (5 capture(s)) | this build: 5 clean capture(s)
+  evidence: one-sided Mann-Whitney U on per-capture p99, Holm-adjusted across 1 metric(s), alpha 0.05
+
+  hi                     p99    0.30 ->    0.45 ms  WORSE  slower: hi p99 0.30 -> 0.45 ms (+50%),
+                         Mann-Whitney U p=0.00397 (adjusted 0.00397) over 5+5 runs
+  VERDICT: REGRESSION
+```
+
+Nothing is over budget here — 0.45 ms against 2.5 ms — and no rule fires. The only thing wrong
+with this build is that it is slower than the one before it, which is exactly what the gate is
+for. Note `p=0.00397`: five captures against five have 252 arrangements, so that is the most
+certain a 5+5 comparison can possibly be, and the gate reports it rather than the 0.002 a normal
+approximation would have claimed.
+
+The baseline file is small, readable JSON: per declared deadline **and per job stream** (the
+thread that runs it — Z4's four tile workers each get their own, so one slow worker cannot hide
+behind the pool), one short array per statistic in capture order, plus the provenance that says
+whether a later comparison is fair: tool version, date, trace names and SHA-256s, the deadline
+budgets and detector thresholds it was built with.
+
+**What counts as a regression**
+
+1. **A new finding kind.** A priority inversion that was not there before fails the gate even if
+   every deadline still fits. Rules cite the events that prove them, so this needs no statistics.
+   A kind the baseline *already* had is the baseline's problem (`tracelens analyze` fails on it);
+   the gate reports the rate change and moves on.
+2. **A slower deadline**, by a one-sided Mann-Whitney U test on per-capture p99 — **one capture is
+   one sample**. The jobs inside a capture share a boot, a host load and a cache state, and
+   treating 200 of them as 200 samples is how a timing gate learns to cry wolf.
+3. **Newly over budget.** A declared deadline the baseline met and this build misses fails
+   whatever the p-value says. If the baseline was *already* over budget, that is reported, not
+   failed: a regression gate reports what changed.
+
+**Where it refuses to guess**
+
+- **Too few captures.** Five against five is the smallest useful rank test (its best possible
+  p-value is 1/252 = 0.004). Below `--min-runs`, the gate says there is no p-value and falls back
+  to a stated threshold — beat the worst p99 the baseline recorded — together with the exact odds
+  of that happening by chance, `1/(n+1)`: *"1 baseline and 1 candidate capture … a build that did
+  not change would beat the baseline's worst p99 about 50% of the time."* `--strict` returns
+  INCONCLUSIVE (exit 3) instead of deciding.
+- **Multiple comparisons.** Test ten deadlines at α and one crosses by chance. Every regression
+  test in a gate run is one family, **Holm-Bonferroni** adjusted, so `--alpha` (default 0.05)
+  bounds the chance of failing a good build *overall*, not per metric. Raw and adjusted p-values
+  are both reported. Family-wise control rather than FDR, because a gate's expensive mistake is
+  the false alarm.
+- **Effect floors.** A statistically real 2% shift is not a release blocker. A regression must
+  also clear `--min-regression-pct` (10%) **and** `--min-regression-us` (50 µs); set both to 0 for
+  hard real-time.
+- **Lossy captures never pass quietly.** They are excluded, counted, named in the terminal, the
+  JSON and the HTML; if too few clean captures remain the verdict is INCONCLUSIVE, and `--strict`
+  makes one lossy capture enough.
+- **A metric that vanished is not a pass.** If the baseline recorded a deadline and the new
+  captures have no jobs for it, the answer is INCONCLUSIVE, not "fine".
+- **A moved goalpost is not a comparison.** Change a budget or period after recording the baseline
+  and that metric is INCONCLUSIVE; changed thresholds or `fail_on` are warnings.
+
+Exit codes are the usual contract: `0` pass, `1` regression, `3` inconclusive, `2` usage error.
+(Not to be confused with `scripts/check.sh gate`, which is this repository's own self-check that
+every committed trace still gets its expected verdict.)
+
 ## The bug zoo
 
 Five small QNX C programs with planted, realistic bugs (`bugzoo/`). Hand-written reference fixes live in `bugzoo/reference/`; the fix engine never reads them.
@@ -305,7 +396,7 @@ The step-by-step tutorial is [docs/codelab](docs/codelab/index.md).
 
 ## Exit codes
 
-`tracelens analyze` exits `0` when clean, `1` when findings reach `--fail-on` (default `high`), `2` on usage or input errors, and `3` when the trace is lossy, so no verdict is given. `tracelens compare` exits `0` VERIFIED, `1` NOT FIXED, `3` INCONCLUSIVE. `tracelens fix` exits `0` VERIFIED (or nothing to fix, or guided), `1` NOT FIXED or build failed, `3` INCONCLUSIVE. Use them from a Makefile, a pre-commit hook or any build script.
+`tracelens analyze` exits `0` when clean, `1` when findings reach `--fail-on` (default `high`), `2` on usage or input errors, and `3` when the trace is lossy, so no verdict is given. `tracelens compare` exits `0` VERIFIED, `1` NOT FIXED, `3` INCONCLUSIVE. `tracelens fix` exits `0` VERIFIED (or nothing to fix, or guided), `1` NOT FIXED or build failed, `3` INCONCLUSIVE. `tracelens gate` exits `0` PASS, `1` REGRESSION, `3` INCONCLUSIVE (too few clean captures, a deadline that vanished, or a budget that moved since the baseline). Use them from a Makefile, a pre-commit hook or any build script.
 
 ## Development
 
