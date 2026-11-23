@@ -781,6 +781,7 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
         f'{w["buggy_clean_runs"]}</td><td class=n>{w["reference_runs_with_findings"]}/{w["reference_clean_runs"]}</td></tr>'
         for w in res.det["workloads"])
     neg_runs = sum(x["runs"] - x["lossy"] for x in res.det["negatives"])
+    runs_on_target = sum(x["buggy_clean_runs"] + x["reference_clean_runs"] for x in res.det["workloads"])
     neg_bad = sum(x["runs_with_findings"] for x in res.det["negatives"])
     fix_rows = "".join(
         f'<tr><td>{escape(WORKLOADS.get(r["workload"], (r["workload"],))[0])}</td><td>'
@@ -799,9 +800,9 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
                 f'<p><span class="pill {"st-ok" if ok else "st-bad"}">{"Verified" if ok else "Not fixed yet"}</span></p></div>')
 
     nav = "".join(f'<a href="#{i}">{t}</a>' for i, t in (
-        ("program", "1 · The program"), ("recording", "2 · The recording"), ("found", "3 · What TraceLens found"),
-        ("how", "4 · How it knows"), ("fix", "5 · The fix"), ("proof", "6 · Proof on QNX"),
-        ("learned", "7 · What it learned"), ("reliable", "8 · Is it reliable?"), ("try", "9 · Try it")))
+        ("program", "1 · The program"), ("target", "2 · Where it runs"), ("recording", "3 · The recording"), ("found", "4 · What TraceLens found"),
+        ("how", "5 · How it knows"), ("fix", "6 · The fix"), ("proof", "7 · Proof on QNX"),
+        ("learned", "8 · What it learned"), ("reliable", "9 · Is it reliable?"), ("try", "10 · Try it")))
     dur = (m.t_end - m.t_start) / 1e6
     body = f"""
 <section class=hero>
@@ -822,7 +823,41 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
   <p class=muted>The buffer is guarded with a semaphore. That looks correct, compiles cleanly, and passes code review.</p>
 </section>
 
-<section id=recording><div class=eyebrow>Step 2</div><h2>The recording</h2>
+<section id=target><div class=eyebrow>Step 2</div><h2>Where it runs: QNX 8.0 on a QEMU machine</h2>
+  <p>Nothing here is a mock-up. The programs run on a real QNX 8.0 kernel booted in QEMU, with the instrumented
+  kernel (<code>procnto-smp-instr</code>) on 4 CPUs. TraceLens drives that machine from the host, over ssh, in four steps:</p>
+  <div class=grid3>
+    <div class=card><span class=step>1 &middot; Boot</span><h3>Start the target</h3>
+      <pre>tracelens target up --user-net</pre>
+      <p class=muted>QEMU boots the QNX image. Its own virtual network forwards ssh to <code>127.0.0.1:2222</code>,
+      so there is no bridge, DHCP server or admin password to set up.</p></div>
+    <div class=card><span class=step>2 &middot; Record</span><h3>Run it under the kernel tracer</h3>
+      <pre>tracelens capture ./z1_infusion_pump</pre>
+      <p class=muted>The program is copied to the machine, run with <code>tracelogger</code> on, and the raw kernel
+      trace is brought back.</p></div>
+    <div class=card><span class=step>3 &middot; Analyze</span><h3>Find the bug</h3>
+      <pre>tracelens analyze trace.txt</pre>
+      <p class=muted>The rules and the learned radar run on the host. Same trace in, same answer out.</p></div>
+    <div class=card><span class=step>4 &middot; Fix and prove</span><h3>Patch, rebuild, re-record</h3>
+      <pre>tracelens fix z1_infusion_pump</pre>
+      <p class=muted>The patch is compiled with the real QNX toolchain and run on the same machine, several times
+      before and after, then judged by a statistical test.</p></div>
+  </div>
+  <h3>What has run on it</h3>
+  <div class=grid3>
+    <div class="card stat"><b>{len(res.det["workloads"])} programs</b><span>with a planted real-time bug, each
+      recorded {res.det.get("runs_per_build", 10)} times on this machine, plus a fixed version of each</span></div>
+    <div class="card stat"><b>{runs_on_target} recordings</b><span>in the detection table alone, every one captured
+      on the QNX kernel and committed with the code</span></div>
+    <div class="card stat"><b>{neg_runs} healthy runs</b><span>of QNX's own programs (pidin, an idle system,
+      a file listing) to check the tool stays quiet</span></div>
+  </div>
+  {f'<div class=btns><a class="btn primary" href="/replay/{res.replay_for("z1_infusion_pump")}">Watch a real fix run on the QEMU machine</a></div>' if res.replay_for("z1_infusion_pump") else ""}
+  <p class=muted>The recorded fix above is not a screen recording: it is the event log of a real
+  <code>tracelens fix</code> run on this machine, replayed.</p>
+</section>
+
+<section id=recording><div class=eyebrow>Step 3</div><h2>The recording</h2>
   <p>The program ran on a QNX 8.0 machine with the kernel tracer on: {len(m.events):,} kernel events in
   {dur:,.0f} ms. Every scheduling decision is in there; here are four of them, exactly as the kernel wrote them.</p>
   <pre>{evidence_lines(a, inv, 4)}</pre>
@@ -830,14 +865,14 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
   takes the CPU; the logger, which holds the semaphore, only releases it milliseconds later.</p>
 </section>
 
-<section id=found><div class=eyebrow>Step 3</div><h2>What TraceLens found</h2>
+<section id=found><div class=eyebrow>Step 4</div><h2>What TraceLens found</h2>
   <p>This is the report you would get for your own program. Detection is a set of fixed rules over the kernel's
   own events: the same recording always gives the same answer.</p>
   {''.join(problem_card(a, f, i, remedies) for i, f in enumerate([f for f in findings if f.severity != "low"], 1))}
   {LEGEND}
 </section>
 
-<section id=how><div class=eyebrow>Step 4</div><h2>How it knows: the QNX mechanisms underneath</h2>
+<section id=how><div class=eyebrow>Step 5</div><h2>How it knows: the QNX mechanisms underneath</h2>
   <p>Nothing above is inferred from source code or guessed from timing alone. Each finding is a rule over
   events the QNX kernel itself recorded, and the rules encode how QNX actually schedules.</p>
   <div class=scroll><table><thead><tr><th>What TraceLens reads</th><th>What it gets from it</th></tr></thead><tbody>
@@ -861,13 +896,13 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
   <div class=btns><a class="btn ghost" href="/trace/z1_infusion_pump">Full engineer's report for this trace</a></div>
 </section>
 
-<section id=fix><div class=eyebrow>Step 5</div><h2>The fix TraceLens wrote</h2>
+<section id=fix><div class=eyebrow>Step 6</div><h2>The fix TraceLens wrote</h2>
   <p>TraceLens checked that the semaphore is only ever used as a lock (it starts at 1, and every function that
   takes it also gives it back) before replacing it with a QNX mutex that lends its priority to whoever waits.</p>
   <details><summary>Show the full patch</summary><div class=in><pre>{diff_html(patch_txt)}</pre></div></details>
 </section>
 
-<section id=proof><div class=eyebrow>Step 6</div><h2>Proof on the QNX kernel</h2>
+<section id=proof><div class=eyebrow>Step 7</div><h2>Proof on the QNX kernel</h2>
   <p>TraceLens built the patched program with <code>qcc</code>, ran it 5 times on the QNX machine, and compared
   against 5 runs of the original. The first fix was not enough, and TraceLens said so.</p>
   <div class=grid2>
@@ -893,14 +928,14 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
   finding kind appears, and the response times are significantly faster.</p>
 </section>
 
-<section id=learned><div class=eyebrow>Step 7</div><h2>What it learned: the bugs no rule knows</h2>
+<section id=learned><div class=eyebrow>Step 8</div><h2>What it learned: the bugs no rule knows</h2>
   <p>Rules only find what someone wrote a rule for. TraceLens also learns what healthy QNX scheduling looks
   like — one thread, one 20 ms window, 19 features of behaviour and no thread names or absolute priorities, so
   a model cannot memorise our programs — and reports threads that fit nothing healthy.</p>
   {radar_section(a, res)}
 </section>
 
-<section id=reliable><div class=eyebrow>Step 8</div><h2>Is it reliable?</h2>
+<section id=reliable><div class=eyebrow>Step 9</div><h2>Is it reliable?</h2>
   <div class=grid3>
     <div class="card stat"><b>{res.verified} of 5</b><span>bugs fixed and verified on QNX; the fifth (a deadlock) gets the exact lines to change</span></div>
     <div class="card stat"><b>{caught}/{runs}</b><span>buggy runs caught across the five programs</span></div>
@@ -933,7 +968,7 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
   </div>
 </section>
 
-<section id=try><div class=eyebrow>Step 9</div><h2>Try it</h2>
+<section id=try><div class=eyebrow>Step 10</div><h2>Try it</h2>
   <p>Open the other four programs, or analyze your own recording.</p>
   <div class=btns><a class="btn primary" href="/analyze">Analyze your trace</a>
   <a class="btn ghost" href="/examples">The five examples</a></div>
