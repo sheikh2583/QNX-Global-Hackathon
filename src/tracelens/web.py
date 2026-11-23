@@ -175,11 +175,11 @@ def analyze_upload(fields: dict[str, tuple[str, bytes]]) -> bytes:
     try:
         a = analyze_text(_text(fields["trace"][1]), cfg)
     except Exception as exc:
-        raise UploadError(f"It does not read as a QNX kernel trace ({exc}). Upload the text that "
-                          "`traceprinter -f trace.kev` prints, or that text gzipped.") from exc
+        raise UploadError("It does not read as a QNX kernel trace. Upload the text that the traceprinter tool "
+                          "prints (traceprinter -f trace.kev), or that text gzipped.") from exc
     if not a.model.events:
-        raise UploadError("There are no QNX kernel events in it. Upload the text that `traceprinter -f trace.kev` "
-                          "prints, or that text gzipped.")
+        raise UploadError("There are no QNX kernel events in it. Upload the text that the traceprinter tool "
+                          "prints (traceprinter -f trace.kev), or that text gzipped.")
     radar_annotate(a)
     src_name, src = fields.get("source", ("", b""))
     sources = {Path(src_name or "main.c").name: src.decode("utf-8", errors="replace")} if src else None
@@ -242,8 +242,8 @@ class Handler(BaseHTTPRequestHandler):
                 w = parts[1].split("_codelab")[0].removesuffix("_live")  # bundle name, not a program name
                 name = app.WORKLOADS.get(w, (parts[1],))[0]
                 return self._send(app.live_page("replay", f"/replay/{parts[1]}/events.json", f"Fixing the {name.lower()}",
-                                                "A real run of `tracelens fix` on our QNX 8.0 machine, recorded event by "
-                                                "event and played back faster than it happened."))
+                                                "A real run of the tracelens fix command on our QNX 8.0 machine, recorded "
+                                                "event by event and played back faster than it happened."))
             if len(parts) == 3 and parts[0] == "replay" and parts[2] == "events.json" and parts[1] in site.replays():
                 lines = site.replays()[parts[1]].read_text(encoding="utf-8").splitlines()
                 body = ("[" + ",".join(line for line in lines if line.strip()) + "]").encode("utf-8")

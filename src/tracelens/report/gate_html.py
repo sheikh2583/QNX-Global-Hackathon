@@ -84,7 +84,7 @@ def render_gate(r: GateResult) -> str:
         f'{escape(str(b.get("created", "?")))} by TraceLens {escape(str(b.get("tool_version", "?")))} from '
         f'{r.runs_base} capture(s); this build: {r.runs_new} clean capture(s)'
         + (f", {r.lossy_excluded} lossy excluded" if r.lossy_excluded else "")
-        + f'. TraceLens {escape(__version__)}.</div>',
+        + f'. TraceLens {escape(__version__.split(".dev")[0])}.</div>',
         f'<div class=notebox><b>Evidence:</b> {escape(evidence)}</div>',
     ]
     if r.reasons:

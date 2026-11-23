@@ -199,7 +199,7 @@ def layout(title: str, body: str, active: str = "") -> bytes:
             f'<footer><div class=in><div>TraceLens finds, fixes and proves real-time bugs in QNX programs. '
             f'Open source: <a href="https://github.com/sheikh2583/QNX-Global-Hackathon">github.com/sheikh2583/'
             f'QNX-Global-Hackathon</a>.</div><div>Built for QNX SDP 8.0 · runs on your machine · no account, '
-            f'runs offline · no data kept · v{escape(__version__)}</div></div></footer></body></html>').encode()
+            f'runs offline · no data kept · v{escape(__version__.split(".dev")[0])}</div></div></footer></body></html>').encode()
 
 
 LEGEND = ('<div class=legend><span><i style="background:var(--run)"></i>running</span>'
@@ -1022,7 +1022,7 @@ background:var(--surface);color:var(--muted);cursor:pointer}.tabs button[aria-pr
 
 
 def live_page(mode: str, events_url: str, title: str = "Live fix", intro: str = "") -> bytes:
-    """The fix as it happens: where the error is, the fix, each run on the target, the verdict.
+    """The fix as it happens: what is wrong, the fix, each run on the target, the verdict.
     ``mode`` is "live" (EventSource from a running `tracelens fix --watch`) or "replay"."""
     controls = ("" if mode == "live" else
                 '<div id=lv-controls hidden><button class="btn ghost" id=lv-pause type=button>Pause</button>'
@@ -1040,10 +1040,10 @@ def live_page(mode: str, events_url: str, title: str = "Live fix", intro: str = 
 </section>
 <div class=livegrid>
   <div>
-    <div class=panel><h2>Where the error is</h2><div id=lv-where><p class=muted>TraceLens shows the problem here as soon
+    <div class=panel><h2>What is wrong</h2><div id=lv-where><p class=muted>TraceLens shows the problem here as soon
       as it has read the recordings of the original program.</p></div></div>
     <div class=panel><h2>Your code <span class="muted small" id=lv-file></span></h2>
-      <div class=tabs><button type=button data-tab=base aria-pressed=true>With the error</button>
+      <div class=tabs><button type=button data-tab=base aria-pressed=true>Original</button>
       <button type=button data-tab=fixed aria-pressed=false>After the fix</button>
       <button type=button data-tab=patch aria-pressed=false>The patch</button></div>
       <pre id=lv-code></pre>

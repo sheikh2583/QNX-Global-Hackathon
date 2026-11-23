@@ -125,7 +125,7 @@ def render_fix(result: dict, diff: str, before: Analysis, after: Analysis | None
         f'<h1>{escape(w)}<span class="verdict {vcls}">{escape(status)}</span></h1>',
         f'<div class=muted>Found in the trace, fixed in the source, proven on QNX: {result["runs"]} runs before, '
         f'{result["runs"]} after{rounds_txt}. '
-        f'TraceLens {escape(__version__)}, no model involved.</div>',
+        f'The patch is written by fixed rules, not a model. TraceLens {escape(__version__.split(".dev")[0])}.</div>',
         _kpis(result),
         "<h2>What TraceLens changed, and why</h2>",
     ]
