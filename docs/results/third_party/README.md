@@ -106,10 +106,14 @@ real-trace evaluations (`docs/ml/results_*.md`), so I have not shown the change 
 - **Not that TraceLens finds real bugs in third-party code.** It found none because (as far as
   these three programs go) there were none to find. A clean result on code that is correct says the
   false-alarm side holds up; it says nothing about the detection side.
-- **No negative control.** I did not run a variant of `pi_stress` with priority inheritance turned
-  off, which is the experiment that would show the inversion rule firing on this exact unmodified
-  program. `pi_stress` has no option for it; it would need a one-line source change and so a
-  separately labelled, modified copy. This is the most valuable next step.
+- **The negative control did not settle it.** I built `pi_stress` with priority inheritance off
+  (`make -C third_party/rt-tests control`: a `sed` of one token into a copy under `out/`, so
+  `upstream/` is untouched; the build checks the diff is exactly one line) and traced it 3 times
+  (section 6). TraceLens found nothing, and I cannot say that is a miss. Reading the code, the
+  program's barriers make the inversion *transient*: low always regains the CPU once med parks at
+  its barrier, so even without inheritance the high thread's wait stays short, and the program
+  completed all 51 inversions of a smoke run without the deadlock its header comment describes. A
+  control that never produces a sustained inversion cannot test whether the rule would fire on one.
 - **Three programs, 16 short runs, one machine** (QEMU VM, 4 virtual CPUs). The ping-pong radar
   alert is one program's behaviour repeated four times, not four independent samples.
 - **The port shims are ours.** Thread-pinning goes through our `sched_setaffinity` emulation;
@@ -117,3 +121,26 @@ real-trace evaluations (`docs/ml/results_*.md`), so I have not shown the change 
   the upstream program on its native OS. `ptsematest`'s own latency numbers are degenerate on QNX
   (a measurement artefact of its `gettimeofday` deltas); TraceLens does not use them.
 - **`remedy` / `fix` were not exercised:** they only act on a rule finding, and none occurred.
+
+## 6. The negative control, as run
+
+`pi_stress_nopi` = upstream `pi_stress.c` with `PTHREAD_PRIO_INHERIT` replaced by
+`PTHREAD_PRIO_NONE` (line 972, nothing else). Same command as `pi_stress_default` (`-q -i 700`),
+3 runs.
+
+| Run | Rule findings | Radar | Integrity |
+|---|---|---|---|
+| 1 | 0 | quiet | lossy ("CPU switched threads without the previous one leaving" x5): INCONCLUSIVE |
+| 2 | 0 | quiet | clean |
+| 3 | 0 | quiet | lossy (x4): INCONCLUSIVE |
+
+Evidence: [`json/pi_stress_nopi_*.json`](json/), [`traces/pi_stress_nopi_1.txt.gz`](traces/) (the
+lossy run 1; the clean run 2 was not committed). **Judgement:** TraceLens was silent on a program
+that, as far as I can tell, does not sustain an inversion, so this is neither a pass nor a failure
+of the inversion rule. Two of three captures being lossy is also worth noting: the unmodified
+`pi_stress` was lossy in 1 of 4 runs; I have not investigated the cause (target-side buffer
+pressure at ~40k events/s is my guess, unverified).
+
+A control that *would* test the rule needs a program whose medium thread keeps the CPU busy while
+the low thread holds the lock, which `pi_stress` does not do. That is a different, labelled workload
+and not run here.

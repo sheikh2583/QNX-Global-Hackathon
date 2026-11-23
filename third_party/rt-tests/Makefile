@@ -26,7 +26,12 @@ LIB_SRC   = $(UP)/src/lib/rt-utils.c $(UP)/src/lib/rt-error.c $(UP)/src/lib/rt-s
 COMPAT    = $(OUT)/qnx_compat.o
 PROGS     = $(OUT)/pi_stress $(OUT)/ptsematest $(OUT)/pmqtest
 
-.PHONY: all clean
+# NEGATIVE CONTROL (not part of `all`): pi_stress with priority inheritance switched off.
+# The only change is the mutex protocol, applied by sed to a copy in $(OUT)/ so upstream/ stays
+# byte-for-byte.  Upstream's own header comment says this build 'will deadlock the program'.
+CONTROL   = $(OUT)/pi_stress_nopi
+
+.PHONY: all clean control
 all: $(PROGS)
 
 $(OUT):
@@ -46,6 +51,15 @@ $(OUT)/ptsematest: $(UP)/src/ptsematest/ptsematest.c $(LIB_SRC) $(COMPAT) | $(OU
 
 $(OUT)/pmqtest: $(UP)/src/pmqtest/pmqtest.c $(LIB_SRC) $(COMPAT) | $(OUT)
 	$(QCC) $(QCCFLAGS) -o $@ $^ -lm
+
+$(OUT)/pi_stress_nopi.c: $(UP)/src/pi_tests/pi_stress.c | $(OUT)
+	sed 's/PTHREAD_PRIO_INHERIT/PTHREAD_PRIO_NONE/' $< > $@
+	@diff $< $@ | grep -c '^>' | grep -qx 1 || { echo "control must differ in exactly one line"; exit 1; }
+
+$(CONTROL): $(OUT)/pi_stress_nopi.c $(LIB_SRC) $(COMPAT)
+	$(QCC) $(QCCFLAGS) -o $@ $^ -lm
+
+control: $(CONTROL)
 
 clean:
 	rm -rf $(OUT)
