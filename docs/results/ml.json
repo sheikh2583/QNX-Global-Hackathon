@@ -1,0 +1,119 @@
+{
+ "contribution": {
+  "buggy": 883,
+  "rules_only": 16,
+  "both": 384,
+  "radar_only": 326,
+  "neither": 157,
+  "healthy": 148,
+  "false_alarms": 0
+ },
+ "threshold": 3.46,
+ "trained_windows": 311150,
+ "note": "trained on 311150 windows of 682 healthy traces (qnx, sim)",
+ "families": {
+  "healthy_periodic": {
+   "traces": 23,
+   "flagged": 0,
+   "label": "healthy",
+   "split": "test"
+  },
+  "healthy_pi_mutex": {
+   "traces": 25,
+   "flagged": 0,
+   "label": "healthy",
+   "split": "test"
+  },
+  "healthy_ipc": {
+   "traces": 28,
+   "flagged": 0,
+   "label": "healthy",
+   "split": "test"
+  },
+  "healthy_mixed": {
+   "traces": 20,
+   "flagged": 0,
+   "label": "healthy",
+   "split": "test"
+  },
+  "sem_inversion": {
+   "traces": 65,
+   "flagged": 65,
+   "label": "priority_inversion",
+   "split": "test"
+  },
+  "chan_inversion": {
+   "traces": 61,
+   "flagged": 61,
+   "label": "priority_inversion",
+   "split": "test"
+  },
+  "ipc_deadlock": {
+   "traces": 69,
+   "flagged": 69,
+   "label": "ipc_deadlock",
+   "split": "test"
+  },
+  "lock_contention": {
+   "traces": 73,
+   "flagged": 51,
+   "label": "mutex_contention",
+   "split": "test"
+  },
+  "condvar_inversion": {
+   "traces": 59,
+   "flagged": 59,
+   "label": "priority_inversion",
+   "split": "test"
+  },
+  "cpu_starvation": {
+   "traces": 120,
+   "flagged": 0,
+   "label": "cpu_starvation",
+   "split": "test_unseen"
+  },
+  "mutex_abba": {
+   "traces": 116,
+   "flagged": 97,
+   "label": "mutex_abba",
+   "split": "test_unseen"
+  },
+  "lost_wakeup": {
+   "traces": 120,
+   "flagged": 120,
+   "label": "lost_wakeup",
+   "split": "test_unseen"
+  },
+  "period_overrun": {
+   "traces": 120,
+   "flagged": 120,
+   "label": "period_overrun",
+   "split": "test_unseen"
+  },
+  "healthy_irq": {
+   "traces": 22,
+   "flagged": 0,
+   "label": "healthy",
+   "split": "test"
+  },
+  "irq_overrun": {
+   "traces": 80,
+   "flagged": 68,
+   "label": "irq_handler_overrun",
+   "split": "test"
+  },
+  "healthy_irq_deferred": {
+   "traces": 30,
+   "flagged": 0,
+   "label": "healthy",
+   "split": "test"
+  }
+ },
+ "sources": [
+  "qnx",
+  "sim"
+ ],
+ "test_sources": [
+  "qnx"
+ ]
+}

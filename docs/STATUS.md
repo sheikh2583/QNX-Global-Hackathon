@@ -66,6 +66,15 @@ Recorded runs: [results_real.md](ml/results_real.md), [results_sim.md](ml/result
       vs 0–2.1) and serve interrupts ~2x as often; real threads spread over more CPUs than the simulated
       scheduler allows. Then re-run `scripts/sim_experiment.py` so the recorded numbers match. *(me)*
 
+### 3b. The judges' demo — technical depth (2026-11-23)
+- [x] New step **"How it knows"**: the QNX facilities each rule reads (`procnto-smp-instr`/`tracelogger -w`,
+      THREAD state events, kernel-call arguments, COMM pairing, `IST_ATTACH`, `qcc`), the chain of evidence
+      for a finding with event ids and timestamps, and the recording's own integrity figures.
+- [x] The verdict now shows its statistics: runs per side, p99 before/after, late jobs, the actual
+      Mann-Whitney p-value per round.
+- [x] New step **"What it learned"**: the radar's live finding on the demo trace, and what it adds overall,
+      read from `docs/results/ml.json` (written by `scripts/train_eval.py`, never typed in).
+
 ### 4. Submission
 - [ ] **Render URL is recorded nowhere** (README, Devpost) and the live site has not been checked since
       the last three deploys. *(you deploy / confirm the URL, me to wire it in and check the pages)*

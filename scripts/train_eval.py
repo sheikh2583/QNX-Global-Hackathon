@@ -23,6 +23,7 @@ Nothing here samples or shuffles: the same inputs give the same models and the s
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -117,7 +118,19 @@ def main() -> int:
         for row in read_jsonl(Path(d) / "manifest.jsonl"):
             manifest[row["id"]] = row
     if manifest:
-        md += [evaluate.rules_vs_radar_markdown(evaluate.rules_vs_radar(test_rows, radar, manifest)).strip(), ""]
+        contribution = evaluate.rules_vs_radar(test_rows, radar, manifest)
+        md += [evaluate.rules_vs_radar_markdown(contribution).strip(), ""]
+        # The web app reads these, so no number on the site is ever typed in by hand.
+        summary = {"contribution": contribution, "threshold": round(radar["threshold"], 2),
+                   "trained_windows": radar["trained_windows"], "note": radar["note"],
+                   "families": {k: {"traces": v["traces"], "flagged": v["flagged"], "label": v["label"],
+                                    "split": v["split"]}
+                                for k, v in evaluate.evaluate_radar(test_rows, radar)["families"].items()},
+                   "sources": sorted({r.get("source", "qnx") for r in rows}),
+                   "test_sources": sorted({r.get("source", "qnx") for r in test_rows})}
+        out_json = ROOT / "docs" / "results" / "ml.json"
+        out_json.write_text(json.dumps(summary, indent=1) + "\n", encoding="utf-8", newline="\n")
+        print(f"wrote {out_json}", file=sys.stderr)
     Path(args.report).write_text("\n".join(md), encoding="utf-8", newline="\n")
     print("\n".join(md))
     print(f"\nmodels in {out}/ ; report in {args.report}", file=sys.stderr)
