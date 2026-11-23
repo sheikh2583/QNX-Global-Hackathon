@@ -28,6 +28,12 @@ Recorded runs: [results_real.md](ml/results_real.md), [results_sim.md](ml/result
   5 detectors + deadline misses, HTML/JSON/SARIF/Perfetto output, exit codes.
 - **Fix engine** — QNX-specific source transforms with safety preconditions, `qcc` build, before/after
   capture, Mann-Whitney U verdict, up to 3 rounds.
+- **Regression gate** — `tracelens baseline save` records per-deadline and per-job-stream response
+  distributions with provenance into committable JSON; `tracelens gate` fails a later build that is
+  statistically slower (one-sided Mann-Whitney U on per-capture p99, Holm-Bonferroni across metrics,
+  effect floors), that grew a new finding kind, or that went newly over budget. Says INCONCLUSIVE
+  rather than guessing when there are too few clean captures, a deadline vanished or a budget moved.
+  Terminal, `--json` and HTML output; 24 tests on the committed real captures and the simulator.
 - **Web app** — consumer pages, guided demo for judges, upload-your-own-trace, Render blueprint.
 - **Simulator** — a model of the QNX 8.0 scheduler writing real `traceprinter` traces: 1,920 labelled
   recordings in ~6 minutes, no target needed.
