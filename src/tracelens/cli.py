@@ -309,7 +309,8 @@ def _cmd_simulate(args: argparse.Namespace) -> int:
 def _cmd_data(args: argparse.Namespace) -> int:
     from .ml import dataset
     if args.data_cmd == "plan":
-        plan = dataset.make_plan(args.per_scenario, args.seed, args.scenario or None, irq=getattr(args, "irq", 4))
+        plan = dataset.make_plan(args.per_scenario, args.seed, args.scenario or None, irq=getattr(args, "irq", 4),
+                                 irq_load=getattr(args, "irq_load", None) or dataset.IRQ_BACKGROUND)
         dataset.write_jsonl(args.out, plan)
         by = {}
         for item in plan:
@@ -339,7 +340,8 @@ def _cmd_data(args: argparse.Namespace) -> int:
         return 0
     if args.data_cmd == "simulate":
         from .sim.dataset import generate
-        plan = dataset.make_plan(args.per_scenario, args.seed, args.scenario or None, irq=getattr(args, "irq", 4))
+        plan = dataset.make_plan(args.per_scenario, args.seed, args.scenario or None, irq=getattr(args, "irq", 4),
+                                 irq_load=getattr(args, "irq_load", None) or dataset.IRQ_BACKGROUND)
         rows = [r for r in generate(plan, args.out, args.config, plan_seed=args.seed, workers=args.workers,
                                     keep_traces=not args.no_traces) if r.get("status") == "ok"]
         by: dict[str, list[int]] = {}
@@ -442,7 +444,7 @@ def _cmd_target(args: argparse.Namespace) -> int:
 
 def _cmd_eval(args: argparse.Namespace) -> int:
     import os
-    from .evaluation import eval_detect, eval_fix
+    from .evaluation import eval_detect, eval_fix, load_for
     from .target import Target, capture
 
     cfg = load_config(args.config)
@@ -465,7 +467,7 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     try:
         if args.eval_cmd == "detect":
             eval_detect(args.zoo, cfg, cap, out, runs=args.runs, irq=args.irq, only=only,
-                        bin_dir=args.bin_dir)
+                        bin_dir=args.bin_dir, irq_load=args.irq_load)
             print((out / "detect.md").read_text(encoding="utf-8"))
             return 0
         from .fix import FixEngine, QccBuilder
@@ -474,12 +476,12 @@ def _cmd_eval(args: argparse.Namespace) -> int:
             def fix_cap(binary, _ws, label, i, o):
                 entry = _zoo_entry(args.zoo, Path(workload_dir).name)
                 wargs = [a.replace("{irq}", str(args.irq)) for a in entry.args]
-                return cap(label, i, binary, None, wargs, o, background=entry.background)
+                return cap(label, i, binary, None, wargs, o, background=load_for(entry, args.irq_load))
             return FixEngine(workload_dir, [Path(args.zoo) / "common"], cfg, QccBuilder(arch=args.arch), fix_cap,
                              engine_out, runs=args.runs)
 
         eval_fix(args.zoo, cfg, make_engine, cap, out, runs=args.runs, irq=args.irq, only=only,
-                 bin_dir=args.bin_dir)
+                 bin_dir=args.bin_dir, irq_load=args.irq_load)
         print((out / "fix.md").read_text(encoding="utf-8"))
         return 0
     except (FileNotFoundError, ImportError) as exc:
@@ -667,6 +669,8 @@ def build_parser() -> argparse.ArgumentParser:
     d1.add_argument("--per-scenario", type=int, default=150)
     d1.add_argument("--seed", type=int, default=7)
     d1.add_argument("--scenario", action="append", help="only these scenarios (repeatable)")
+    d1.add_argument("--irq-load", help="shell command that drives that interrupt during each interrupt "
+                    "scenario (default: a serial flood, which works on the x86 guest only)")
     d1.add_argument("--irq", type=int, default=4,
                     help="interrupt the interrupt scenarios attach to (default 4, COM1 on the x86 guest; "
                          "the aarch64 virt machine's UART is 33)")
@@ -726,6 +730,8 @@ def build_parser() -> argparse.ArgumentParser:
         e2.add_argument("--runs", type=int, default=5)
         e2.add_argument("--seconds", type=int, default=4)
         e2.add_argument("--irq", type=int, help="interrupt for z5 (skipped without it)")
+        e2.add_argument("--irq-load", help="shell command that drives that interrupt (default: the zoo's, a "
+                        "serial flood that works on the x86 guest; see docs/results/aarch64.md section 6)")
         e2.add_argument("--only", help="comma-separated workload names")
         e2.add_argument("--out", default="docs/results")
         e2.add_argument("--arch", default=ARCH, help=f"qcc target for rebuilt binaries (default {ARCH})")

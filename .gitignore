@@ -20,3 +20,4 @@ demo/out/
 /models/
 # raw aarch64 captures (7 GB of .kev); the numbers they produced are in docs/results/aarch64.md
 docs/results/aarch64/traces/
+docs/results/aarch64_z5/traces/

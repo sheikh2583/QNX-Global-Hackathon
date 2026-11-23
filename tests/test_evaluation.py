@@ -35,10 +35,12 @@ BUGGY = {"z1_infusion_pump": S.z1_prio_inversion, "z3_sensor_fusion": S.z3_ipc_d
 class FakeTarget:
     def __init__(self, leaky_reference: str | None = None):
         self.calls = []
+        self.backgrounds = []
         self.leaky_reference = leaky_reference
 
     def __call__(self, label, i, binary, command, args, out, background=None):
         self.calls.append((label, binary, command, tuple(args)))
+        self.backgrounds.append((label, background))
         name = label.split("-")[0]
         if command is not None or label.endswith("-fixed") and name != self.leaky_reference:
             text = S.z0_clean()
@@ -167,3 +169,17 @@ def test_bin_dir_selects_another_architectures_build(zoo, cfg, tmp_path):
     assert any(c[1] == zoo / "out-aarch64le" / "z1_infusion_pump_fixed" for c in fake.calls)
     # nothing reached for the x86 build; the healthy negatives are shell commands, not binaries
     assert all("out-aarch64le" in str(c[1]) for c in fake.calls if c[1] is not None)
+
+
+def test_irq_load_replaces_only_the_interrupt_workloads_background(zoo, cfg, tmp_path):
+    """The zoo records the x86 guest's interrupt source (a serial flood). On the aarch64 virt guest that
+    interrupt never reaches a second listener and a disk write loop does, so the source is a parameter -
+    and it must reach the interrupt-driven workload only, never the others."""
+    default, other = FakeTarget(), FakeTarget()
+    eval_detect(zoo, cfg, default, tmp_path / "a", runs=5, irq=7, only=["z5_motor_encoder"])
+    eval_detect(zoo, cfg, other, tmp_path / "b", runs=5, irq=79, only=["z5_motor_encoder"], irq_load="DISK-LOOP")
+    assert {b for _, b in default.backgrounds} == {load_zoo(zoo / "zoo.toml")[0][-1].background}
+    assert {b for _, b in other.backgrounds} == {"DISK-LOOP"}
+    mixed = FakeTarget()
+    eval_detect(zoo, cfg, mixed, tmp_path / "c", runs=5, only=["z1_infusion_pump"], irq_load="DISK-LOOP")
+    assert "DISK-LOOP" not in {b for _, b in mixed.backgrounds}

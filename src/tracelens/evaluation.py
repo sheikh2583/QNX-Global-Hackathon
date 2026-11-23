@@ -44,6 +44,16 @@ class NegativeEntry:
     command: str
 
 
+def load_for(z: ZooEntry, irq_load: str | None) -> str | None:
+    """The background load for one workload: the interrupt-driven ones take ``irq_load`` when given.
+
+    The zoo records the x86 guest's interrupt source (a serial flood). Another machine drives its
+    interrupts differently - on the aarch64 `virt` guest the serial port's interrupt never reaches a
+    second listener, a disk write loop's does - so the source is a parameter, not a constant.
+    """
+    return irq_load if (z.needs_irq and irq_load) else z.background
+
+
 def load_zoo(path: str | Path) -> tuple[list[ZooEntry], list[NegativeEntry]]:
     data = tomllib.loads(Path(path).read_text(encoding="utf-8"))
     neg = [NegativeEntry(k, v["command"]) for k, v in data.pop("negative", {}).items()]
@@ -96,7 +106,7 @@ def _runs(capture: EvalCapturer, label: str, n: int, binary, command, args, out,
 
 def eval_detect(zoo_dir: str | Path, cfg: Config, capture: EvalCapturer, out_dir: str | Path,
                 runs: int = 5, irq: int | None = None, only: list[str] | None = None,
-                bin_dir: str | Path | None = None) -> dict:
+                bin_dir: str | Path | None = None, irq_load: str | None = None) -> dict:
     zoo_dir, out = Path(zoo_dir), Path(out_dir)
     bins = Path(bin_dir) if bin_dir else zoo_dir / "out"
     out.mkdir(parents=True, exist_ok=True)
@@ -113,9 +123,9 @@ def eval_detect(zoo_dir: str | Path, cfg: Config, capture: EvalCapturer, out_dir
         args = [a.replace("{irq}", str(irq)) for a in z.args]
         tdir = out / "traces" / z.name
         buggy, buggy_kinds = _runs(capture, f"{z.name}-buggy", runs, bins / z.name, None, args, tdir,
-                                   cfg, z.background)
+                                   cfg, load_for(z, irq_load))
         fixed, fixed_kinds = _runs(capture, f"{z.name}-fixed", runs, bins / f"{z.name}_fixed", None,
-                                   args, tdir, cfg, z.background)
+                                   args, tdir, cfg, load_for(z, irq_load))
         clean_b = [k for k in buggy_kinds if k is not None]
         clean_f = [k for k in fixed_kinds if k is not None]
         r.runs = runs
@@ -177,7 +187,7 @@ def detect_markdown(report: dict) -> str:
 
 def eval_fix(zoo_dir: str | Path, cfg: Config, make_engine: Callable[..., Any], capture: EvalCapturer,
              out_dir: str | Path, runs: int = 5, irq: int | None = None, only: list[str] | None = None,
-             bin_dir: str | Path | None = None) -> dict:
+             bin_dir: str | Path | None = None, irq_load: str | None = None) -> dict:
     """``make_engine(workload_dir, out_dir) -> FixEngine`` builds a configured engine."""
     zoo_dir, out = Path(zoo_dir), Path(out_dir)
     bins = Path(bin_dir) if bin_dir else zoo_dir / "out"
@@ -194,7 +204,7 @@ def eval_fix(zoo_dir: str | Path, cfg: Config, make_engine: Callable[..., Any], 
         before, clean, i = [], 0, 0
         while clean < runs and i < 2 * runs:  # replace lossy captures, as eval detect does
             t = capture(f"{z.name}-before", i, bins / z.name, None, args, out / z.name / "before",
-                        background=z.background)
+                        background=load_for(z, irq_load))
             i += 1
             before.append(t)
             clean += not analyze_file(t, cfg).model.lossy

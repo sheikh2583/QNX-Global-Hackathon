@@ -4,14 +4,18 @@ Measured 2026-11-23 on the project machine (WSL2 Ubuntu 24.04, QNX SDP 8.0, host
 
 ## Verdict
 
-**Nothing tested is x86-specific, and the x86-trained radar transfers — with three limits that
-decide how far that sentence goes.** On a QNX 8.0 `aarch64le` guest (QEMU `virt`, cortex-a57, 4 CPUs):
+**Nothing tested is x86-specific in the code, and for the non-interrupt workloads the x86-trained radar
+transfers. For the interrupt workloads it does not, and the interrupt rules need machine-specific
+thresholds — with three limits that decide how far any of this goes.** On a QNX 8.0 `aarch64le` guest
+(QEMU `virt`, cortex-a57, 4 CPUs):
 
 - the workload suite cross-compiles for aarch64 with **no source change**;
 - every rule that fires on x86 fires on aarch64, on the right workload, and the healthy programs stay
-  clean (§3);
-- the radar, **trained entirely on x86 traces**, flags **8 of 9** planted bugs on the thread that suffers
-  with **0 false alarms** on 4 healthy traces (§5) — the same result as on x86 (8 of 10 on the pilot);
+  clean — for the 13 non-interrupt scenarios (§3). The interrupt rules also fire on the planted overruns
+  but, with x86's thresholds, on healthy handlers too (§6);
+- the radar, **trained entirely on x86 traces**, flags **8 of 9** planted non-interrupt bugs on the thread
+  that suffers with **0 false alarms** on 4 healthy traces (§5) — the same result as on x86 (8 of 10 on
+  the pilot). On the interrupt scenarios it flags every trace, healthy or not (§6);
 - the per-feature medians agree between architectures as well as two x86 collections agree with each
   other: **86.7%** of feature/thread pairs within 0.10, against **86.5%** for x86 against x86 (§5).
 
@@ -22,9 +26,11 @@ The limits:
    x86"; it is *not* "the tool is validated on a Cortex-A part". That needs a board.
 2. **One run per scenario** (the x86 numbers are 120 per scenario). The agreement figures above show
    nothing is badly broken; they do not show it is tight.
-3. **The interrupt workloads (`healthy_irq`, `irq_overrun`, `healthy_irq_deferred`, and bug-zoo z5) were
-   not ported**, so interrupt-handler detection is untested on aarch64 (§6). These are 4 of 16 scenarios
-   and 1 of 5 bugs.
+3. **The interrupt workloads are ported, and the result is mixed (§6).** They needed a different
+   interrupt source (the virtio disk, not the serial port). With the x86 thresholds the rules false-alarm
+   on healthy handlers; thresholds calibrated on six healthy traces then missed the planted overruns on a
+   test batch (0 of 4); and the radar does not transfer on interrupt traces (8 of 8 healthy flagged). Only
+   z5's large overrun (p99 3-4.6 ms) is detected cleanly (10/10, 0 false alarms).
 
 A negative result worth stating as plainly: **11 of 13 captured traces were flagged lossy** by the
 integrity check, against 0 of 16 on x86 (§4). That is a real cross-machine difference, and it is a
@@ -76,7 +82,7 @@ One capture per scenario (`tlgen`), `scripts/aarch64_pilot.sh`; 13 of 16 complet
 | `lock_contention` | `mutex_contention` + `deadline_miss` | same |
 | `cpu_starvation`, `mutex_abba`, `lost_wakeup`, `period_overrun` | none (no rule exists for these families) | same |
 | `healthy_periodic`, `healthy_pi_mutex`, `healthy_ipc`, `healthy_mixed` | none | same |
-| `healthy_irq`, `irq_overrun`, `healthy_irq_deferred` | not captured | `irq_overrun`: `irq_handler_overrun` + `irq_latency` |
+| `healthy_irq`, `irq_overrun`, `healthy_irq_deferred` | on the virtio-disk interrupt (§6): `irq_overrun` fires `irq_handler_overrun` + `irq_latency`, **but so do the healthy ones** under the x86 thresholds | `irq_overrun`: `irq_handler_overrun` + `irq_latency`; healthy quiet |
 
 The bug-zoo workloads (`tracelens eval detect --bin-dir bugzoo/out-aarch64le`, 5 runs per build, lossy
 runs excluded, committed x86 budgets):
@@ -87,7 +93,7 @@ runs excluded, committed x86 budgets):
 | z2 brake-by-wire | 5/5 | 2/5 (`deadline_miss`) | NOT FIXED |
 | z3 sensor fusion | 5/5 | 0/5 | VERIFIED |
 | z4 camera pipeline | 5/5 | 1/5 (`deadline_miss`) | NOT FIXED |
-| z5 motor encoder | not run | | |
+| z5 motor encoder | 10/10 buggy flagged on the virtio-disk interrupt (§6) | 0/10 with aarch64 interrupt thresholds, 10/10 with x86's | not scored by the eval (all 20 runs lossy) |
 
 x86 detected 10/10 on all five. The two NOT FIXED rows are a budget effect, not a detector failure
 (§7). The three healthy shell programs (`pidin_loop`, `idle_system`, `shell_io`) produced **no usable
@@ -157,26 +163,82 @@ or a pointer width, and the parser takes the clock from the trace header. `KERNE
 this data does not exercise it (no kernel-space mutex finding appeared), so its aarch64 comment stays
 **(verify)**.
 
-## 6. What was not ported: the interrupt workloads
+## 6. The interrupt workloads, ported — and what they show
 
 `healthy_irq`, `irq_overrun`, `healthy_irq_deferred` and z5 attach with `InterruptAttachEvent(irq, …)`
-and block in `InterruptWait`, driven on x86 by flooding the serial port. Two things differ on the QEMU
-`virt` machine: the UART is a PL011 on **interrupt 33** (`devc-serpl011 -F 0x9000000,33`), not COM1's
-interrupt 4, and `/dev/ser1` is also the console.
+and block in `InterruptWait`. On x86 the interrupt is COM1 (4), driven by flooding `/dev/ser1`. That does
+not work on the QEMU `virt` machine, for two separate reasons (both measured with
+[`bugzoo/gen/irqprobe.c`](../../bugzoo/gen/irqprobe.c), which attaches the same way but gives up each wait
+after 250 ms, so it reports "0 interrupts" instead of hanging):
 
-- With the x86 default (`-i 4`) the program waits forever for an interrupt that is not the UART's: the
-  first run hung, and the stuck `tlgen` then made every later copy fail ("dest open … Failure").
-- That is now a parameter: `tracelens data plan --irq 33` (tested; default unchanged at 4).
-- With `-i 33` and the same serial flood **`InterruptWait` still did not return** (`healthy_irq`, 3
-  attempts; z5's capture timed out). I did not establish why. Candidates, all unverified: the PL011's
-  interrupt is owned and acknowledged by `devc-serpl011` and does not reach a second attacher the way
-  COM1 does; QEMU's PL011 raises TX interrupts differently from its 16550; or the flood does not drive
-  the UART the way it does on x86. Each needs a look at the guest's interrupt controller, which this
-  session did not do.
+| Source tried | Interrupts seen by a second listener in 3 s |
+|---|---|
+| x86 default, interrupt 4, serial flood | the program waits forever on an interrupt nothing raises |
+| UART, interrupt 33 (`devc-serpl011 -F 0x9000000,33`), with and without the flood | **0** |
+| virtio-net, interrupt 78 (`io-sock`), traffic through the guest's own ssh | 134 (45/s) |
+| **virtio-blk, interrupt 79 (`devb-virtio`), a guest write-and-sync loop** | **333 (111/s), steady** |
 
-This is a gap in the *workload's interrupt source*, not evidence about TraceLens. Interrupt-handler
-detection on aarch64 remains untested; it needs an interrupt source that works on `virt` (a
-virtio device, or a timer wired to a GIC SPI).
+I did not establish why the PL011's interrupt never reaches a second attacher (it is owned by a driver
+that attaches by pulse, and QEMU's PL011 may not raise TX interrupts the way a 16550 does); the answer
+needs a look at the guest's interrupt controller. Interrupt 79 works, so the workloads were ported to it:
+`tracelens data plan --irq 79 --irq-load '<disk loop>'` and `tracelens eval detect --irq 79 --irq-load
+'<disk loop>'` (tested; x86 defaults unchanged), with the load
+`while :; do dd if=/dev/zero of=/data/irqload bs=64k count=32; sync; done`.
+
+**This is a different interrupt source, not just a different architecture.** 111 bursty disk interrupts
+a second against x86's ~2,700 steady serial ones; any difference below mixes the two, and this
+experiment cannot separate them.
+
+### Rules, with the x86 thresholds
+
+On the aarch64 guest a healthy handler doing 50 µs of work measures **p99 450–1,360 µs** wake-to-unmask and
+**1.1–3.0 ms** interrupt-to-wake, against x86's p99 81 µs. The committed thresholds (500 µs handler, 1,000
+µs latency) sit inside that, so they fire on healthy handlers: `irq_handler_overrun` on **4 of 8** healthy
+`tlgen` traces in the test batch (5 of 6 in the first batch) and on **10 of 10** z5 reference-fix runs.
+The planted overruns are flagged 4/4, 3/3 and 10/10: the rule fires, but cannot be trusted to be quiet.
+(All of these traces are lossy by §4's check; results are reported regardless, as in §3.)
+
+### Calibration, fixed before the test, and where it failed
+
+`bugzoo/tracelens.aarch64.toml` raises the two interrupt thresholds by a rule written down **before** the
+test batch was captured: 1.25 × the worst healthy per-trace p99 in a calibration batch (6 healthy
+traces, seed 7), rounded up to 100 µs → handler **2,400 µs**, latency **3,700 µs**. Then a second batch
+(seed 8; 4 traces of each scenario, different parameters) that played no part in choosing them:
+
+| | Healthy flagged | Planted overrun flagged |
+|---|---|---|
+| calibration batch, x86 thresholds | 5/6 | 3/3 |
+| calibration batch, aarch64 thresholds *(circular: chosen from these)* | 0/6 | 3/3 |
+| **test batch, x86 thresholds** | **4/8** | **4/4** |
+| **test batch, aarch64 thresholds** | **0/8** | **0/4** |
+| z5 motor encoder (10 buggy + 10 reference), x86 thresholds | 10/10 | 10/10 |
+| z5 motor encoder, aarch64 thresholds | 0/10 | 10/10 |
+
+**The calibrated thresholds removed the false alarms and lost the planted bugs on the test batch.** The
+four test-batch overruns do 1.0–1.9 ms of work and measure p99 1.6–2.4 ms; the calibration batch's worst
+healthy trace (p99 1,881 µs) was an outlier that pushed the threshold above them. Six healthy traces are
+too few to calibrate a tail on this machine. The honest reading: **on emulated aarch64 with this
+interrupt source, a handler overrun is detectable when it is large against the jitter (z5's p99 3.1–4.6
+ms: 10/10 at 2,400 µs with no false alarm) and not when it is 1–2 ms.** That is a noise floor of about
+2.4 ms, against x86's 0.5 ms. A more jitter-robust statistic (the median handler time, which a systematic
+overrun moves and a tail spike does not) would probably separate the cases; the rule does not use it
+and I did not change it.
+
+### The radar on interrupt traces
+
+It flags the interrupt thread (`ist`) in **every** interrupt trace: 4 of 4 and 3 of 3 planted overruns, but
+also **8 of 8** and **6 of 6** healthy ones (the deferred-work scenario's `worker` too). The overrun
+traces do persist more (72/72, 88/88 windows against 51–66 of 57–72 for healthy), so a signal is there,
+but the radar's threshold was calibrated on a different interrupt source. **The radar does not transfer on
+interrupt traces**, which is the opposite of §5; the cause is the interrupt source, not established to be
+the architecture.
+
+### What this settles and what it does not
+
+Settled: the interrupt workloads run on aarch64 with a working source; the x86 interrupt thresholds are
+too tight for an emulated machine; a machine-specific threshold needs more than six healthy traces.
+Not settled: how the interrupt rules behave on ARM hardware (where the jitter should be nearer x86's), or
+with a faster interrupt source. Still open: why the UART's interrupt does not reach a second listener.
 
 ## 7. Deadline budgets under emulation
 
@@ -220,7 +282,9 @@ another.
 - `tracelens fix --arch` / `eval --arch`: `QccBuilder` was hardcoded to `x86_64` at every call site, so
   a fix "proven on the target" was rebuilt for x86 whatever the target was.
 - `tracelens eval detect|fix --bin-dir`; `tracelens data features --include-lossy`;
-  `tracelens data plan --irq`.
+  `tracelens data plan --irq --irq-load` and `tracelens eval detect|fix --irq-load` (the interrupt
+  source is a parameter; the x86 serial flood stays the default); `bugzoo/gen/irqprobe.c`, which
+  reports "0 interrupts" instead of hanging.
 - `scripts/arch_compare.py` and `scripts/aarch64_pilot.sh` (the whole run, resumable).
 
 ## 9. Reproduce
@@ -234,5 +298,7 @@ python scripts/arch_compare.py --a data/pilot --b data/real \
 ```
 
 Open follow-ups, in order of value: (1) run on ARM hardware or a KVM ARM host, which separates "aarch64"
-from "emulated"; (2) port the interrupt source (§6); (3) more than one run per scenario; (4) decide, on
+from "emulated"; (2) rerun the interrupt scenarios on hardware, or find why the UART's interrupt does not reach a second
+listener and use the serial source as on x86; (3) calibrate interrupt thresholds from far more than six
+healthy traces, and try a median-based handler statistic; (4) more than one run per scenario; (5) decide, on
 data from a second batch, whether the lossy check needs a per-machine calibration.

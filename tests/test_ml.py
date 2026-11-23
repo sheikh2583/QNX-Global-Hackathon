@@ -277,3 +277,13 @@ def test_the_interrupt_number_is_a_plan_parameter():
             assert arm[scenario][arm[scenario].index("-i") + 1] == "33"
         else:
             assert "-i" not in arm[scenario] and arm[scenario] == default[scenario]
+
+
+def test_the_interrupt_load_is_a_plan_parameter_too():
+    default = {i["scenario"]: i["background"] for i in dataset.make_plan(1, seed=1)}
+    disk = {i["scenario"]: i["background"] for i in dataset.make_plan(1, seed=1, irq=79, irq_load="DISK-LOOP")}
+    for scenario, spec in dataset.SCENARIOS.items():
+        if spec.needs_irq:
+            assert default[scenario] == dataset.IRQ_BACKGROUND and disk[scenario] == "DISK-LOOP"
+        else:
+            assert default[scenario] is None and disk[scenario] is None
