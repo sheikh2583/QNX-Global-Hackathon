@@ -1,0 +1,36 @@
+# TraceLens configuration for the bug zoo on the *aarch64 emulated* guest (docs/results/aarch64.md).
+#
+# This is NOT a loosened copy of bugzoo/tracelens.toml for convenience: that file is calibrated for the
+# KVM-accelerated x86_64 guest every published number comes from and stays as it is. An aarch64 image
+# on an x86 host has no KVM, so QEMU interprets every instruction (TCG) and wake-ups land later.
+#
+# Only the three deadline budgets differ; every threshold is identical. Measured on the aarch64 guest
+# (data in docs/results/aarch64.md section 4): the reference fixes still miss 1-2 jobs in 200 (z4: 1 in
+# 800) by up to 0.84 ms (worst reference response 2.84 ms against a 2 ms budget; 5.12 ms against 4 ms),
+# with p99 release jitter 0.8-1.2 ms against ~0.7 ms on x86. Each budget below is that worst reference
+# response plus ~0.7 ms. The planted bugs miss by far more (p99 response 5.9-8.4 ms; one lossy z1
+# trace 17.8 ms), so the bug/fix separation does not depend on the budget.
+
+fail_on = "high"
+
+[thresholds]
+inversion_min_block_us = 1000
+inversion_min_interference_us = 500
+contention_min_share = 0.05
+contention_p99_wait_us = 1000
+contention_min_waits = 5
+irq_max_latency_us = 1000
+irq_max_handler_us = 500
+deadlock_min_blocked_us = 50000
+
+[deadlines.control]   # z1 infusion pump: dose computation every 10 ms (x86: 2000)
+budget_us = 3500
+period_us = 10000
+
+[deadlines.brake]     # z2 brake-by-wire: request round trip every 10 ms (x86: 2000)
+budget_us = 3500
+period_us = 10000
+
+[deadlines.frame]     # z4 camera pipeline: per-worker tile every 10 ms (x86: 4000)
+budget_us = 6000
+period_us = 10000

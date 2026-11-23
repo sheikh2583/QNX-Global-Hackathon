@@ -309,7 +309,7 @@ def _cmd_simulate(args: argparse.Namespace) -> int:
 def _cmd_data(args: argparse.Namespace) -> int:
     from .ml import dataset
     if args.data_cmd == "plan":
-        plan = dataset.make_plan(args.per_scenario, args.seed, args.scenario or None)
+        plan = dataset.make_plan(args.per_scenario, args.seed, args.scenario or None, irq=getattr(args, "irq", 4))
         dataset.write_jsonl(args.out, plan)
         by = {}
         for item in plan:
@@ -339,7 +339,7 @@ def _cmd_data(args: argparse.Namespace) -> int:
         return 0
     if args.data_cmd == "simulate":
         from .sim.dataset import generate
-        plan = dataset.make_plan(args.per_scenario, args.seed, args.scenario or None)
+        plan = dataset.make_plan(args.per_scenario, args.seed, args.scenario or None, irq=getattr(args, "irq", 4))
         rows = [r for r in generate(plan, args.out, args.config, plan_seed=args.seed, workers=args.workers,
                                     keep_traces=not args.no_traces) if r.get("status") == "ok"]
         by: dict[str, list[int]] = {}
@@ -352,7 +352,7 @@ def _cmd_data(args: argparse.Namespace) -> int:
         return 0
     from .ml.train import features_from_manifest
     n = features_from_manifest(args.data, args.out, load_config(args.config), workers=args.workers,
-                               config_path=args.config, resume=args.resume)
+                               config_path=args.config, resume=args.resume, include_lossy=args.include_lossy)
     print(f"wrote {n} feature rows to {args.out}")
     return 0
 
@@ -667,6 +667,9 @@ def build_parser() -> argparse.ArgumentParser:
     d1.add_argument("--per-scenario", type=int, default=150)
     d1.add_argument("--seed", type=int, default=7)
     d1.add_argument("--scenario", action="append", help="only these scenarios (repeatable)")
+    d1.add_argument("--irq", type=int, default=4,
+                    help="interrupt the interrupt scenarios attach to (default 4, COM1 on the x86 guest; "
+                         "the aarch64 virt machine's UART is 33)")
     d1.add_argument("--out", default="data/plan.jsonl")
     d2 = dps.add_parser("collect", help="run the plan on the QNX target (resumable; keep the host idle)")
     d2.add_argument("--plan", default="data/plan.jsonl")
@@ -693,6 +696,9 @@ def build_parser() -> argparse.ArgumentParser:
     d3.add_argument("--workers", type=int, default=0,
                     help="processes to parse traces in (default: one per CPU; 1 = no parallelism)")
     d3.add_argument("--resume", action="store_true", help="keep the rows already written and add the missing traces")
+    d3.add_argument("--include-lossy", action="store_true",
+                    help="also featurise traces the integrity check called lossy (rows are tagged); for "
+                         "comparing machines, never for training")
     for d in (d1, d2, d3, d4):
         d.set_defaults(func=_cmd_data)
 

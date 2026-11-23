@@ -219,3 +219,33 @@ def test_up_user_net_says_how_to_log_the_qemu_command_for_a_fresh_image(tmp_path
     q = QemuImage(str(tmp_path), dhcp_running=lambda: False, reachable=lambda where: False)
     with pytest.raises(RuntimeError, match="mkqnximage --run=-h"):
         q.up()
+
+
+def test_ssh_open_needs_a_banner_not_just_a_connection():
+    """QEMU's port forward accepts TCP before the guest has booted; only an sshd greets with SSH-."""
+    import socket
+    import threading
+
+    from tracelens.target.qemu import _ssh_open
+
+    def serve(payload, hold=0.0):
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+
+        def run():
+            conn, _ = srv.accept()
+            if payload:
+                conn.sendall(payload)
+            threading.Event().wait(hold)
+            conn.close()
+            srv.close()
+
+        threading.Thread(target=run, daemon=True).start()
+        return srv.getsockname()[1]
+
+    ssh_banner, http = b"SSH-2.0-OpenSSH_9.9\r\n", b"HTTP/1.1 400\r\n"
+    assert _ssh_open(f"127.0.0.1:{serve(ssh_banner)}")
+    assert not _ssh_open(f"127.0.0.1:{serve(b'', hold=1.0)}", timeout=0.3)  # forward with nothing behind it
+    assert not _ssh_open(f"127.0.0.1:{serve(http)}")
+    assert not _ssh_open("127.0.0.1:1")  # refused

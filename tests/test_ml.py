@@ -242,3 +242,38 @@ def test_rules_versus_radar_counts_what_the_learned_model_adds(radar):
     assert (c["both"], c["rules_only"], c["radar_only"], c["neither"]) == (1, 1, 1, 1)
     assert c["buggy"] == 4 and c["healthy"] == 1 and c["false_alarms"] == 0
     assert "**1**" in rules_vs_radar_markdown(c) and "find 2 of 4" in rules_vs_radar_markdown(c)
+
+
+def test_lossy_traces_are_featurised_only_on_request(tmp_path):
+    """Training must never see a trace the integrity check condemned; a cross-machine comparison must
+    be able to, or a machine whose clocks disagree by a few events drops out of the comparison whole."""
+    from tracelens.ml.train import features_from_manifest
+
+    (tmp_path / "traces").mkdir()
+    rows = []
+    for name, lossy in (("clean", False), ("slipped", True)):
+        shutil.copy(REAL / "z1_infusion_pump.txt.gz", tmp_path / "traces" / f"{name}.txt.gz")
+        rows.append({"id": name, "scenario": "healthy_periodic", "label": dataset.HEALTHY, "split": "train",
+                     "status": "ok", "lossy": lossy, "triggered": True, "trace": f"traces/{name}.txt.gz"})
+    dataset.write_jsonl(tmp_path / "manifest.jsonl", rows)
+    quiet = {"log": lambda s: None, "workers": 1}
+    features_from_manifest(tmp_path, tmp_path / "default.jsonl", Config(), **quiet)
+    features_from_manifest(tmp_path, tmp_path / "all.jsonl", Config(), include_lossy=True, **quiet)
+    default = dataset.read_jsonl(tmp_path / "default.jsonl")
+    everything = dataset.read_jsonl(tmp_path / "all.jsonl")
+    assert {r["id"] for r in default} == {"clean"} and not any(r["lossy"] for r in default)
+    assert {r["id"] for r in everything} == {"clean", "slipped"}
+    assert {r["id"]: r["lossy"] for r in everything} == {"clean": False, "slipped": True}
+
+
+def test_the_interrupt_number_is_a_plan_parameter():
+    """x86's COM1 is interrupt 4; the aarch64 virt machine's UART is 33, and attaching to 4 there waits
+    forever. Only the scenarios that drive an interrupt carry -i, and the default is unchanged."""
+    default = {i["scenario"]: i["args"] for i in dataset.make_plan(1, seed=1)}
+    arm = {i["scenario"]: i["args"] for i in dataset.make_plan(1, seed=1, irq=33)}
+    for scenario, spec in dataset.SCENARIOS.items():
+        if spec.needs_irq:
+            assert default[scenario][default[scenario].index("-i") + 1] == "4"
+            assert arm[scenario][arm[scenario].index("-i") + 1] == "33"
+        else:
+            assert "-i" not in arm[scenario] and arm[scenario] == default[scenario]

@@ -135,12 +135,19 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def _ssh_open(ip: str, timeout: float = 2.0) -> bool:
-    """Is ssh answering? ``ip`` may carry a port, as ``127.0.0.1:2222``."""
+def _ssh_open(ip: str, timeout: float = 5.0) -> bool:
+    """Is an ssh *server* answering? ``ip`` may carry a port, as ``127.0.0.1:2222``.
+
+    Connecting is not enough: on QEMU's own network the host-side port forward accepts the TCP
+    connection whether or not the guest has booted, so a bare connect reported a VM that was still
+    starting (aarch64 under emulation, minutes) as up. An sshd speaks first - its banner starts with
+    ``SSH-`` - and a forward with nothing behind it stays silent until the timeout.
+    """
     host, _, port = ip.partition(":")
     try:
-        with socket.create_connection((host, int(port or 22)), timeout=timeout):
-            return True
+        with socket.create_connection((host, int(port or 22)), timeout=timeout) as sock:
+            sock.settimeout(timeout)
+            return sock.recv(4) == b"SSH-"
     except OSError:
         return False
 
