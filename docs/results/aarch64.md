@@ -101,6 +101,40 @@ for real boards (i.MX, TI, Xilinx, Raspberry Pi) and all behind the same authent
 of which targets QEMU's `virt` machine; writing an aarch64 `virt` startup against `libstartup.a` is BSP
 work, not a hackathon session.
 
+### 3b. Update, later the same day: the first blocker is cleared, a second one is behind it
+
+The user logged in to QNX Software Center and `com.qnx.qnx800.target.qemuvirt` was installed through
+the GUI (`startup-qemu-virt`, 1.6 MB, now in `~/qnx800/target/qnx/aarch64le/boot/sys/`). After
+`mkqnximage --clean` the image **builds** (`output/ifs.bin` 9.8 MB) with one warning, and it **boots**:
+the QNX 8.0 aarch64 kernel (`procnto-smp-instr`) starts under TCG on `virt-4.2`/cortex-a57 with 4 CPUs,
+runs slogger2, PCI services and fsevmgr. It then stops:
+
+```
+Warning: Host file 'sbin/devb-virtio' missing.                       (at image build)
+/proc/boot/startup.sh[26]: devb-virtio: cannot execute - No such file or directory
+Unable to access /dev/hd0
+mount: Can't mount /boot, /system, /data (type qnx6)
+No system file system, giving up.
+```
+
+The aarch64 `virt` machine's disk is `virtio-blk`, and its driver is not in this SDP install. Without
+`/system` there is no sshd, no `tracelogger`, no workload: **the guest cannot be reached**
+(`tracelens target up` reported "VM answering ssh" because QEMU's port forward accepts TCP whether or
+not a guest is listening, and a real `ssh` then times out in the banner exchange — a false positive
+worth a follow-up in `_ssh_open`).
+
+The driver is in the account's repository as `com.qnx.qnx800.target.driver.virtio.devb`
+("Virtualization Drivers (Block)", 0.1.0), with `.devc`, `.startup` and the umbrella
+`com.qnx.qnx800.target.driver.virtio` beside it. All four resolve with `-verifyOnly`. They did not
+appear under "Available" in the GUI; the "All" tab has a group "Inaccessible: Insufficient
+Entitlements or Missing Click-through Agreements (147)" that probably holds them, which would mean a
+click-through agreement the user has to accept. **Not confirmed**: the WSLg session started failing
+(RDP error dialog, UI stuck at "Synchronizing 73%") before the group could be read.
+
+Next: restart WSLg (`wsl --shutdown`), reopen Software Center, find the four `driver.virtio*` packages
+(probably under "Inaccessible"), accept the agreement if that is what it asks for, install, then
+`mkqnximage --clean` again and `scripts/aarch64_pilot.sh --no-build`.
+
 ## 4. What was built so the run is one command
 
 Changes in this branch, all tested, all with the x86 defaults unchanged:
