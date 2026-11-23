@@ -70,3 +70,39 @@ def test_a_decoded_string_still_wins_over_the_payload():
     line = ('t:0x10 CPU:00 USREVENT        :EVENT:1            STR:"TL_META name=brake_ctrl prio=60", '
             "d0:0x4d5f4c54 d1:0x20415445")
     assert parse_text(line, cycles_per_sec=1_000_000_000).events[0].text == "TL_META name=brake_ctrl prio=60"
+
+
+# A quoted argument whose text contains newlines is printed across several lines. Found on a real
+# QNX 8.0 capture of a third-party program (rt-tests pi_stress) writing multi-line console output:
+# the `msg[0]:"` line opens the quote and the text runs on until a line closes it. Before this was
+# handled, every continuation line counted as unparsed and the event lost its tail.
+MULTILINE_STRING = """\
+ -- HEADER FILE INFORMATION --
+        CYCLES_PER_SEC:: 2000000000
+ -- KERNEL EVENTS --
+t:0x00000010 CPU:00 THREAD  :THRUNNING     pid:7 tid:2
+t:0x00000020 CPU:00 KER_EXIT:MSG_SENDV/11
+                    rcvid:0x00000003
+                   msg[0]:"
+Test Du" (0x7365540a 0x75442074 0x00000000)
+t:0x00000030 CPU:00 THREAD  :THREADY       pid:7 tid:2
+"""
+
+
+def test_a_quoted_argument_spanning_lines_is_not_counted_as_unparsed():
+    t = parse_text(MULTILINE_STRING)
+    assert t.unparsed_lines == 0
+    assert len(t.events) == 3
+    # The event after the multi-line string is still read as an event, not swallowed.
+    assert (t.events[2].cls, t.events[2].kind) == ("THREAD", "READY")
+    # ... and the string's tail is kept with the event that owns it.
+    assert "Test Du" in t.events[1].args["msg[0]"]
+    assert "Test Du" in t.events[1].raw
+
+
+def test_an_unclosed_quote_does_not_swallow_the_rest_of_the_trace():
+    # Same trace with the closing quote missing: the parser must not keep consuming lines
+    # forever, so the next event line is still an event.
+    text = MULTILINE_STRING.replace('Test Du" (0x7365540a', "Test Du (0x7365540a")
+    t = parse_text(text)
+    assert [(e.cls, e.kind) for e in t.events][-1] == ("THREAD", "READY")

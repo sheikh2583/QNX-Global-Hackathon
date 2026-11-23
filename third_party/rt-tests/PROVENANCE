@@ -1,0 +1,24 @@
+# Upstream provenance — every file under upstream/ is a byte-for-byte copy.
+#
+# repository : https://git.kernel.org/pub/scm/utils/rt-tests/rt-tests.git
+# commit     : 62da2befac98f811af8e56f2b7992fb09faa33d6
+# tag        : v2.11
+# commit date: 2026-09-16T16:15:32-04:00
+# fetched    : 2026-11-23T08:39:18Z (shallow clone)
+#
+# sha256                                                            path
+ab15fd526bd8dd18a9e77ebc139656bf4d33e97fc7238cd11bf60e2b9b8666c6  upstream/COPYING
+c3f240dc2b11407a9e2e9b6bfa200036b50b27b9dffb2aea511e4e7b2c8e7d5a  upstream/src/pi_tests/pi_stress.c
+0bd02a347bea1ab5f1e48e09c7c4c06df779eec36f02a0c4a19ea6af21ac4fc8  upstream/src/pi_tests/pi_stress.8
+84c0e8e3b066581658c00b149653e9e24232f6f3e669bd3f1addf59911ecf220  upstream/src/ptsematest/ptsematest.c
+ec5cf91417f7cde832e4cd53207e2158fd0ca398a879303376344d23b07d461c  upstream/src/ptsematest/ptsematest.8
+b4b266db6612ece02dfd43eb2921854a324e9a4dad26dd05b2a67b76fbe1e951  upstream/src/pmqtest/pmqtest.c
+86ea92d83e111cd28e4d4cce23124b53c5e50b2ad300ee256c51466d690dd290  upstream/src/pmqtest/pmqtest.8
+8f7a1490e68050d7f6f0b7f20e8de4197247895bbd6996aaaa5af2e079db75b4  upstream/src/lib/rt-utils.c
+64f9b77a9b9fa4f8aa6892c27be47333d6a954b15ae160ddca4061d6501b6a1f  upstream/src/lib/rt-error.c
+5438ec751a01af63269a0035ec2a7d0a3ad553de9507925e789328619853c610  upstream/src/lib/rt-sched.c
+8f8ccd7af4be6e378ead53c1ae76b29c5b6883300eeb87467940f451171385f5  upstream/src/include/pi_stress.h
+fe59e24c9908daccc80fdea438754c6ef25c6ffe0e9b10e71e938370518ca2a6  upstream/src/include/rt-utils.h
+c99fa325156026a21ec3ee7ceb9b5b376bc2277380f7e208b642b49166f8afac  upstream/src/include/rt-error.h
+0fc0c25ad875b84d1b3fbcc330a197b39f8d07f8aa6c4582db8be00daaf08d9f  upstream/src/include/rt-sched.h
+98c1ab5e789144dc033e3e94298ba99824fbd6000153364b7476312756f6f9b1  upstream/src/include/rt-get_cpu.h
