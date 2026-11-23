@@ -74,3 +74,48 @@ def markdown(radar_eval: dict, clf_eval: dict | None = None) -> str:
             fmt = lambda v: "-" if v is None else f"{v:.2f}"  # noqa: E731
             lines.append(f"| {c} | {fmt(m['precision'])} | {fmt(m['recall'])} | {m['support']} |")
     return "\n".join(lines) + "\n"
+
+
+def rules_vs_radar(rows: list[dict], radar: dict, manifest: dict[str, dict]) -> dict:
+    """What the learned radar adds to the rules, per held-out trace.
+
+    The only question that decides whether the learning phase was worth building: on traces the rules
+    report as clean, how often is the radar right, and how often does it cry wolf? ``manifest`` maps a
+    trace id to its collection row, whose ``rule_kinds`` are the kinds that fired at or above the gate.
+    """
+    per: dict[str, list] = defaultdict(list)
+    for r in rows:
+        if r["split"] != "train":
+            per[r["id"]].append((r["thread"], r["f"]))
+    out = {"buggy": 0, "rules_only": 0, "both": 0, "radar_only": 0, "neither": 0,
+           "healthy": 0, "false_alarms": 0}
+    for tid, pairs in per.items():
+        item = manifest.get(tid)
+        if item is None:
+            continue
+        ruled = bool(item.get("rule_kinds"))
+        flagged = any(thread_flagged(radar, u, n) for u, n in persistence(radar, pairs).values())
+        if item["label"] == HEALTHY:
+            out["healthy"] += 1
+            out["false_alarms"] += flagged
+            continue
+        out["buggy"] += 1
+        out["both" if ruled and flagged else "rules_only" if ruled
+            else "radar_only" if flagged else "neither"] += 1
+    return out
+
+
+def rules_vs_radar_markdown(c: dict) -> str:
+    union = c["rules_only"] + c["both"] + c["radar_only"]
+    return "\n".join([
+        "## What the radar adds to the rules", "",
+        f"On {c['buggy']} held-out buggy captures and {c['healthy']} healthy ones:", "",
+        "| | Traces |", "|---|---|",
+        f"| Caught by the rules, missed by the radar | {c['rules_only']} |",
+        f"| Caught by both | {c['both']} |",
+        f"| **Caught by the radar with no rule firing** | **{c['radar_only']}** |",
+        f"| Caught by neither | {c['neither']} |",
+        f"| False alarms on the healthy captures | **{c['false_alarms']}** |", "",
+        f"The rules alone find {c['rules_only'] + c['both']} of {c['buggy']}; with the radar, {union}. "
+        "A rule finding cites the kernel events that prove it, so on the families it knows the rule is "
+        "the better answer; the radar's contribution is the families no rule exists for.", ""])

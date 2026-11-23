@@ -220,3 +220,25 @@ def test_annotate_adds_numbered_medium_findings_and_survives_a_bad_model(radar, 
     b = analyze_file(REAL / "z1_infusion_pump.txt.gz", CFG)
     assert annotate(b, tmp_path / "junk.json") == [] and b.errors  # reported, not raised
     assert annotate(b, tmp_path / "missing.json") == []
+
+
+def test_rules_versus_radar_counts_what_the_learned_model_adds(radar):
+    """The table the README quotes: of the held-out buggy traces, how many the rules report, how many
+    only the radar does, and how often it cries wolf on healthy ones."""
+    from tracelens.ml.evaluate import rules_vs_radar, rules_vs_radar_markdown
+    hot = dict.fromkeys(FEATURES, 9.0)  # far from healthy in every feature
+    calm = dict.fromkeys(FEATURES, 0.0)
+    rows, manifest = [], {}
+    def trace(tid, label, kinds, f):
+        manifest[tid] = {"id": tid, "label": label, "rule_kinds": kinds}
+        rows.extend({"id": tid, "scenario": "x", "label": label, "split": "test", "thread": "t", "f": f}
+                    for _ in range(10))
+    trace("a", "priority_inversion", ["priority_inversion"], hot)   # both
+    trace("b", "priority_inversion", ["priority_inversion"], calm)  # rules only
+    trace("c", "mutex_abba", [], hot)                               # radar only: the point of it
+    trace("d", "mutex_abba", [], calm)                              # neither
+    trace("e", "healthy", [], calm)                                 # quiet
+    c = rules_vs_radar(rows, radar, manifest)
+    assert (c["both"], c["rules_only"], c["radar_only"], c["neither"]) == (1, 1, 1, 1)
+    assert c["buggy"] == 4 and c["healthy"] == 1 and c["false_alarms"] == 0
+    assert "**1**" in rules_vs_radar_markdown(c) and "find 2 of 4" in rules_vs_radar_markdown(c)

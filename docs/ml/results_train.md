@@ -36,3 +36,17 @@ False alarms on held-out healthy traces: **0 of 148**.
 | irq_handler_overrun | 1.00 | 1.00 | 10968 |
 | mutex_contention | 0.96 | 0.88 | 27005 |
 | priority_inversion | 1.00 | 1.00 | 18495 |
+
+## What the radar adds to the rules
+
+On 883 held-out buggy captures and 148 healthy ones:
+
+| | Traces |
+|---|---|
+| Caught by the rules, missed by the radar | 16 |
+| Caught by both | 384 |
+| **Caught by the radar with no rule firing** | **326** |
+| Caught by neither | 157 |
+| False alarms on the healthy captures | **0** |
+
+The rules alone find 400 of 883; with the radar, 726. A rule finding cites the kernel events that prove it, so on the families it knows the rule is the better answer; the radar's contribution is the families no rule exists for.

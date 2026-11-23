@@ -112,6 +112,12 @@ def main() -> int:
           + ("".join(f" --test-on {p}" for p in args.test_on)) + "`.", "",
           evaluate.markdown(evaluate.evaluate_radar(test_rows, radar),
                             evaluate.evaluate_classifier(test_rows, clf) if clf else None).strip(), ""]
+    manifest = {}
+    for d in (args.test_on or args.sim + args.real):
+        for row in read_jsonl(Path(d) / "manifest.jsonl"):
+            manifest[row["id"]] = row
+    if manifest:
+        md += [evaluate.rules_vs_radar_markdown(evaluate.rules_vs_radar(test_rows, radar, manifest)).strip(), ""]
     Path(args.report).write_text("\n".join(md), encoding="utf-8", newline="\n")
     print("\n".join(md))
     print(f"\nmodels in {out}/ ; report in {args.report}", file=sys.stderr)

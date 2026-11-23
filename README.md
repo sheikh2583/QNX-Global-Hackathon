@@ -104,7 +104,7 @@ QNX 8.0 target (QEMU x86_64)                        Host (Linux / WSL2)
 | **Send/Reply deadlock & chains** | A wait-for graph over QNX's synchronous message passing. Servers are resolved from COMM events (rcvid pairing), so connections made before the capture count. A process can only break a cycle if a thread is receiving **on the channel being called**. |
 | **Mutex contention** | An uncontended QNX mutex never enters the kernel, so every `MUTEX`-state interval is real contention. Locks inside procnto (kernel addresses) are reported at LOW: not yours to fix. |
 | **IRQ latency / handler overrun** | `InterruptAttachEvent()` → `InterruptWait()` → `InterruptUnmask()`: the interrupt stays masked while the handler thread works. Shared vectors keep all their handlers. |
-| **Unusual behaviour** (learned) | Trained on healthy QNX traces only, per thread and 20 ms window: 19 features of scheduling behaviour, no names or absolute priorities, so it cannot memorise a program. Reported MEDIUM, never gates a build and never gets an automatic patch. It also names the closest labelled pattern it has seen, and how loose that match is. |
+| **Unusual behaviour** (learned) | Trained on healthy QNX traces only, per thread and 20 ms window: 19 features of scheduling behaviour, no names or absolute priorities, so it cannot memorise a program. On held-out real captures it flags 326 buggy traces that no rule reports, with 0 false alarms on 148 healthy ones. Reported MEDIUM, never gates a build and never gets an automatic patch. It also names the closest labelled pattern it has seen, and how loose that match is. |
 | **Deadline misses** | Measured from the job's **release** (fitted period grid or `TL_RELEASE` marker), with a breakdown of every late job: late wake-up, waiting for the CPU, blocked, running. A late wake-up while nothing of equal or higher priority held the CPU is platform timer latency, not the program. |
 
 ## How it fixes
@@ -239,17 +239,38 @@ Each of these was found on real traces, fixed, and pinned by a regression test:
 ### Learning from traces, when no rule exists
 
 Rules cannot find what nobody wrote a rule for. TraceLens also learns what healthy QNX scheduling looks
-like, from labelled traces its own simulator generates (1,920 runs across 16 scenarios), and reports threads that do not fit:
+like and reports threads that do not fit. The training data is **1,920 real QNX 8.0 captures** (one
+night on the target) plus 1,920 from its own simulator: 16 scenarios, four of which no rule can see.
 
-| | |
+**What the learned radar adds, on held-out real traces it never trained on:**
+
+| On 883 held-out buggy captures | |
 |---|---|
-| **Held-out simulated traces** | false alarms on **1 of 158** healthy traces; the bug families with no rule at all are caught 100% of the time for a lost wake-up, a lock-order deadlock and a period overrun, and **never** for a starved low-priority job: starvation and healthy deferred work look the same from behaviour alone, which is what declared deadlines are for |
-| **Real QNX 8.0 captures, never used for training** | the radar flags **all five** buggy builds on the thread that suffers and stays quiet on all five reference fixes and three healthy system traces; the classifier names the right cause for Z1, Z2 and Z4 and calls the rest healthy (the rules catch Z3 and Z5) |
-| **A clean held-out test**: 16 real captures made *after* the models were frozen, one per scenario | every planted problem reproduced on the target (16/16, none lossy) and every rule fired on the family it belongs to; the radar flagged **8 of 10** buggy traces on the thread that suffers with **0 false alarms** on the 6 healthy ones ([results_real.md](docs/ml/results_real.md)) |
+| Caught by the rules, missed by the radar | 16 |
+| Caught by both | 384 |
+| **Caught by the radar with no rule firing** | **326** |
+| Caught by neither | 157 |
+| False alarms on the 148 held-out **healthy** captures | **0** |
+
+The rules alone find 400 of 883; with the radar, 726. Those 326 extra are almost all the four bug
+families **no rule exists for**: a lost wake-up and a period overrun caught **100%** of the time, a
+lock-order deadlock **84%**, and a starved low-priority job **never** — starvation and healthy
+deferred work are the same behaviour unless a deadline is declared, which is what the deadline rule
+is for. On the families that do have rules, the rules remain better: they cite the kernel events
+that prove the bug, where the radar only says "unlike anything healthy".
+
+Two things worth saying plainly. The simulated traces are not filler: trained on the real captures
+alone, the radar gives 2 false alarms on those 148 healthy traces, and 0 once the simulated ones join
+training — breadth of healthy behaviour is what they buy. And the four rule-less families were
+written by us: withholding them from training is an honest experiment, but it is not proof that the
+radar will catch an unknown bug in someone else's program. The defensible claim is the measured one —
+trained only on healthy behaviour, it flags bug classes it was never shown, on real hardware, without
+crying wolf. Details: [results_train.md](docs/ml/results_train.md), [results_real.md](docs/ml/results_real.md).
 
 The protocol was fixed before the data existed, the held-out families are never trained on, and every
-number here comes from one recorded run of `python scripts/sim_experiment.py`
-([docs/ml/results_sim.md](docs/ml/results_sim.md), method in [docs/ml/DESIGN.md](docs/ml/DESIGN.md)).
+number here comes from a recorded run — `python scripts/train_eval.py --sim data/sim --real data/real
+--test-on data/real` for the table above, `scripts/sim_experiment.py` for the simulated-only ones
+([docs/ml/](docs/ml/), method in [docs/ml/DESIGN.md](docs/ml/DESIGN.md)).
 
 ## Evidence of QNX use
 

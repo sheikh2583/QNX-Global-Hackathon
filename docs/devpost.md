@@ -38,14 +38,20 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
   - Z4 camera pipeline: contention 5/5 → 0/5; frame p99 7.45 → 2.99 ms (budget 4 ms).
   - Z5 motor encoder: p99 time with the interrupt masked 2.41 → 0.24 ms; p99 interrupt response 2.08 → 0.57 ms.
 - **Detection** (held-out run, 10 captures per build): every planted bug caught in **10 of 10** runs, every hand-written reference fix clean in **10 of 10**, healthy system programs **0 findings in 30 runs**.
-- **Learned radar**, trained only on simulated healthy traces and never on a real one: on held-out
-  simulated data it gives false alarms on **1 of 158** healthy traces and catches three of the four bug
-  families that have no rule at all **100%** of the time (it cannot see the fourth, a starved
-  low-priority job, which looks exactly like healthy deferred work unless a deadline is declared). On
-  the real captures it flags **all five** buggy builds on the thread that suffers, and stays quiet on
-  all five reference fixes and three healthy system traces. In a clean held-out test, 16 real captures
-  made *after* the models were frozen, every planted problem reproduced on the target and the radar
-  flagged **8 of 10** buggy traces with **0 false alarms** on the 6 healthy ones.
+- **Learned radar**, trained on healthy behaviour only, from **1,920 real QNX 8.0 captures** collected
+  in one night on the target plus 1,920 simulated. On held-out real captures it flags **326 buggy
+  traces that no rule reports at all**, with **0 false alarms on 148 healthy ones**. The rules alone
+  catch 400 of the 883 held-out buggy captures; with the radar, 726. The extra 326 are almost entirely
+  the four bug families **no rule exists for**: a lost wake-up and a period overrun **100%** of the
+  time, a lock-order deadlock **84%**, and a starved low-priority job never — that one is the same
+  behaviour as healthy deferred work unless a deadline is declared.
+- **The simulator is measurably worth having**: trained on the real captures alone the radar gives 2
+  false alarms on those 148 healthy traces, and 0 once the simulated traces join training.
+- **Said plainly**: on the five bug classes that have rules, the rules are better — they cite the
+  kernel events that prove it. And the four rule-less families were written by us, so withholding them
+  from training is an honest experiment, not proof the radar will catch an unknown bug in a stranger's
+  code. What is measured is this: trained only on healthy behaviour, it flags bug classes it was never
+  shown, on real hardware, without crying wolf.
 
 ## How we built it
 
