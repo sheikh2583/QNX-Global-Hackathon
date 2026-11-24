@@ -1,0 +1,5 @@
+TraceLens 0.1.0.dev0 | before/after over 5 + 5 clean runs
+  deadline 'task_p3': p99 604.01 -> 701.98 ms (budget 1200.00 ms; misses 0 -> 0); within budget
+  - no finding kind is present in most 'before' runs: nothing to verify
+  - the 'before' runs show no problem, so there is nothing to verify (this is what a noise-floor run of one build against itself should say)
+  VERDICT: INCONCLUSIVE

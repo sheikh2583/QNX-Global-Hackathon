@@ -1,0 +1,5 @@
+TraceLens 0.1.0.dev0 | before/after over 5 + 5 clean runs
+  priority_inversion     before 100% of runs  ->  after 100%
+  deadline 'task_p3': p99 1102.99 -> 1004.33 ms (budget 1200.00 ms; misses 0 -> 0); within budget
+  - priority_inversion still present in 100% of 'after' runs
+  VERDICT: NOT FIXED

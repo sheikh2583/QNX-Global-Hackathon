@@ -1,0 +1,3 @@
+# Upstream carries no licence: never commit the fetched file (run ./fetch.sh to get it).
+ttk4147_inversion/*.c
+out/

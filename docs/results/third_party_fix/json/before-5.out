@@ -1,0 +1,12 @@
+TraceLens 0.1.0.dev0 | docs/results/third_party_fix/confirmation/before/before-5.txt
+  thread snapshot: docs/results/third_party_fix/confirmation/before/before-5.pidin.txt
+  17,291 events, 154 threads, 4000.0 ms traced
+
+  [CRITICAL] TL-001 Priority inversion: task_p3 waited on task_p1 via a semaphore
+      task_p3 (prio 3) was blocked 500.81 ms on a semaphore (0x0000003214bc5028) released by task_p1 (prio 1); for 398.09 ms of that, task_p1 was ready but task_p2 (prio 2), proc_pool_thread (prio 21) held its CPU. Seen 1x.
+  [MEDIUM] TL-002 Unusual behaviour in task_p3
+      task_p3 (prio 3) behaved unlike healthy QNX programs in 26 of its 37 time windows; the most unusual stretch lasted 520 ms. It stands out in: time blocked on a semaphore (higher than healthy), time blocked while a lower-priority thread held its CPU (higher than healthy), longest single block (higher than healthy). The closest pattern TraceLens has seen is priority inversion through a semaphore used as a lock, but only loosely (distance 9.47 against 1.062 typical for it): treat this as behaviour of its own.
+  [MEDIUM] TL-003 Unusual behaviour in task_p1
+      task_p1 (prio 1) behaved unlike healthy QNX programs in 37 of its 46 time windows; the most unusual stretch lasted 520 ms. It stands out in: longest wait for a CPU (higher than healthy), time waiting for a CPU (higher than healthy), time asleep (lower than healthy). The closest pattern TraceLens has seen is an interrupt handler working with its line still masked (distance 0.15, inside the 0.705 typical for that pattern).
+
+  3 findings, 1 at or above 'high'

@@ -1,0 +1,17 @@
+# TraceLens configuration for the NTNU TTK4147 priority-inversion exercise on QNX 8.0.
+#
+# Everything not listed here is a TraceLens default: no detector threshold is changed for this
+# program. The one thing declared is a deadline for the high-priority thread's job.
+#
+# The shim (qnx/include/pthread.h) reports each thread's whole run as one job named after its SCHED
+# priority, because upstream emits no markers. task_p3 is upstream's high-priority thread.
+#
+# Budget 1.2 s. Where it comes from, using only the program's own constants (upstream
+# UnboundedPriorityInversion.c): with a priority-inheriting lock the high thread's job is
+#     start-up barrier (~0.1 s) + its own usleep (0.2 s) + the low thread's remaining critical
+#     section (at most 0.3 s) + its own work (0.2 s)            = about 0.8 s,
+# plus 50 % for the VM. Without inheritance the job also contains the medium thread's whole 0.5 s
+# burst. The budget was fixed after a first smoke run of the unmodified program and before any
+# before/after comparison (docs/results/third_party_fix/README.md says so).
+[deadlines.task_p3]
+budget_us = 1200000

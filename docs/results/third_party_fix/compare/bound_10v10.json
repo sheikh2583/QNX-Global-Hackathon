@@ -1,0 +1,33 @@
+{
+  "verdict": "VERIFIED",
+  "reasons": [],
+  "runs": {
+    "before": 10,
+    "after": 10,
+    "lossy_skipped": 0
+  },
+  "targets": {
+    "deadline_miss": {
+      "before_rate": 1.0,
+      "after_rate": 0.0
+    },
+    "priority_inversion": {
+      "before_rate": 1.0,
+      "after_rate": 0.0
+    }
+  },
+  "new_kinds": [],
+  "deadlines": [
+    {
+      "name": "task_p3",
+      "budget_ns": 800000000,
+      "before_p99": 1102989877,
+      "after_p99": 701975517,
+      "before_misses": 10,
+      "after_misses": 0,
+      "p_value": 5.412544112234515e-06,
+      "ok": true,
+      "reason": "significantly faster (p=5.4e-06)"
+    }
+  ]
+}

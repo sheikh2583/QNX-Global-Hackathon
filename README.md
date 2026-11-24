@@ -228,6 +228,8 @@ without priority inheritance and in none of 6 runs with it**. Real third-party t
 parser bug (a quoted message spanning lines), now fixed with regression tests, which changes no ML feature
 row. Details and limits: [docs/results/third_party/](docs/results/third_party/README.md).
 
+**A real fix on code we did not write.** `UnboundedPriorityInversion.c` is a teaching program from NTNU's real-time course TTK4147 (three `SCHED_RR` threads and a global semaphore used as a lock; the course's own README names the problem). Unedited apart from a header-level port layer, built with `qcc` and run on QNX 8.0 in QEMU, TraceLens reported a CRITICAL priority inversion in **10 of 10** captures, applied its automatic semaphore-to-priority-inheriting-mutex fix in one round, and the fix was **VERIFIED**: the inversion gone in 10 of 10 captures, the high-priority job's p99 down from 1,103 ms to 702 ms (one-sided Mann-Whitney p = 5.4e-06, config frozen before the confirmation run). It is a teaching exercise, not production code, and the upstream repository states no licence, so the file is fetched by hash, not copied. Details and limits: [docs/results/third_party_fix/](docs/results/third_party_fix/README.md).
+
 **Not tied to x86.** The same workload suite cross-compiles for QNX 8.0 `aarch64le` with no source change.
 On an **emulated** aarch64 guest (QEMU `virt`, cortex-a57, 4 CPUs; an x86 host has no KVM for ARM, so this
 is emulated timing, not ARM hardware) 65 captures over 13 scenarios show the same rules firing on the same

@@ -1,0 +1,354 @@
+{
+  "tool": "tracelens",
+  "version": "0.1.0.dev0",
+  "trace": {
+    "source": "docs/results/third_party_fix/confirmation/round-1/after/after-8.txt",
+    "events": 17367,
+    "duration_ms": 4000.096,
+    "cycles_per_sec": 2419815204,
+    "threads": 155,
+    "unparsed_lines": 0
+  },
+  "summary": {
+    "critical": 0,
+    "high": 0,
+    "medium": 3,
+    "low": 0
+  },
+  "findings": [
+    {
+      "kind": "unusual_behavior",
+      "severity": "medium",
+      "title": "Unusual behaviour in task_p3",
+      "summary": "task_p3 (prio 3) behaved unlike healthy QNX programs in 6 of its 18 time windows; the most unusual stretch lasted 120 ms. It stands out in: time blocked on a mutex (higher than healthy), longest single block (higher than healthy), time asleep (lower than healthy). The closest pattern TraceLens has seen is many threads serialised on one mutex, but only loosely (distance 3.78 against 1.716 typical for it): treat this as behaviour of its own.",
+      "t_start": 1300000000,
+      "t_end": 1420000000,
+      "threads": [
+        "task_p3"
+      ],
+      "evidence": [
+        6427,
+        7053,
+        7055,
+        7061,
+        7366,
+        7370,
+        7378,
+        7381
+      ],
+      "metrics": {
+        "source": "radar",
+        "score": 28.4,
+        "threshold": 3.46,
+        "unusual_windows": 6,
+        "like": "lock_contention",
+        "like_label": "mutex_contention",
+        "like_distance": 3.78,
+        "like_radius": 1.716,
+        "like_within": false,
+        "z_share_mutex": 50.0,
+        "z_max_block_frac": 32.2,
+        "z_share_sleep": -3.0
+      },
+      "qnx_note": "Learned from healthy QNX 8.0 traces: this thread behaved unlike any healthy run in the features listed. It is not a proven bug and gets no automatic fix: look at the timeline around it. Any resemblance to a known pattern is measured against labelled example windows, never a rule that fired.",
+      "id": "TL-001",
+      "evidence_events": [
+        {
+          "id": 6427,
+          "t_ms": 1103.058117,
+          "cpu": 1,
+          "line": 15192,
+          "pid": 53026838,
+          "tid": 4,
+          "raw": "t:0xfea6a71a04da CPU:01 THREAD          :THNANOSLEEP        pid:53026838 tid:4 priority:3 policy:2"
+        },
+        {
+          "id": 7053,
+          "t_ms": 1303.397794,
+          "cpu": 1,
+          "line": 16088,
+          "pid": 53026838,
+          "tid": 4,
+          "raw": "t:0xfea6c3ff4040 CPU:01 THREAD          :THREADY            pid:53026838 tid:4 priority:3 policy:2"
+        },
+        {
+          "id": 7055,
+          "t_ms": 1303.4016,
+          "cpu": 1,
+          "line": 16090,
+          "pid": 53026838,
+          "tid": 4,
+          "raw": "t:0xfea6c3ff643a CPU:01 THREAD          :THRUNNING          pid:53026838 tid:4 priority:3 policy:2"
+        },
+        {
+          "id": 7061,
+          "t_ms": 1303.447599,
+          "cpu": 1,
+          "line": 16111,
+          "pid": 53026838,
+          "tid": 4,
+          "raw": "t:0xfea6c4011705 CPU:01 THREAD          :THMUTEX            pid:53026838 tid:4 priority:3 policy:2"
+        },
+        {
+          "id": 7366,
+          "t_ms": 1403.571479,
+          "cpu": 1,
+          "line": 16551,
+          "pid": 53026838,
+          "tid": 4,
+          "raw": "t:0xfea6d272024d CPU:01 THREAD          :THREADY            pid:53026838 tid:4 priority:3 policy:2"
+        },
+        {
+          "id": 7370,
+          "t_ms": 1403.572005,
+          "cpu": 1,
+          "line": 16555,
+          "pid": 53026838,
+          "tid": 4,
+          "raw": "t:0xfea6d2720745 CPU:01 THREAD          :THRUNNING          pid:53026838 tid:4 priority:3 policy:2"
+        },
+        {
+          "id": 7378,
+          "t_ms": 1407.336226,
+          "cpu": 1,
+          "line": 16581,
+          "pid": 53026838,
+          "tid": 4,
+          "raw": "t:0xfea6d2fd0436 CPU:01 THREAD          :THREADY            pid:53026838 tid:4 priority:3 policy:2"
+        },
+        {
+          "id": 7381,
+          "t_ms": 1407.35297,
+          "cpu": 1,
+          "line": 16584,
+          "pid": 53026838,
+          "tid": 4,
+          "raw": "t:0xfea6d2fda27b CPU:01 THREAD          :THRUNNING          pid:53026838 tid:4 priority:3 policy:2"
+        }
+      ]
+    },
+    {
+      "kind": "unusual_behavior",
+      "severity": "medium",
+      "title": "Unusual behaviour in task_p1",
+      "summary": "task_p1 (prio 1) behaved unlike healthy QNX programs in 37 of its 46 time windows; the most unusual stretch lasted 120 ms. It stands out in: longest wait for a CPU (higher than healthy), time waiting for a CPU (higher than healthy), time asleep (lower than healthy). The closest pattern TraceLens has seen is an interrupt handler working with its line still masked (distance 0.15, inside the 0.705 typical for that pattern).",
+      "t_start": 1200000000,
+      "t_end": 1320000000,
+      "threads": [
+        "task_p1"
+      ],
+      "evidence": [
+        6775,
+        6778,
+        6781,
+        6782,
+        6783,
+        6788,
+        7060,
+        7062
+      ],
+      "metrics": {
+        "source": "radar",
+        "score": 5.52,
+        "threshold": 3.46,
+        "unusual_windows": 37,
+        "like": "irq_overrun",
+        "like_label": "irq_handler_overrun",
+        "like_distance": 0.15,
+        "like_radius": 0.705,
+        "like_within": true,
+        "z_max_ready_frac": 8.1,
+        "z_share_ready": 5.4,
+        "z_share_sleep": -3.0
+      },
+      "qnx_note": "Learned from healthy QNX 8.0 traces: this thread behaved unlike any healthy run in the features listed. It is not a proven bug and gets no automatic fix: look at the timeline around it. Any resemblance to a known pattern is measured against labelled example windows, never a rule that fired.",
+      "id": "TL-002",
+      "evidence_events": [
+        {
+          "id": 6775,
+          "t_ms": 1199.174199,
+          "cpu": 1,
+          "line": 15729,
+          "pid": 53026838,
+          "tid": 2,
+          "raw": "t:0xfea6b4f6f4ce CPU:01 THREAD          :THRUNNING          pid:53026838 tid:2 priority:1 policy:2"
+        },
+        {
+          "id": 6778,
+          "t_ms": 1203.174607,
+          "cpu": 1,
+          "line": 15732,
+          "pid": 53026838,
+          "tid": 2,
+          "raw": "t:0xfea6b58aaa48 CPU:01 THREAD          :THREADY            pid:53026838 tid:2 priority:1 policy:2"
+        },
+        {
+          "id": 6781,
+          "t_ms": 1203.191868,
+          "cpu": 1,
+          "line": 15735,
+          "pid": 53026838,
+          "tid": 2,
+          "raw": "t:0xfea6b58b4d6f CPU:01 THREAD          :THRUNNING          pid:53026838 tid:2 priority:1 policy:2"
+        },
+        {
+          "id": 6782,
+          "t_ms": 1203.191976,
+          "cpu": 1,
+          "line": 15736,
+          "pid": 53026838,
+          "tid": 2,
+          "raw": "t:0xfea6b58b4e74 CPU:01 THREAD          :THREADY            pid:53026838 tid:2 priority:1 policy:2"
+        },
+        {
+          "id": 6783,
+          "t_ms": 1203.192037,
+          "cpu": 1,
+          "line": 15737,
+          "pid": 53026838,
+          "tid": 2,
+          "raw": "t:0xfea6b58b4f08 CPU:01 THREAD          :THRUNNING          pid:53026838 tid:2 priority:1 policy:2"
+        },
+        {
+          "id": 6788,
+          "t_ms": 1203.384399,
+          "cpu": 1,
+          "line": 15751,
+          "pid": 53026838,
+          "tid": 2,
+          "raw": "t:0xfea6b5926951 CPU:01 THREAD          :THREADY            pid:53026838 tid:2 priority:1 policy:2"
+        },
+        {
+          "id": 7060,
+          "t_ms": 1303.447315,
+          "cpu": 1,
+          "line": 16110,
+          "pid": 53026838,
+          "tid": 2,
+          "raw": "t:0xfea6c4011456 CPU:01 THREAD          :THREADY            pid:53026838 tid:2 priority:3 policy:2"
+        },
+        {
+          "id": 7062,
+          "t_ms": 1303.447666,
+          "cpu": 1,
+          "line": 16112,
+          "pid": 53026838,
+          "tid": 2,
+          "raw": "t:0xfea6c40117a9 CPU:01 THREAD          :THRUNNING          pid:53026838 tid:2 priority:3 policy:2"
+        }
+      ]
+    },
+    {
+      "kind": "unusual_behavior",
+      "severity": "medium",
+      "title": "Unusual behaviour in task_p2",
+      "summary": "task_p2 (prio 2) behaved unlike healthy QNX programs in 16 of its 42 time windows; the most unusual stretch lasted 320 ms. It stands out in: longest wait for a CPU (higher than healthy), time waiting for a CPU (higher than healthy), time asleep (lower than healthy). The closest pattern TraceLens has seen is an interrupt handler working with its line still masked (distance 0.05, inside the 0.705 typical for that pattern).",
+      "t_start": 1300000000,
+      "t_end": 1620000000,
+      "threads": [
+        "task_p2"
+      ],
+      "evidence": [
+        7033,
+        7042,
+        7045,
+        7046,
+        7047,
+        7050,
+        9419,
+        9430
+      ],
+      "metrics": {
+        "source": "radar",
+        "score": 5.52,
+        "threshold": 3.46,
+        "unusual_windows": 16,
+        "like": "irq_overrun",
+        "like_label": "irq_handler_overrun",
+        "like_distance": 0.05,
+        "like_radius": 0.705,
+        "like_within": true,
+        "z_max_ready_frac": 8.1,
+        "z_share_ready": 5.4,
+        "z_share_sleep": -3.0
+      },
+      "qnx_note": "Learned from healthy QNX 8.0 traces: this thread behaved unlike any healthy run in the features listed. It is not a proven bug and gets no automatic fix: look at the timeline around it. Any resemblance to a known pattern is measured against labelled example windows, never a rule that fired.",
+      "id": "TL-003",
+      "evidence_events": [
+        {
+          "id": 7033,
+          "t_ms": 1299.391635,
+          "cpu": 1,
+          "line": 16068,
+          "pid": 53026838,
+          "tid": 3,
+          "raw": "t:0xfea6c36b546a CPU:01 THREAD          :THRUNNING          pid:53026838 tid:3 priority:2 policy:2"
+        },
+        {
+          "id": 7042,
+          "t_ms": 1303.328261,
+          "cpu": 1,
+          "line": 16077,
+          "pid": 53026838,
+          "tid": 3,
+          "raw": "t:0xfea6c3fcaeff CPU:01 THREAD          :THREADY            pid:53026838 tid:3 priority:2 policy:2"
+        },
+        {
+          "id": 7045,
+          "t_ms": 1303.345559,
+          "cpu": 1,
+          "line": 16080,
+          "pid": 53026838,
+          "tid": 3,
+          "raw": "t:0xfea6c3fd5281 CPU:01 THREAD          :THRUNNING          pid:53026838 tid:3 priority:2 policy:2"
+        },
+        {
+          "id": 7046,
+          "t_ms": 1303.345675,
+          "cpu": 1,
+          "line": 16081,
+          "pid": 53026838,
+          "tid": 3,
+          "raw": "t:0xfea6c3fd5398 CPU:01 THREAD          :THREADY            pid:53026838 tid:3 priority:2 policy:2"
+        },
+        {
+          "id": 7047,
+          "t_ms": 1303.345736,
+          "cpu": 1,
+          "line": 16082,
+          "pid": 53026838,
+          "tid": 3,
+          "raw": "t:0xfea6c3fd542c CPU:01 THREAD          :THRUNNING          pid:53026838 tid:3 priority:2 policy:2"
+        },
+        {
+          "id": 7050,
+          "t_ms": 1303.384145,
+          "cpu": 1,
+          "line": 16085,
+          "pid": 53026838,
+          "tid": 3,
+          "raw": "t:0xfea6c3febf3b CPU:01 THREAD          :THREADY            pid:53026838 tid:3 priority:2 policy:2"
+        },
+        {
+          "id": 9419,
+          "t_ms": 1604.026733,
+          "cpu": 1,
+          "line": 21457,
+          "pid": 53026838,
+          "tid": 3,
+          "raw": "t:0xfea6ef5b822c CPU:01 THREAD          :THRUNNING          pid:53026838 tid:3 priority:2 policy:2"
+        },
+        {
+          "id": 9430,
+          "t_ms": 1607.17715,
+          "cpu": 1,
+          "line": 21477,
+          "pid": 53026838,
+          "tid": 3,
+          "raw": "t:0xfea6efcfd52f CPU:01 THREAD          :THREADY            pid:53026838 tid:3 priority:2 policy:2"
+        }
+      ]
+    }
+  ],
+  "errors": []
+}

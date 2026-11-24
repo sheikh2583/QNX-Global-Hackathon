@@ -1,0 +1,145 @@
+<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>TraceLens fix: ttk4147_inversion</title><style>
+:root{--bg:#f7f7f5;--card:#fff;--fg:#1d1d1b;--muted:#6b6b66;--line:#e3e2dd;
+--run:#2f9e44;--ready:#f2b33d;--block:#e03131;--ipc:#7048e8;--intr:#1c7ed6;
+--crit:#c92a2a;--high:#e8590c;--med:#f08c00;--low:#868e96;--band:rgba(224,49,49,.10)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#141413;--card:#1e1e1c;
+--fg:#ecebe6;--muted:#a3a29b;--line:#33332f;--band:rgba(255,107,107,.14)}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
+font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:32px 0 12px}
+.muted{color:var(--muted)}.stats{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:120px}
+.stat b{display:block;font-size:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:12px 0}
+.card h3{margin:0 0 6px;font-size:16px}.badge{display:inline-block;border-radius:6px;padding:1px 8px;
+font-size:12px;font-weight:600;color:#fff;margin-right:8px;text-transform:uppercase;letter-spacing:.03em}
+.sev-crit{background:var(--crit)}.sev-high{background:var(--high)}.sev-med{background:var(--med)}.sev-low{background:var(--low)}
+.qnx{border-left:3px solid var(--intr);padding:6px 12px;margin:10px 0;color:var(--muted)}
+table{border-collapse:collapse;font-size:13px;margin:8px 0}td{padding:2px 14px 2px 0;vertical-align:top}
+details{margin-top:8px}summary{cursor:pointer;color:var(--muted)}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;overflow-x:auto;font-size:12px}
+.tl{width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px}
+.tl text{fill:var(--fg);font-size:11px}.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.cite{font:12px ui-monospace,Consolas,monospace;color:var(--intr);text-decoration:none;white-space:nowrap}
+.tag{font-size:12px;border-radius:6px;padding:1px 7px;margin-left:6px;border:1px solid var(--line)}
+.tag.ok2{color:var(--run)}.tag.bad{color:var(--crit)}
+.warnbox{border:1px solid var(--crit);border-radius:10px;padding:10px 14px;margin:12px 0}
+.warnbox b{color:var(--crit)}.notebox{border:1px solid var(--line);border-radius:10px;padding:8px 14px;margin:12px 0;font-size:13px}
+.ok{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;color:var(--run);font-weight:600}
+
+.verdict{display:inline-block;padding:4px 12px;border-radius:999px;font-weight:700;margin-left:8px}
+.v-ok{background:rgba(47,158,68,.15);color:var(--run)}.v-bad{background:rgba(224,49,49,.14);color:var(--block)}
+.v-guide{background:rgba(28,126,214,.14);color:var(--intr)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:14px 0}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.kpi b{display:block;font-size:20px}.kpi .arrow{color:var(--muted)}.kpi small{color:var(--muted)}
+.pair{display:grid;grid-template-columns:minmax(0,1fr);gap:6px}.pair h3{margin:10px 0 4px}
+pre.diff{font-size:12px;overflow:auto;background:var(--card);border:1px solid var(--line);
+border-radius:10px;padding:10px}
+.add{color:var(--run)}.del{color:var(--block)}.hunk{color:var(--intr)}
+.rem{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:10px 0}
+.rem code{font-size:12px}.tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;
+border:1px solid var(--line);margin-left:6px;color:var(--muted)}
+</style></head><body><main>
+<h1>ttk4147_inversion<span class="verdict v-ok">VERIFIED</span></h1>
+<div class=muted>Found in the trace, fixed in the source, proven on QNX: 10 runs before, 10 after, 1 round. The patch is written by fixed rules, not a model. TraceLens 0.1.0.</div>
+<div class=kpis><div class=kpi><small>priority inversion: runs with the finding</small><b>100% <span class=arrow>→</span> 0%</b></div><div class=kpi><small>'task_p3' p99 response (budget 1200.0 ms)</small><b>1102.99 <span class=arrow>→</span> 701.98 ms</b><small>misses 0 → 0; within budget</small></div></div>
+<h2>What TraceLens changed, and why</h2>
+<div class=rem><b>Replace semaphore &#x27;sem&#x27; (used as a lock) with a priority-inheriting mutex</b><span class=tag>automatic</span><span class=tag>rule semaphore-as-lock</span><span class=tag>round 1</span><p>A POSIX semaphore has no owner, so the QNX kernel cannot raise the priority of the thread that holds it: a medium-priority thread preempts the holder and the high-priority waiter waits for both. A pthread mutex has an owner; with PTHREAD_PRIO_INHERIT (the QNX default) the holder runs at the waiter&#x27;s priority until it unlocks.</p><div class=muted>Source locations</div><ul><li><code>UnboundedPriorityInversion.c:118</code> <code>sem_wait(&amp;sem);</code></li><li><code>UnboundedPriorityInversion.c:125</code> <code>sem_post(&amp;sem);</code></li><li><code>UnboundedPriorityInversion.c:161</code> <code>sem_wait(&amp;sem);</code></li><li><code>UnboundedPriorityInversion.c:170</code> <code>sem_post(&amp;sem);</code></li></ul></div>
+<h2>The workload's threads, before and after</h2>
+<div class=legend><span><i style="background:var(--run)"></i>running</span><span><i style="background:var(--ready)"></i>ready (preempted)</span><span><i style="background:var(--block)"></i>blocked on sync</span><span><i style="background:var(--ipc)"></i>send/reply blocked</span><span><i style="background:var(--intr)"></i>waiting for interrupt</span><span><i style="background:var(--band)"></i>finding</span></div>
+<div class=pair><h3>Before the fix <span class=muted>(before-0.txt, 25 ms from the middle of the run)</span></h3><svg class="tl" viewBox="0 0 960 118" role="img" aria-label="Thread timeline"><rect x="170.0" y="0" width="780.0" height="118" fill="var(--band)"><title>Priority inversion: task_p3 waited on task_p1 via a semaphore</title></rect><line x1="170.0" y1="14" x2="170.0" y2="118" stroke="var(--line)"/><text x="172.0" y="11" class="muted">0 ms</text><line x1="326.0" y1="14" x2="326.0" y2="118" stroke="var(--line)"/><text x="328.0" y="11" class="muted">5 ms</text><line x1="482.0" y1="14" x2="482.0" y2="118" stroke="var(--line)"/><text x="484.0" y="11" class="muted">10 ms</text><line x1="638.0" y1="14" x2="638.0" y2="118" stroke="var(--line)"/><text x="640.0" y="11" class="muted">15 ms</text><line x1="794.0" y1="14" x2="794.0" y2="118" stroke="var(--line)"/><text x="796.0" y="11" class="muted">20 ms</text><line x1="950.0" y1="14" x2="950.0" y2="118" stroke="var(--line)"/><text x="952.0" y="11" class="muted">25 ms</text><text x="4" y="32">ttk4147_inversion[1] (prio 10)</text><text x="4" y="54">task_p3 (prio 3)</text><rect x="170.00" y="42" width="780.00" height="15" rx="2" fill="var(--block)"><title>SEM 500.672 ms</title></rect><text x="4" y="76">task_p2 (prio 2)</text><rect x="170.00" y="64" width="105.20" height="15" rx="2" fill="var(--run)"><title>RUNNING 4.004 ms</title></rect><rect x="275.20" y="64" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.017 ms</title></rect><rect x="275.72" y="64" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.000 ms</title></rect><rect x="275.72" y="64" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.000 ms</title></rect><rect x="275.72" y="64" width="138.86" height="15" rx="2" fill="var(--run)"><title>RUNNING 4.451 ms</title></rect><rect x="414.58" y="64" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.017 ms</title></rect><rect x="415.10" y="64" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.000 ms</title></rect><rect x="415.11" y="64" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.000 ms</title></rect><rect x="415.11" y="64" width="142.38" height="15" rx="2" fill="var(--run)"><title>RUNNING 4.564 ms</title></rect><rect x="557.49" y="64" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.017 ms</title></rect><rect x="558.01" y="64" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.000 ms</title></rect><rect x="558.01" y="64" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.000 ms</title></rect><rect x="558.01" y="64" width="118.38" height="15" rx="2" fill="var(--run)"><title>RUNNING 3.794 ms</title></rect><rect x="676.39" y="64" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.017 ms</title></rect><rect x="676.91" y="64" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.000 ms</title></rect><rect x="676.91" y="64" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.000 ms</title></rect><rect x="676.91" y="64" width="124.46" height="15" rx="2" fill="var(--run)"><title>RUNNING 3.989 ms</title></rect><rect x="801.37" y="64" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.016 ms</title></rect><rect x="801.89" y="64" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.000 ms</title></rect><rect x="801.89" y="64" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.000 ms</title></rect><rect x="801.89" y="64" width="124.92" height="15" rx="2" fill="var(--run)"><title>RUNNING 4.004 ms</title></rect><rect x="926.81" y="64" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.017 ms</title></rect><rect x="927.34" y="64" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.000 ms</title></rect><rect x="927.34" y="64" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.000 ms</title></rect><rect x="927.34" y="64" width="22.66" height="15" rx="2" fill="var(--run)"><title>RUNNING 4.004 ms</title></rect><text x="4" y="98">task_p1 (prio 1)</text><rect x="170.00" y="86" width="780.00" height="15" rx="2" fill="var(--ready)"><title>READY 500.593 ms</title></rect></svg>
+<h3>After the fix <span class=muted>(after-0.txt, 25 ms from the middle of the run)</span></h3><svg class="tl" viewBox="0 0 960 118" role="img" aria-label="Thread timeline"><line x1="170.0" y1="14" x2="170.0" y2="118" stroke="var(--line)"/><text x="172.0" y="11" class="muted">0 ms</text><line x1="326.0" y1="14" x2="326.0" y2="118" stroke="var(--line)"/><text x="328.0" y="11" class="muted">5 ms</text><line x1="482.0" y1="14" x2="482.0" y2="118" stroke="var(--line)"/><text x="484.0" y="11" class="muted">10 ms</text><line x1="638.0" y1="14" x2="638.0" y2="118" stroke="var(--line)"/><text x="640.0" y="11" class="muted">15 ms</text><line x1="794.0" y1="14" x2="794.0" y2="118" stroke="var(--line)"/><text x="796.0" y="11" class="muted">20 ms</text><line x1="950.0" y1="14" x2="950.0" y2="118" stroke="var(--line)"/><text x="952.0" y="11" class="muted">25 ms</text><text x="4" y="32">ttk4147_inversion[1] (prio 10)</text><text x="4" y="54">task_p3 (prio 3)</text><rect x="170.00" y="42" width="76.89" height="15" rx="2" fill="var(--run)"><title>RUNNING 3.993 ms</title></rect><rect x="246.89" y="42" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.017 ms</title></rect><rect x="247.42" y="42" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.000 ms</title></rect><rect x="247.42" y="42" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.000 ms</title></rect><rect x="247.42" y="42" width="125.01" height="15" rx="2" fill="var(--run)"><title>RUNNING 4.007 ms</title></rect><rect x="372.43" y="42" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.018 ms</title></rect><rect x="372.98" y="42" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.000 ms</title></rect><rect x="372.98" y="42" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.000 ms</title></rect><rect x="372.98" y="42" width="124.96" height="15" rx="2" fill="var(--run)"><title>RUNNING 4.005 ms</title></rect><rect x="497.95" y="42" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.020 ms</title></rect><rect x="498.57" y="42" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.000 ms</title></rect><rect x="498.57" y="42" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.000 ms</title></rect><rect x="498.57" y="42" width="125.30" height="15" rx="2" fill="var(--run)"><title>RUNNING 4.016 ms</title></rect><rect x="623.88" y="42" width="0.87" height="15" rx="2" fill="var(--ready)"><title>READY 0.028 ms</title></rect><rect x="624.74" y="42" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.000 ms</title></rect><rect x="624.76" y="42" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.000 ms</title></rect><rect x="624.76" y="42" width="124.11" height="15" rx="2" fill="var(--run)"><title>RUNNING 3.978 ms</title></rect><rect x="748.87" y="42" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.017 ms</title></rect><rect x="749.41" y="42" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.000 ms</title></rect><rect x="749.42" y="42" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.000 ms</title></rect><rect x="749.42" y="42" width="124.85" height="15" rx="2" fill="var(--run)"><title>RUNNING 4.002 ms</title></rect><rect x="874.27" y="42" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.017 ms</title></rect><rect x="874.80" y="42" width="0.80" height="15" rx="2" fill="var(--run)"><title>RUNNING 0.000 ms</title></rect><rect x="874.81" y="42" width="0.80" height="15" rx="2" fill="var(--ready)"><title>READY 0.000 ms</title></rect><rect x="874.81" y="42" width="75.19" height="15" rx="2" fill="var(--run)"><title>RUNNING 4.008 ms</title></rect><text x="4" y="76">task_p2 (prio 2)</text><rect x="170.00" y="64" width="780.00" height="15" rx="2" fill="var(--ready)"><title>READY 300.487 ms</title></rect><text x="4" y="98">task_p1 (prio 1)</text><rect x="170.00" y="86" width="780.00" height="15" rx="2" fill="var(--ready)"><title>READY 600.880 ms</title></rect></svg>
+</div>
+<h2>The patch</h2><pre class=diff>--- a/UnboundedPriorityInversion.c
++++ b/UnboundedPriorityInversion.c
+<span class="hunk">@@ -2,6 +2,7 @@</span>
+ #define _GNU_SOURCE
+ #define CPU_ID 1
+ 
+<span class="add">+#include &lt;errno.h&gt;</span>
+ #include &lt;stdio.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;unistd.h&gt;
+<span class="hunk">@@ -11,7 +12,22 @@</span>
+ #include &lt;semaphore.h&gt;
+ #include &lt;inttypes.h&gt;
+ 
+<span class="del">-sem_t sem;</span>
+<span class="add">+/* --- TraceLens remedy: priority-inheriting mutex (replaces a semaphore used as a lock) --- */</span>
+<span class="add">+static int tracelens_pi_mutex_init(pthread_mutex_t *m)</span>
+<span class="add">+{</span>
+<span class="add">+    pthread_mutexattr_t a;</span>
+<span class="add">+    int rc = pthread_mutexattr_init(&amp;a);</span>
+<span class="add">+    if (rc == 0)</span>
+<span class="add">+        rc = pthread_mutexattr_setprotocol(&amp;a, PTHREAD_PRIO_INHERIT);</span>
+<span class="add">+    if (rc == 0)</span>
+<span class="add">+        rc = pthread_mutex_init(m, &amp;a);</span>
+<span class="add">+    pthread_mutexattr_destroy(&amp;a);</span>
+<span class="add">+    if (rc != 0)</span>
+<span class="add">+        errno = rc;</span>
+<span class="add">+    return rc;</span>
+<span class="add">+}</span>
+<span class="add">+</span>
+<span class="add">+pthread_mutex_t sem;</span>
+ pthread_barrier_t barrier;
+ pthread_t threadL, threadM, threadH;
+ 
+<span class="hunk">@@ -70,7 +86,7 @@</span>
+ 	// Setting up barrier and semaphore
+ 	int threadNum = 4;
+ 	pthread_barrier_init(&amp;barrier, NULL, threadNum);
+<span class="del">-	sem_init(&amp;sem, 0, 1);</span>
+<span class="add">+	tracelens_pi_mutex_init(&amp;sem);</span>
+ 
+ 	// TODO set up priority inheritance
+ 	/*
+<span class="hunk">@@ -98,7 +114,7 @@</span>
+ 	printf(&quot;-------------------End test-------------------\n&quot;);
+ 
+ 	// Delete semaphore
+<span class="del">-	sem_destroy(&amp;sem);</span>
+<span class="add">+	pthread_mutex_destroy(&amp;sem);</span>
+ 
+ 	printf(&quot;Finished\n&quot;);
+ 
+<span class="hunk">@@ -115,14 +131,14 @@</span>
+ 	print_pri(&amp;threadH, &quot;H1: high usleep\n&quot;);
+ 	usleep(200 * 1000);
+ 	print_pri(&amp;threadH, &quot;H3: high priority thread waits lock\n&quot;);
+<span class="del">-	sem_wait(&amp;sem);</span>
+<span class="add">+	pthread_mutex_lock(&amp;sem);</span>
+ 	print_pri(&amp;threadH, &quot;H4: high priority thread has lock\n&quot;);
+ 	print_pri(&amp;threadH, &quot;H5: high priority thread runs with lock\n&quot;);
+ 	busy_wait_ms(100);
+ 	print_pri(&amp;threadH, &quot;H6: high priority thread runs with lock\n&quot;);
+ 	busy_wait_ms(100);
+ 	print_pri(&amp;threadH, &quot;H7: high priority thread return lock\n&quot;);
+<span class="del">-	sem_post(&amp;sem);</span>
+<span class="add">+	pthread_mutex_unlock(&amp;sem);</span>
+ 
+ 	return NULL;
+ }
+<span class="hunk">@@ -158,7 +174,7 @@</span>
+ 	pthread_barrier_wait(&amp;barrier);
+ 
+ 	print_pri(&amp;threadL, &quot;L1: low priority thread waits lock\n&quot;);
+<span class="del">-	sem_wait(&amp;sem);</span>
+<span class="add">+	pthread_mutex_lock(&amp;sem);</span>
+ 	print_pri(&amp;threadL, &quot;L2: low priority thread has lock\n&quot;);
+ 	print_pri(&amp;threadL, &quot;L3: low priority thread runs with lock\n&quot;);
+ 	busy_wait_ms(100);
+<span class="hunk">@@ -167,7 +183,7 @@</span>
+ 	print_pri(&amp;threadL, &quot;L5: low priority thread runs with lock\n&quot;);
+ 	busy_wait_ms(100);
+ 	print_pri(&amp;threadL, &quot;L6: low priority thread return lock\n&quot;);
+<span class="del">-	sem_post(&amp;sem);</span>
+<span class="add">+	pthread_mutex_unlock(&amp;sem);</span>
+ 
+ 	return NULL;
+ }</pre>
+</main></body></html>

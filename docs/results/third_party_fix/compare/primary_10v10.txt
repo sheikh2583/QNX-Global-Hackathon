@@ -1,0 +1,4 @@
+TraceLens 0.1.0.dev0 | before/after over 10 + 10 clean runs
+  priority_inversion     before 100% of runs  ->  after   0%
+  deadline 'task_p3': p99 1102.99 -> 701.98 ms (budget 1200.00 ms; misses 0 -> 0); within budget
+  VERDICT: VERIFIED

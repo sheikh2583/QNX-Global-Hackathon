@@ -1,0 +1,29 @@
+{
+  "verdict": "VERIFIED",
+  "reasons": [],
+  "runs": {
+    "before": 5,
+    "after": 5,
+    "lossy_skipped": 0
+  },
+  "targets": {
+    "priority_inversion": {
+      "before_rate": 1.0,
+      "after_rate": 0.0
+    }
+  },
+  "new_kinds": [],
+  "deadlines": [
+    {
+      "name": "task_p3",
+      "budget_ns": 1200000000,
+      "before_p99": 1003261158,
+      "after_p99": 602788586,
+      "before_misses": 0,
+      "after_misses": 0,
+      "p_value": 0.003968253968253968,
+      "ok": true,
+      "reason": "within budget"
+    }
+  ]
+}

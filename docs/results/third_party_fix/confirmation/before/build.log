@@ -1,0 +1,12 @@
+docs/results/third_party_fix/confirmation/before/src/UnboundedPriorityInversion.c: In function 'high_f':
+docs/results/third_party_fix/confirmation/before/src/UnboundedPriorityInversion.c:108:20: warning: unused parameter 'arg' [-Wunused-parameter]
+  108 | void *high_f(void *arg)
+      |              ~~~~~~^~~
+docs/results/third_party_fix/confirmation/before/src/UnboundedPriorityInversion.c: In function 'med_f':
+docs/results/third_party_fix/confirmation/before/src/UnboundedPriorityInversion.c:130:19: warning: unused parameter 'arg' [-Wunused-parameter]
+  130 | void *med_f(void *arg)
+      |             ~~~~~~^~~
+docs/results/third_party_fix/confirmation/before/src/UnboundedPriorityInversion.c: In function 'low_f':
+docs/results/third_party_fix/confirmation/before/src/UnboundedPriorityInversion.c:153:19: warning: unused parameter 'arg' [-Wunused-parameter]
+  153 | void *low_f(void *arg)
+      |             ~~~~~~^~~

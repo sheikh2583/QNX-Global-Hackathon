@@ -18,6 +18,7 @@ the QNX-specific fix, and proves the fix on the target. No API keys, no cloud, n
 | **Learned models** | on **883 held-out buggy real captures** the rules alone catch 400; with the learned radar **726** (**+326** in bug classes no rule exists for); **0 false alarms on 148 healthy** real captures. Re-run on 2026-11-24 and reproduced exactly | [ml/results_train.md](ml/results_train.md), [results/ml.json](results/ml.json) |
 | **Regression gate** | `tracelens baseline save` and `tracelens gate`: Z1, Z2 and Z4 fixed builds pass their own baseline; their buggy builds are blocked by the fixed baseline. Says INCONCLUSIVE instead of guessing | README, `scripts/check.sh gate` |
 | **Code we did not write** | `rt-tests` v2.11 (`pi_stress`, `ptsematest`, `pmqtest`) on QNX 8.0: **0 rule findings in 16 runs** (a clean result, not a bug find). Our own sustained-inversion control `busy_medium`: flagged **9 of 9** without priority inheritance, **0 of 6** with it. Found and fixed a real parser bug on the way | [results/third_party/](results/third_party/README.md) |
+| **Fix on code we did not write** | NTNU course exercise `UnboundedPriorityInversion.c` (unedited; header-level QNX port layer only): CRITICAL inversion in 10/10 captures, automatic fix applied in 1 round, **VERIFIED** (inversion 10/10 to 0/10, p99 1,103 to 702 ms, p = 5.4e-06). A teaching exercise, not production code; upstream has no licence, so the file is fetched by hash and not copied | [results/third_party_fix/](results/third_party_fix/README.md) |
 | **aarch64** (emulated) | 65 captures over 13 scenarios on QNX 8.0 `aarch64le` under QEMU: the same rules fire on the same workloads; the x86-trained radar flags 38 of 45 planted bugs, 0 false alarms on 20 healthy | [results/aarch64.md](results/aarch64.md) |
 | **Generator** (16 scenarios, one qcc binary) | 16/16 captures on the target, none lossy, every planted problem reproduced | [ml/results_real.md](ml/results_real.md) |
 | **Simulator fidelity** | 210 of 274 feature medians agree with the real target within 0.10 | [ml/results_real.md](ml/results_real.md) |
@@ -68,8 +69,9 @@ the QNX-specific fix, and proves the fix on the target. No API keys, no cloud, n
 - **aarch64 is emulated** (QEMU TCG, no KVM for ARM). The claim is "the tool does not depend on x86",
   not "validated on a Cortex-A part". The radar does not transfer on interrupt traces, and the median
   interrupt-handler rule that fixes the rules there is optional and off by default.
-- **Third-party result is a clean result**, not a bug find: no rule fired on `rt-tests`, which has no
-  planted bugs.
+- **Third-party results are narrow.** `rt-tests` is a clean result (no rule fired; it has no bugs). The one
+  genuine third-party fix is a small teaching exercise with exactly the shape of one fix rule, on one VM,
+  x86_64 only; it is not a bug found in production code.
 - **Starved low-priority job**: invisible to the radar by construction (it behaves like healthy deferred
   work); the deadline rule catches it when a deadline is declared.
 - **Classifier misses Z3 and Z5** on real traces; the rules catch both outright.

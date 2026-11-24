@@ -1,0 +1,80 @@
+{
+  "status": "VERIFIED",
+  "workload": "ttk4147_inversion",
+  "runs": 10,
+  "targets": [
+    "priority_inversion"
+  ],
+  "remedies": [
+    {
+      "rule": "semaphore-as-lock",
+      "finding_id": "TL-001",
+      "finding_kind": "priority_inversion",
+      "title": "Replace semaphore 'sem' (used as a lock) with a priority-inheriting mutex",
+      "automatic": true,
+      "rationale": "A POSIX semaphore has no owner, so the QNX kernel cannot raise the priority of the thread that holds it: a medium-priority thread preempts the holder and the high-priority waiter waits for both. A pthread mutex has an owner; with PTHREAD_PRIO_INHERIT (the QNX default) the holder runs at the waiter's priority until it unlocks.",
+      "locations": [
+        [
+          "UnboundedPriorityInversion.c",
+          118,
+          "sem_wait(&sem);"
+        ],
+        [
+          "UnboundedPriorityInversion.c",
+          125,
+          "sem_post(&sem);"
+        ],
+        [
+          "UnboundedPriorityInversion.c",
+          161,
+          "sem_wait(&sem);"
+        ],
+        [
+          "UnboundedPriorityInversion.c",
+          170,
+          "sem_post(&sem);"
+        ]
+      ],
+      "guidance": [],
+      "notes": [],
+      "files": [
+        "UnboundedPriorityInversion.c"
+      ],
+      "round": 1
+    }
+  ],
+  "diff": "--- a/UnboundedPriorityInversion.c\n+++ b/UnboundedPriorityInversion.c\n@@ -2,6 +2,7 @@\n #define _GNU_SOURCE\n #define CPU_ID 1\n \n+#include <errno.h>\n #include <stdio.h>\n #include <stdlib.h>\n #include <unistd.h>\n@@ -11,7 +12,22 @@\n #include <semaphore.h>\n #include <inttypes.h>\n \n-sem_t sem;\n+/* --- TraceLens remedy: priority-inheriting mutex (replaces a semaphore used as a lock) --- */\n+static int tracelens_pi_mutex_init(pthread_mutex_t *m)\n+{\n+    pthread_mutexattr_t a;\n+    int rc = pthread_mutexattr_init(&a);\n+    if (rc == 0)\n+        rc = pthread_mutexattr_setprotocol(&a, PTHREAD_PRIO_INHERIT);\n+    if (rc == 0)\n+        rc = pthread_mutex_init(m, &a);\n+    pthread_mutexattr_destroy(&a);\n+    if (rc != 0)\n+        errno = rc;\n+    return rc;\n+}\n+\n+pthread_mutex_t sem;\n pthread_barrier_t barrier;\n pthread_t threadL, threadM, threadH;\n \n@@ -70,7 +86,7 @@\n \t// Setting up barrier and semaphore\n \tint threadNum = 4;\n \tpthread_barrier_init(&barrier, NULL, threadNum);\n-\tsem_init(&sem, 0, 1);\n+\ttracelens_pi_mutex_init(&sem);\n \n \t// TODO set up priority inheritance\n \t/*\n@@ -98,7 +114,7 @@\n \tprintf(\"-------------------End test-------------------\\n\");\n \n \t// Delete semaphore\n-\tsem_destroy(&sem);\n+\tpthread_mutex_destroy(&sem);\n \n \tprintf(\"Finished\\n\");\n \n@@ -115,14 +131,14 @@\n \tprint_pri(&threadH, \"H1: high usleep\\n\");\n \tusleep(200 * 1000);\n \tprint_pri(&threadH, \"H3: high priority thread waits lock\\n\");\n-\tsem_wait(&sem);\n+\tpthread_mutex_lock(&sem);\n \tprint_pri(&threadH, \"H4: high priority thread has lock\\n\");\n \tprint_pri(&threadH, \"H5: high priority thread runs with lock\\n\");\n \tbusy_wait_ms(100);\n \tprint_pri(&threadH, \"H6: high priority thread runs with lock\\n\");\n \tbusy_wait_ms(100);\n \tprint_pri(&threadH, \"H7: high priority thread return lock\\n\");\n-\tsem_post(&sem);\n+\tpthread_mutex_unlock(&sem);\n \n \treturn NULL;\n }\n@@ -158,7 +174,7 @@\n \tpthread_barrier_wait(&barrier);\n \n \tprint_pri(&threadL, \"L1: low priority thread waits lock\\n\");\n-\tsem_wait(&sem);\n+\tpthread_mutex_lock(&sem);\n \tprint_pri(&threadL, \"L2: low priority thread has lock\\n\");\n \tprint_pri(&threadL, \"L3: low priority thread runs with lock\\n\");\n \tbusy_wait_ms(100);\n@@ -167,7 +183,7 @@\n \tprint_pri(&threadL, \"L5: low priority thread runs with lock\\n\");\n \tbusy_wait_ms(100);\n \tprint_pri(&threadL, \"L6: low priority thread return lock\\n\");\n-\tsem_post(&sem);\n+\tpthread_mutex_unlock(&sem);\n \n \treturn NULL;\n }\n",
+  "verdict": {
+    "verdict": "VERIFIED",
+    "reasons": [],
+    "runs": {
+      "before": 10,
+      "after": 10,
+      "lossy_skipped": 0
+    },
+    "targets": {
+      "priority_inversion": {
+        "before_rate": 1.0,
+        "after_rate": 0.0
+      }
+    },
+    "new_kinds": [],
+    "deadlines": [
+      {
+        "name": "task_p3",
+        "budget_ns": 1200000000,
+        "before_p99": 1102989877,
+        "after_p99": 701975517,
+        "before_misses": 0,
+        "after_misses": 0,
+        "p_value": 5.412544112234515e-06,
+        "ok": true,
+        "reason": "within budget"
+      }
+    ]
+  },
+  "bundle": "docs/results/third_party_fix/confirmation",
+  "note": "",
+  "rounds": 1,
+  "quick": false
+}

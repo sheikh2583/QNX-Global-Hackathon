@@ -1,0 +1,31 @@
+{
+  "verdict": "NOT FIXED",
+  "reasons": [
+    "priority_inversion still present in 100% of 'after' runs"
+  ],
+  "runs": {
+    "before": 5,
+    "after": 5,
+    "lossy_skipped": 0
+  },
+  "targets": {
+    "priority_inversion": {
+      "before_rate": 1.0,
+      "after_rate": 1.0
+    }
+  },
+  "new_kinds": [],
+  "deadlines": [
+    {
+      "name": "task_p3",
+      "budget_ns": 1200000000,
+      "before_p99": 1102989877,
+      "after_p99": 1004326413,
+      "before_misses": 0,
+      "after_misses": 0,
+      "p_value": 0.1111111111111111,
+      "ok": true,
+      "reason": "within budget"
+    }
+  ]
+}

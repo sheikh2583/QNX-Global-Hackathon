@@ -1,0 +1,5 @@
+# Second reading of the same traces, declared BEFORE the confirmation run: the same deadline with the
+# un-padded bound computed from the program's own constants (see tracelens.toml): 0.8 s. Used only with
+# `tracelens compare` on the confirmation traces, so the strict budget is judged on data it did not choose.
+[deadlines.task_p3]
+budget_us = 800000

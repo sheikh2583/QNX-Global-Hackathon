@@ -1,0 +1,27 @@
+{
+  "verdict": "INCONCLUSIVE",
+  "reasons": [
+    "no finding kind is present in most 'before' runs: nothing to verify",
+    "the 'before' runs show no problem, so there is nothing to verify (this is what a noise-floor run of one build against itself should say)"
+  ],
+  "runs": {
+    "before": 5,
+    "after": 5,
+    "lossy_skipped": 0
+  },
+  "targets": {},
+  "new_kinds": [],
+  "deadlines": [
+    {
+      "name": "task_p3",
+      "budget_ns": 1200000000,
+      "before_p99": 604011856,
+      "after_p99": 701975517,
+      "before_misses": 0,
+      "after_misses": 0,
+      "p_value": 0.21031746031746032,
+      "ok": true,
+      "reason": "within budget"
+    }
+  ]
+}

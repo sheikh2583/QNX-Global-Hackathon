@@ -47,6 +47,7 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
   time, a lock-order deadlock **84%**, and a starved low-priority job never — that one is the same
   behaviour as healthy deferred work unless a deadline is declared.
 - **On code we did not write**: `rt-tests` v2.11 (`pi_stress`, `ptsematest`, `pmqtest`), vendored unmodified and ported to QNX 8.0 through a compatibility layer, traced on the target: **0 rule findings in 16 runs**, a clean result and not a bug find, since those programs have no planted bugs. A control we wrote that holds a priority inversion on purpose is flagged in **9 of 9** runs without priority inheritance and **0 of 6** with it. The traces also exposed a real parser bug, now fixed with regression tests.
+- **A real fix on code we did not write**: `UnboundedPriorityInversion.c`, a teaching program from NTNU's real-time systems course (TTK4147) that we did not edit apart from a header-level QNX port layer. TraceLens found a CRITICAL priority inversion in **10 of 10** captures, applied its automatic fix in one round, and the fix was **VERIFIED** on QNX 8.0: inversion gone in 10 of 10, the high-priority job's p99 1,103 to 702 ms, Mann-Whitney p = 5.4e-06 on a confirmation run with the configuration frozen first. It is a teaching exercise, not production code, and its upstream repository states no licence, so the file is downloaded by hash rather than copied into our repository.
 - **Not tied to x86**: the suite cross-compiles for QNX 8.0 aarch64 with no source change. On an **emulated** aarch64 guest (QEMU `virt`; not ARM hardware) 65 captures over 13 scenarios show the same rules firing on the same workloads, and the x86-trained radar flags 38 of 45 planted bugs with 0 false alarms on 20 healthy traces. It does not transfer on interrupt traces, which need an optional median-handler rule that is off by default.
 - **The simulator is measurably worth having**: trained on the real captures alone the radar gives 2
   false alarms on those 148 healthy traces, and 0 once the simulated traces join training.
@@ -63,6 +64,18 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
 - **Code that builds for or runs on QNX:** the five workloads in `bugzoo/` (QNX C: `MsgSend`, `ChannelCreate`, `InterruptAttachEvent`, `ThreadCtl`, `TraceEvent`), built with `qcc`; the QNX-specific rewrites in `src/tracelens/remedy/`; the capture path `src/tracelens/target/capture.py` (`tracelogger` on `procnto-smp-instr`). The README's "Evidence of QNX use" table lists every QNX API with its file.
 - **Build and run:** README "Run it on QNX": SDP 8.0, a QEMU x86_64 VM from `mkqnximage`, `qcc -Vgcc_ntox86_64`; the codelab (`docs/codelab/`) walks it end to end.
 - **Built during the submission period:** the repository was created on 2026-11-13, after the 2026-11-02 start, and everything in it was written since.
+
+## How it relates to QNX's own tools
+
+QNX already records the evidence: the instrumented kernel (`procnto-smp-instr`) with `tracelogger` and `traceprinter`, and QNX's graphical trace viewer for reading a timeline (the Momentics System Profiler **(verify: confirm the 8.0 tool name)**). TraceLens does not replace them; it reads the same `traceprinter` output. What it adds is the step after reading: it names the root cause with the kernel events that prove it, writes the QNX-specific source change, rebuilds with `qcc`, re-records on the target and decides with a statistical test whether the fix worked. The QNX-specific part is real: a POSIX semaphore has no owner, so QNX cannot boost the thread that holds it, while a mutex with `PTHREAD_PRIO_INHERIT` can; a fixed-priority channel (`_NTO_CHF_FIXED_PRIORITY`) switches inheritance off on purpose.
+
+## What it does not do, stated plainly
+
+- **All timing is measured on emulators.** The target is QNX 8.0 under QEMU, nested inside WSL2 on Windows, and the aarch64 results are emulated (TCG). Absolute milliseconds are not hardware numbers; every verdict compares builds on the same machine under the same load, with a statistical test. It has not been run on a QNX board.
+- **The bugs are planted.** The bug zoo is five small programs we wrote with realistic bugs, and the 16 generated scenarios and the 883 held-out traces come from our own generator. The held-out set is unseen by the models, but it is not independent of its author.
+- **Third-party evidence is narrow.** `rt-tests` v2.11 has no bug and TraceLens raised no findings in 16 runs (a clean result); the one genuine third-party fix is a small teaching exercise with exactly the shape of one fix rule, on one VM and x86_64 only. It is not a bug found in production code.
+- **Known blind spots.** A starved low-priority job is invisible to the learned radar (the deadline rule catches it only if a deadline is declared); the classifier misses the Send/Reply deadlock (Z3) and the interrupt workload (Z5) on real traces, where the rules catch both; the radar does not transfer to aarch64 interrupt traces; Z3's fix changes the protocol, so it is guided, not automatic.
+- **Not a certified tool.** It is a research and productivity tool, not qualified under ISO 26262 or IEC 62304.
 
 ## How we built it
 
@@ -113,6 +126,6 @@ QNX SDP 8.0 (x86_64 and aarch64le) · QNX Neutrino (`procnto-smp-instr`, `tracel
 ## Links
 
 - Code: https://github.com/sheikh2583/QNX-Global-Hackathon
-- Live demo: https://qnx-global-hackathon.onrender.com/ (`tracelens serve`: real QNX traces analyzed, fixes planned, uploads; the free plan sleeps, so the first load takes about a minute)
+- Live demo: https://qnx-global-hackathon.onrender.com/ (`tracelens serve`: real QNX traces analyzed, fixes planned, uploads)
 - Codelab: `[TBD: GitHub Pages URL]`
 - Video: `[TBD: YouTube URL]`

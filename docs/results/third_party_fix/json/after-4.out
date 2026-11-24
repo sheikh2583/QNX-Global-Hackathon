@@ -1,0 +1,12 @@
+TraceLens 0.1.0.dev0 | docs/results/third_party_fix/confirmation/round-1/after/after-4.txt
+  thread snapshot: docs/results/third_party_fix/confirmation/round-1/after/after-4.pidin.txt
+  17,259 events, 154 threads, 4000.5 ms traced
+
+  [MEDIUM] TL-001 Unusual behaviour in task_p3
+      task_p3 (prio 3) behaved unlike healthy QNX programs in 6 of its 18 time windows; the most unusual stretch lasted 120 ms. It stands out in: time blocked on a mutex (higher than healthy), longest single block (higher than healthy), time asleep (lower than healthy). The closest pattern TraceLens has seen is many threads serialised on one mutex, but only loosely (distance 3.78 against 1.716 typical for it): treat this as behaviour of its own.
+  [MEDIUM] TL-002 Unusual behaviour in task_p1
+      task_p1 (prio 1) behaved unlike healthy QNX programs in 37 of its 46 time windows; the most unusual stretch lasted 120 ms. It stands out in: longest wait for a CPU (higher than healthy), time waiting for a CPU (higher than healthy), time asleep (lower than healthy). The closest pattern TraceLens has seen is an interrupt handler working with its line still masked (distance 0.15, inside the 0.705 typical for that pattern).
+  [MEDIUM] TL-003 Unusual behaviour in task_p2
+      task_p2 (prio 2) behaved unlike healthy QNX programs in 16 of its 42 time windows; the most unusual stretch lasted 320 ms. It stands out in: longest wait for a CPU (higher than healthy), time waiting for a CPU (higher than healthy), time asleep (lower than healthy). The closest pattern TraceLens has seen is an interrupt handler working with its line still masked (distance 0.05, inside the 0.705 typical for that pattern).
+
+  3 findings, 0 at or above 'high'

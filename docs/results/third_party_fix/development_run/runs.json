@@ -1,0 +1,222 @@
+[
+ {
+  "type": "run",
+  "t": 1795538543.99,
+  "side": "before",
+  "round": 0,
+  "i": 0,
+  "lossy": false,
+  "kinds": [
+   "priority_inversion"
+  ],
+  "problems": [
+   "A high-priority task was held up by lower-priority work"
+  ],
+  "deadlines": {
+   "task_p3": {
+    "p99_ms": 1002.888,
+    "max_ms": 1002.888,
+    "budget_ms": 1200.0,
+    "late": 0,
+    "jobs": 1
+   }
+  },
+  "irq": null
+ },
+ {
+  "type": "run",
+  "t": 1795538549.469,
+  "side": "before",
+  "round": 0,
+  "i": 1,
+  "lossy": false,
+  "kinds": [
+   "priority_inversion"
+  ],
+  "problems": [
+   "A high-priority task was held up by lower-priority work"
+  ],
+  "deadlines": {
+   "task_p3": {
+    "p99_ms": 1002.474,
+    "max_ms": 1002.474,
+    "budget_ms": 1200.0,
+    "late": 0,
+    "jobs": 1
+   }
+  },
+  "irq": null
+ },
+ {
+  "type": "run",
+  "t": 1795538554.899,
+  "side": "before",
+  "round": 0,
+  "i": 2,
+  "lossy": false,
+  "kinds": [
+   "priority_inversion"
+  ],
+  "problems": [
+   "A high-priority task was held up by lower-priority work"
+  ],
+  "deadlines": {
+   "task_p3": {
+    "p99_ms": 1003.045,
+    "max_ms": 1003.045,
+    "budget_ms": 1200.0,
+    "late": 0,
+    "jobs": 1
+   }
+  },
+  "irq": null
+ },
+ {
+  "type": "run",
+  "t": 1795538558.17,
+  "side": "before",
+  "round": 0,
+  "i": 3,
+  "lossy": false,
+  "kinds": [
+   "priority_inversion"
+  ],
+  "problems": [
+   "A high-priority task was held up by lower-priority work"
+  ],
+  "deadlines": {
+   "task_p3": {
+    "p99_ms": 1002.726,
+    "max_ms": 1002.726,
+    "budget_ms": 1200.0,
+    "late": 0,
+    "jobs": 1
+   }
+  },
+  "irq": null
+ },
+ {
+  "type": "run",
+  "t": 1795538563.506,
+  "side": "before",
+  "round": 0,
+  "i": 4,
+  "lossy": false,
+  "kinds": [
+   "priority_inversion"
+  ],
+  "problems": [
+   "A high-priority task was held up by lower-priority work"
+  ],
+  "deadlines": {
+   "task_p3": {
+    "p99_ms": 1003.261,
+    "max_ms": 1003.261,
+    "budget_ms": 1200.0,
+    "late": 0,
+    "jobs": 1
+   }
+  },
+  "irq": null
+ },
+ {
+  "type": "run",
+  "t": 1795538569.204,
+  "side": "after",
+  "round": 1,
+  "i": 0,
+  "lossy": false,
+  "kinds": [],
+  "problems": [],
+  "deadlines": {
+   "task_p3": {
+    "p99_ms": 602.789,
+    "max_ms": 602.789,
+    "budget_ms": 1200.0,
+    "late": 0,
+    "jobs": 1
+   }
+  },
+  "irq": null
+ },
+ {
+  "type": "run",
+  "t": 1795538574.52,
+  "side": "after",
+  "round": 1,
+  "i": 1,
+  "lossy": false,
+  "kinds": [],
+  "problems": [],
+  "deadlines": {
+   "task_p3": {
+    "p99_ms": 601.889,
+    "max_ms": 601.889,
+    "budget_ms": 1200.0,
+    "late": 0,
+    "jobs": 1
+   }
+  },
+  "irq": null
+ },
+ {
+  "type": "run",
+  "t": 1795538579.913,
+  "side": "after",
+  "round": 1,
+  "i": 2,
+  "lossy": false,
+  "kinds": [],
+  "problems": [],
+  "deadlines": {
+   "task_p3": {
+    "p99_ms": 602.587,
+    "max_ms": 602.587,
+    "budget_ms": 1200.0,
+    "late": 0,
+    "jobs": 1
+   }
+  },
+  "irq": null
+ },
+ {
+  "type": "run",
+  "t": 1795538585.268,
+  "side": "after",
+  "round": 1,
+  "i": 3,
+  "lossy": false,
+  "kinds": [],
+  "problems": [],
+  "deadlines": {
+   "task_p3": {
+    "p99_ms": 601.771,
+    "max_ms": 601.771,
+    "budget_ms": 1200.0,
+    "late": 0,
+    "jobs": 1
+   }
+  },
+  "irq": null
+ },
+ {
+  "type": "run",
+  "t": 1795538588.559,
+  "side": "after",
+  "round": 1,
+  "i": 4,
+  "lossy": false,
+  "kinds": [],
+  "problems": [],
+  "deadlines": {
+   "task_p3": {
+    "p99_ms": 601.762,
+    "max_ms": 601.762,
+    "budget_ms": 1200.0,
+    "late": 0,
+    "jobs": 1
+   }
+  },
+  "irq": null
+ }
+]

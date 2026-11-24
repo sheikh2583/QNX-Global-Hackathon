@@ -1,0 +1,334 @@
+{
+  "tool": "tracelens",
+  "version": "0.1.0.dev0",
+  "trace": {
+    "source": "docs/results/third_party_fix/confirmation/round-1/after/after-5.txt",
+    "events": 16229,
+    "duration_ms": 4000.526,
+    "cycles_per_sec": 2419815204,
+    "threads": 154,
+    "unparsed_lines": 0
+  },
+  "summary": {
+    "critical": 0,
+    "high": 0,
+    "medium": 3,
+    "low": 0
+  },
+  "findings": [
+    {
+      "kind": "unusual_behavior",
+      "severity": "medium",
+      "title": "Unusual behaviour in task_p3",
+      "summary": "task_p3 (prio 3) behaved unlike healthy QNX programs in 6 of its 19 time windows; the most unusual stretch lasted 120 ms. It stands out in: time blocked on a mutex (higher than healthy), longest single block (higher than healthy), time asleep (lower than healthy). The closest pattern TraceLens has seen is many threads serialised on one mutex, but only loosely (distance 3.78 against 1.716 typical for it): treat this as behaviour of its own.",
+      "t_start": 1280000000,
+      "t_end": 1400000000,
+      "threads": [
+        "task_p3"
+      ],
+      "evidence": [
+        5832,
+        8103,
+        8105,
+        8111,
+        8478,
+        8482
+      ],
+      "metrics": {
+        "source": "radar",
+        "score": 28.4,
+        "threshold": 3.46,
+        "unusual_windows": 6,
+        "like": "lock_contention",
+        "like_label": "mutex_contention",
+        "like_distance": 3.78,
+        "like_radius": 1.716,
+        "like_within": false,
+        "z_share_mutex": 50.0,
+        "z_max_block_frac": 32.2,
+        "z_share_sleep": -3.0
+      },
+      "qnx_note": "Learned from healthy QNX 8.0 traces: this thread behaved unlike any healthy run in the features listed. It is not a proven bug and gets no automatic fix: look at the timeline around it. Any resemblance to a known pattern is measured against labelled example windows, never a rule that fired.",
+      "id": "TL-001",
+      "evidence_events": [
+        {
+          "id": 5832,
+          "t_ms": 1098.283098,
+          "cpu": 1,
+          "line": 14380,
+          "pid": 52199446,
+          "tid": 4,
+          "raw": "t:0xfe9dc9c755c8 CPU:01 THREAD          :THNANOSLEEP        pid:52199446 tid:4 priority:3 policy:2"
+        },
+        {
+          "id": 8103,
+          "t_ms": 1298.438541,
+          "cpu": 1,
+          "line": 19532,
+          "pid": 52199446,
+          "tid": 4,
+          "raw": "t:0xfe9de6a5c3b7 CPU:01 THREAD          :THREADY            pid:52199446 tid:4 priority:3 policy:2"
+        },
+        {
+          "id": 8105,
+          "t_ms": 1298.442302,
+          "cpu": 1,
+          "line": 19534,
+          "pid": 52199446,
+          "tid": 4,
+          "raw": "t:0xfe9de6a5e746 CPU:01 THREAD          :THRUNNING          pid:52199446 tid:4 priority:3 policy:2"
+        },
+        {
+          "id": 8111,
+          "t_ms": 1298.456472,
+          "cpu": 1,
+          "line": 19555,
+          "pid": 52199446,
+          "tid": 4,
+          "raw": "t:0xfe9de6a66d36 CPU:01 THREAD          :THMUTEX            pid:52199446 tid:4 priority:3 policy:2"
+        },
+        {
+          "id": 8478,
+          "t_ms": 1398.641163,
+          "cpu": 1,
+          "line": 20107,
+          "pid": 52199446,
+          "tid": 4,
+          "raw": "t:0xfe9df519974c CPU:01 THREAD          :THREADY            pid:52199446 tid:4 priority:3 policy:2"
+        },
+        {
+          "id": 8482,
+          "t_ms": 1398.641678,
+          "cpu": 1,
+          "line": 20111,
+          "pid": 52199446,
+          "tid": 4,
+          "raw": "t:0xfe9df5199c2a CPU:01 THREAD          :THRUNNING          pid:52199446 tid:4 priority:3 policy:2"
+        }
+      ]
+    },
+    {
+      "kind": "unusual_behavior",
+      "severity": "medium",
+      "title": "Unusual behaviour in task_p1",
+      "summary": "task_p1 (prio 1) behaved unlike healthy QNX programs in 37 of its 47 time windows; the most unusual stretch lasted 120 ms. It stands out in: longest wait for a CPU (higher than healthy), time waiting for a CPU (higher than healthy), time asleep (lower than healthy). The closest pattern TraceLens has seen is an interrupt handler working with its line still masked (distance 0.15, inside the 0.705 typical for that pattern).",
+      "t_start": 1180000000,
+      "t_end": 1300000000,
+      "threads": [
+        "task_p1"
+      ],
+      "evidence": [
+        7744,
+        7747,
+        7750,
+        7751,
+        7752,
+        7755,
+        7758,
+        7759
+      ],
+      "metrics": {
+        "source": "radar",
+        "score": 5.52,
+        "threshold": 3.46,
+        "unusual_windows": 37,
+        "like": "irq_overrun",
+        "like_label": "irq_handler_overrun",
+        "like_distance": 0.15,
+        "like_radius": 0.705,
+        "like_within": true,
+        "z_max_ready_frac": 8.1,
+        "z_share_ready": 5.4,
+        "z_share_sleep": -3.0
+      },
+      "qnx_note": "Learned from healthy QNX 8.0 traces: this thread behaved unlike any healthy run in the features listed. It is not a proven bug and gets no automatic fix: look at the timeline around it. Any resemblance to a known pattern is measured against labelled example windows, never a rule that fired.",
+      "id": "TL-002",
+      "evidence_events": [
+        {
+          "id": 7744,
+          "t_ms": 1178.217175,
+          "cpu": 1,
+          "line": 19047,
+          "pid": 52199446,
+          "tid": 2,
+          "raw": "t:0xfe9dd54ec6e7 CPU:01 THREAD          :THRUNNING          pid:52199446 tid:2 priority:1 policy:2"
+        },
+        {
+          "id": 7747,
+          "t_ms": 1182.220023,
+          "cpu": 1,
+          "line": 19050,
+          "pid": 52199446,
+          "tid": 2,
+          "raw": "t:0xfe9dd5e2936f CPU:01 THREAD          :THREADY            pid:52199446 tid:2 priority:1 policy:2"
+        },
+        {
+          "id": 7750,
+          "t_ms": 1182.236705,
+          "cpu": 1,
+          "line": 19053,
+          "pid": 52199446,
+          "tid": 2,
+          "raw": "t:0xfe9dd5e3311e CPU:01 THREAD          :THRUNNING          pid:52199446 tid:2 priority:1 policy:2"
+        },
+        {
+          "id": 7751,
+          "t_ms": 1182.236813,
+          "cpu": 1,
+          "line": 19054,
+          "pid": 52199446,
+          "tid": 2,
+          "raw": "t:0xfe9dd5e33224 CPU:01 THREAD          :THREADY            pid:52199446 tid:2 priority:1 policy:2"
+        },
+        {
+          "id": 7752,
+          "t_ms": 1182.236873,
+          "cpu": 1,
+          "line": 19055,
+          "pid": 52199446,
+          "tid": 2,
+          "raw": "t:0xfe9dd5e332b6 CPU:01 THREAD          :THRUNNING          pid:52199446 tid:2 priority:1 policy:2"
+        },
+        {
+          "id": 7755,
+          "t_ms": 1186.241422,
+          "cpu": 1,
+          "line": 19058,
+          "pid": 52199446,
+          "tid": 2,
+          "raw": "t:0xfe9dd6770f52 CPU:01 THREAD          :THREADY            pid:52199446 tid:2 priority:1 policy:2"
+        },
+        {
+          "id": 7758,
+          "t_ms": 1186.258601,
+          "cpu": 1,
+          "line": 19061,
+          "pid": 52199446,
+          "tid": 2,
+          "raw": "t:0xfe9dd677b1b4 CPU:01 THREAD          :THRUNNING          pid:52199446 tid:2 priority:1 policy:2"
+        },
+        {
+          "id": 7759,
+          "t_ms": 1186.258715,
+          "cpu": 1,
+          "line": 19062,
+          "pid": 52199446,
+          "tid": 2,
+          "raw": "t:0xfe9dd677b2c8 CPU:01 THREAD          :THREADY            pid:52199446 tid:2 priority:1 policy:2"
+        }
+      ]
+    },
+    {
+      "kind": "unusual_behavior",
+      "severity": "medium",
+      "title": "Unusual behaviour in task_p2",
+      "summary": "task_p2 (prio 2) behaved unlike healthy QNX programs in 16 of its 43 time windows; the most unusual stretch lasted 320 ms. It stands out in: longest wait for a CPU (higher than healthy), time waiting for a CPU (higher than healthy), time asleep (lower than healthy). The closest pattern TraceLens has seen is an interrupt handler working with its line still masked (distance 0.05, inside the 0.705 typical for that pattern).",
+      "t_start": 1280000000,
+      "t_end": 1600000000,
+      "threads": [
+        "task_p2"
+      ],
+      "evidence": [
+        8057,
+        8060,
+        8063,
+        8064,
+        8065,
+        8068,
+        8071,
+        8072
+      ],
+      "metrics": {
+        "source": "radar",
+        "score": 5.52,
+        "threshold": 3.46,
+        "unusual_windows": 16,
+        "like": "irq_overrun",
+        "like_label": "irq_handler_overrun",
+        "like_distance": 0.05,
+        "like_radius": 0.705,
+        "like_within": true,
+        "z_max_ready_frac": 8.1,
+        "z_share_ready": 5.4,
+        "z_share_sleep": -3.0
+      },
+      "qnx_note": "Learned from healthy QNX 8.0 traces: this thread behaved unlike any healthy run in the features listed. It is not a proven bug and gets no automatic fix: look at the timeline around it. Any resemblance to a known pattern is measured against labelled example windows, never a rule that fired.",
+      "id": "TL-003",
+      "evidence_events": [
+        {
+          "id": 8057,
+          "t_ms": 1278.442327,
+          "cpu": 1,
+          "line": 19486,
+          "pid": 52199446,
+          "tid": 3,
+          "raw": "t:0xfe9de3c36f72 CPU:01 THREAD          :THRUNNING          pid:52199446 tid:3 priority:2 policy:2"
+        },
+        {
+          "id": 8060,
+          "t_ms": 1282.196282,
+          "cpu": 1,
+          "line": 19489,
+          "pid": 52199446,
+          "tid": 3,
+          "raw": "t:0xfe9de44e0b57 CPU:01 THREAD          :THREADY            pid:52199446 tid:3 priority:2 policy:2"
+        },
+        {
+          "id": 8063,
+          "t_ms": 1282.212837,
+          "cpu": 1,
+          "line": 19492,
+          "pid": 52199446,
+          "tid": 3,
+          "raw": "t:0xfe9de44ea7d2 CPU:01 THREAD          :THRUNNING          pid:52199446 tid:3 priority:2 policy:2"
+        },
+        {
+          "id": 8064,
+          "t_ms": 1282.212965,
+          "cpu": 1,
+          "line": 19493,
+          "pid": 52199446,
+          "tid": 3,
+          "raw": "t:0xfe9de44ea909 CPU:01 THREAD          :THREADY            pid:52199446 tid:3 priority:2 policy:2"
+        },
+        {
+          "id": 8065,
+          "t_ms": 1282.213026,
+          "cpu": 1,
+          "line": 19494,
+          "pid": 52199446,
+          "tid": 3,
+          "raw": "t:0xfe9de44ea99c CPU:01 THREAD          :THRUNNING          pid:52199446 tid:3 priority:2 policy:2"
+        },
+        {
+          "id": 8068,
+          "t_ms": 1286.169106,
+          "cpu": 1,
+          "line": 19497,
+          "pid": 52199446,
+          "tid": 3,
+          "raw": "t:0xfe9de4e0bc13 CPU:01 THREAD          :THREADY            pid:52199446 tid:3 priority:2 policy:2"
+        },
+        {
+          "id": 8071,
+          "t_ms": 1286.190963,
+          "cpu": 1,
+          "line": 19500,
+          "pid": 52199446,
+          "tid": 3,
+          "raw": "t:0xfe9de4e18aac CPU:01 THREAD          :THRUNNING          pid:52199446 tid:3 priority:2 policy:2"
+        },
+        {
+          "id": 8072,
+          "t_ms": 1286.191249,
+          "cpu": 1,
+          "line": 19501,
+          "pid": 52199446,
+          "tid": 3,
+          "raw": "t:0xfe9de4e18d61 CPU:01 THREAD          :THREADY            pid:52199446 tid:3 priority:2 policy:2"
+        }
+      ]
+    }
+  ],
+  "errors": []
+}

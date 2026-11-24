@@ -1,0 +1,10 @@
+TraceLens 0.1.0.dev0 | remedies for before-0.txt (1 findings)
+
+  [AUTO] Replace semaphore 'sem' (used as a lock) with a priority-inheriting mutex
+      A POSIX semaphore has no owner, so the QNX kernel cannot raise the priority of the thread that holds it: a medium-priority thread preempts the holder and the high-priority waiter waits for both. A pthread mutex has an owner; with PTHREAD_PRIO_INHERIT (the QNX default) the holder runs at the waiter's priority until it unlocks.
+      UnboundedPriorityInversion.c:118  sem_wait(&sem);
+      UnboundedPriorityInversion.c:125  sem_post(&sem);
+      UnboundedPriorityInversion.c:161  sem_wait(&sem);
+      UnboundedPriorityInversion.c:170  sem_post(&sem);
+
+  patch: /tmp/remedy.patch (87 lines). Prove it on the target: tracelens fix third_party/ttk4147_pi/ttk4147_inversion --host <qnx>
