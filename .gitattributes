@@ -6,3 +6,4 @@ Makefile   text eol=lf
 *.txt      text eol=lf
 *.toml     text eol=lf
 *.kev      binary
+.githooks/* text eol=lf

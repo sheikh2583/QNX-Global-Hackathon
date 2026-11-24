@@ -405,6 +405,11 @@ pip install -e ".[dev]"
 scripts/check.sh                  # unit tests, bug-zoo compile check against QNX API stubs, every real trace's verdict
 ```
 
+**Free, local CI.** There is no hosted pipeline (no billing, no account). Instead, `scripts/install-hooks.sh`
+points the clone at `.githooks/`, and every `git push` first runs `check.sh lint`, `tests` and `gate`: ruff,
+the unit tests, and the verdict on every committed real trace, including the timing regression gate. It aborts
+the push on a failure; `git push --no-verify` skips it. It needs `tracelens` on the PATH (the project venv).
+
 ## License
 
 MIT
