@@ -32,6 +32,8 @@
   function setStatus(text, cls) {
     const p = $("lv-status"); p.textContent = text; p.className = "pill " + (cls || "st-info") + (S.done ? "" : " busy");
   }
+  const NAMES = { z1_infusion_pump: "infusion pump", z2_brake_by_wire: "brake-by-wire", z3_sensor_fusion: "sensor fusion",
+    z4_camera_pipeline: "camera pipeline", z5_motor_encoder: "motor encoder" };
   function say(text) { $("lv-now").textContent = text; }
   function log(text) {
     const li = el("li", null, text); const box = $("lv-log"); box.prepend(li);
@@ -152,7 +154,7 @@
   const H = {
     start(e) {
       S.runs = e.runs; S.files = e.files || {}; S.file = Object.keys(S.files).find((f) => f.endsWith(".c")) || Object.keys(S.files)[0];
-      $("lv-title").textContent = "Fixing " + e.workload; $("lv-file").textContent = S.file || "";
+      $("lv-title").textContent = "Fixing the " + (NAMES[e.workload] || String(e.workload).replace(/^z\d+_/, "").replace(/_/g, " ")); $("lv-file").textContent = S.file || "";
       S.base = S.files[S.file] || "";
       setStatus("Working", "st-info"); addStep("record_before", 0); planRound(1); showCode("base");
       log("Started: " + e.runs + " recordings before and after, up to " + e.max_rounds + " rounds");
@@ -207,7 +209,7 @@
           if (l.startsWith("+")) { S.changed.add(n); n++; } else if (!l.startsWith("-")) { n++; }
         });
       }
-      showCode("base");  // first: where the error is
+      showCode("base");  // first: the original code, where the problem is
       log("Fix written: " + e.remedies.filter((r) => r.rule !== "symptom").map((r) => r.title).join("; "));
     },
     build(e) { log(e.ok ? "Built with qcc (round " + e.round + ")" : "Build failed (round " + e.round + ")"); },

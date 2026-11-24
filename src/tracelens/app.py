@@ -199,7 +199,7 @@ def layout(title: str, body: str, active: str = "") -> bytes:
             f'<footer><div class=in><div>TraceLens finds, fixes and proves real-time bugs in QNX programs. '
             f'Open source: <a href="https://github.com/sheikh2583/QNX-Global-Hackathon">github.com/sheikh2583/'
             f'QNX-Global-Hackathon</a>.</div><div>Built for QNX SDP 8.0 · runs on your machine · no account, '
-            f'runs offline · no data kept · v{escape(__version__)}</div></div></footer></body></html>').encode()
+            f'runs offline · no data kept · v{escape(__version__.split(".dev")[0])}</div></div></footer></body></html>').encode()
 
 
 LEGEND = ('<div class=legend><span><i style="background:var(--run)"></i>running</span>'
@@ -399,6 +399,138 @@ def chart_before_after(rows: list[tuple[str, float, float, float]]) -> str:
     return legend + f'<div class=scroll style="padding:8px 6px">{"".join(s)}</div>'
 
 
+def trace_facts(a: Analysis) -> str:
+    """What the recording itself is: the numbers an engineer checks before believing any finding."""
+    m, t = a.model, a.model.trace
+    procs = {k[0] for k in m.threads}
+    cpus = sorted({iv.cpu for th in m.threads.values() for iv in th.intervals if iv.cpu >= 0})
+    integrity = ("none detected" if not m.integrity else
+                 f"{m.integrity_violations} scheduler state violations ({'lossy' if m.lossy else 'tolerated'})")
+    rows = [("Kernel events", f"{len(m.events):,}"),
+            ("Duration", f"{(m.t_end - m.t_start) / 1e6:,.0f} ms"),
+            ("Threads / processes", f"{len(m.threads)} / {len(procs)}"),
+            ("CPUs seen running", ", ".join(str(c) for c in cpus) or "-"),
+            ("Trace clock", f"{t.cycles_per_sec:,} cycles/s (from the trace header)"),
+            ("Counter wraps unwrapped", f"{t.wraps}"),
+            ("Events re-ordered across CPUs", f"{t.reordered:,}"
+             + (f" (max {t.max_reorder_ns / 1000:.1f} us apart)" if t.reordered else "")),
+            ("Dropped events", integrity),
+            ("Lines the parser did not understand", f"{t.unparsed_lines}")]
+    return "".join(f"<tr><td>{escape(k)}</td><td class=n>{escape(v)}</td></tr>" for k, v in rows)
+
+
+QNX_FACILITIES = [
+    ("<code>procnto-smp-instr</code> + <code>tracelogger -w</code>",
+     "The instrumented kernel writes every scheduling decision, kernel call and message. Wide mode keeps the "
+     "arguments, which is what makes the evidence below possible."),
+    ("<code>THREAD</code> state events",
+     "Each thread's life as the kernel saw it: RUNNING, READY, SEM, MUTEX, SEND, REPLY. Priorities come from "
+     "these events over time, so a priority a thread <em>inherited</em> is visible and is used for the comparison."),
+    ("<code>KER_CALL</code> / <code>KER_EXIT</code> with arguments",
+     "<code>SYNC_SEM_WAIT</code> carries the semaphore's address, so the thread that blocks and the thread that "
+     "releases are matched on the same object rather than guessed."),
+    ("<code>COMM</code> events and <code>CONNECT_ATTACH</code>",
+     "Message passing is resolved to the serving process by rcvid pairing, so a client/server pair made before "
+     "the recording started is still understood."),
+    ("<code>SYSTEM :IST_ATTACH</code>",
+     "Which thread serves which interrupt, and at what priority: the deferred-work fix places its worker below "
+     "every interrupt thread in the trace, not below a number we chose."),
+    ("<code>qcc</code> on the target toolchain",
+     "The fix is compiled for QNX with the real compiler and run on the real kernel. Nothing is simulated in "
+     "the proof step."),
+]
+
+
+def evidence_chain(a: Analysis, f: Finding) -> str:
+    """The facts a priority inversion needs, each tied to the kernel event that shows it."""
+    m = a.model
+    evs = sorted((m.by_id[i] for i in f.evidence if i in m.by_id), key=lambda e: e.t_ns)
+    t0 = m.t_start
+    mt = f.metrics
+    high = escape(f.threads[0]) if f.threads else "the urgent thread"
+    low = escape(f.threads[1]) if len(f.threads) > 1 else "the holder"
+
+    def at(e) -> str:
+        return f"<code>E{e.id}</code> at {(e.t_ns - t0) / 1e6:.3f} ms"
+
+    blocked = mt.get("worst_block_ms")
+    interf = mt.get("worst_interference_ms")
+    obj = mt.get("object_id")
+    facts = [
+        ("The urgent thread blocked on a shared object",
+         f"{high} left the CPU into a waiting state" + (f", {at(evs[0])}" if evs else "")
+         + (f", blocked {blocked:.2f} ms at worst" if blocked else "")),
+        ("A lower-priority thread held that same object",
+         f"{low} had taken it and released it later" + (f", {at(evs[-1])}" if len(evs) > 1 else "")
+         + (f" &mdash; matched on the object's own address <code>{escape(str(obj))}</code> from the kernel "
+            "call's arguments, not inferred" if obj else "")),
+        ("The holder could not run: something in between held the CPU",
+         (f"for {interf:.2f} ms of that wait" if interf else "medium-priority work ran")
+         + " a medium-priority thread held a CPU the holder was READY to use"
+         + (f" ({mt['interference_ratio']:.0%} of the block)" if mt.get("interference_ratio") else "")),
+        ("It repeats, so it is the design and not luck",
+         f"{mt.get('occurrences', '?')} times in this one recording"),
+    ]
+    return "".join(f"<tr><td>{escape(k)}</td><td class=muted>{v}</td></tr>" for k, v in facts)
+
+
+def verdict_rows(rounds: list[dict]) -> str:
+    """Per round: runs, p99, late jobs and the actual p-value, from the committed verdict files."""
+    out = []
+    for i, v in enumerate(rounds, 1):
+        d = (v.get("deadlines") or [{}])[0]
+        runs = v.get("runs", {})
+        p = d.get("p_value")
+        p_txt = "-" if p is None else ("p &lt; 1e-300" if p == 0 else f"p = {p:.2g}")
+        ok = v.get("verdict") == "VERIFIED"
+        pill = "st-ok" if ok else "st-bad"
+        label = "Verified" if ok else escape(str(v.get("verdict", "")))
+        out.append(f"<tr><td>Round {i}</td>"
+                   f"<td class=n>{runs.get('before', 0)} before, {runs.get('after', 0)} after</td>"
+                   f"<td class=n>{d.get('before_p99', 0) / 1e6:.2f} &rarr; {d.get('after_p99', 0) / 1e6:.2f} ms "
+                   f"(budget {d.get('budget_ns', 0) / 1e6:.0f})</td>"
+                   f"<td class=n>{d.get('before_misses', 0)} &rarr; {d.get('after_misses', 0)}</td>"
+                   f"<td class=n>{p_txt}</td>"
+                   f'<td><span class="pill {pill}">{label}</span></td></tr>')
+    return "".join(out)
+
+
+def radar_section(a: Analysis, res: Results) -> str:
+    """What the learned radar says about this recording, and what it adds across all of them."""
+    from .ml.radar import annotate
+    here = ""
+    found = annotate(a, append=False)
+    if found:
+        f = found[0]
+        here = (f'<div class=card><div class=fhd><b>On this recording</b>'
+                f'<span class="pill sev-medium">Worth a look</span></div><p>{escape(f.summary)}</p>'
+                f'<p class="muted small">Score {f.metrics.get("score")} against a threshold of '
+                f'{f.metrics.get("threshold")}, learned from healthy traces alone. The rules found this bug too '
+                f'and proved it; the point is that the model was never told this bug class exists.</p></div>')
+    c = (res.ml or {}).get("contribution") or {}
+    if not c:
+        return here or "<p class=muted>No learned model is bundled with this build.</p>"
+    rules = c.get("rules_only", 0) + c.get("both", 0)
+    union = rules + c.get("radar_only", 0)
+    rows = [("Caught by the rules, missed by the radar", str(c.get("rules_only", 0))),
+            ("Caught by both", str(c.get("both", 0))),
+            ("<b>Caught by the radar with no rule firing</b>", f"<b>{c.get('radar_only', 0)}</b>"),
+            ("Caught by neither", str(c.get("neither", 0))),
+            ("False alarms on the healthy recordings",
+             f"<b>{c.get('false_alarms', 0)}</b> of {c.get('healthy', 0)}")]
+    table = "".join(f"<tr><td>{k}</td><td class=n>{v}</td></tr>" for k, v in rows)
+    note = escape(str((res.ml or {}).get("note", "")))
+    return (here + f'<h3>What it adds, on recordings it never trained on</h3>'
+            f'<div class=scroll><table><thead><tr><th>On {c.get("buggy", 0)} held-out buggy recordings</th>'
+            f'<th>Traces</th></tr></thead><tbody>{table}</tbody></table></div>'
+            f'<p>The rules alone find {rules} of {c.get("buggy", 0)}; with the learned radar, {union}. Almost all '
+            f'of the difference is bug classes <b>no rule exists for</b>.</p>'
+            f'<p class="muted small">{note}. A learned finding is only ever MEDIUM: it never fails a build and '
+            f'never gets an automatic patch, because "unlike anything healthy" is a lead, not a proof. On the five '
+            f'bug classes that do have rules, the rules are the better answer &mdash; they cite the kernel events '
+            f'that prove it.</p>')
+
+
 # ----------------------------------------------------------------------------- results data
 class Results:
     """The committed results (docs/results), read once."""
@@ -409,6 +541,8 @@ class Results:
         self.fix = json.loads((r / "fix.json").read_text(encoding="utf-8")) if (r / "fix.json").exists() else {"rows": []}
         self.det = json.loads((r / "detect.json").read_text(encoding="utf-8")) if (r / "detect.json").exists() \
             else {"workloads": [], "negatives": []}
+        # What the learned radar adds, written by scripts/train_eval.py (never typed in here).
+        self.ml = json.loads((r / "ml.json").read_text(encoding="utf-8")) if (r / "ml.json").exists() else {}
 
     @property
     def verified(self) -> int:
@@ -647,6 +781,7 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
         f'{w["buggy_clean_runs"]}</td><td class=n>{w["reference_runs_with_findings"]}/{w["reference_clean_runs"]}</td></tr>'
         for w in res.det["workloads"])
     neg_runs = sum(x["runs"] - x["lossy"] for x in res.det["negatives"])
+    runs_on_target = sum(x["buggy_clean_runs"] + x["reference_clean_runs"] for x in res.det["workloads"])
     neg_bad = sum(x["runs_with_findings"] for x in res.det["negatives"])
     fix_rows = "".join(
         f'<tr><td>{escape(WORKLOADS.get(r["workload"], (r["workload"],))[0])}</td><td>'
@@ -665,8 +800,9 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
                 f'<p><span class="pill {"st-ok" if ok else "st-bad"}">{"Verified" if ok else "Not fixed yet"}</span></p></div>')
 
     nav = "".join(f'<a href="#{i}">{t}</a>' for i, t in (
-        ("program", "1 · The program"), ("recording", "2 · The recording"), ("found", "3 · What TraceLens found"),
-        ("fix", "4 · The fix"), ("proof", "5 · Proof on QNX"), ("reliable", "6 · Is it reliable?"), ("try", "7 · Try it")))
+        ("program", "1 · The program"), ("target", "2 · Where it runs"), ("recording", "3 · The recording"), ("found", "4 · What TraceLens found"),
+        ("how", "5 · How it knows"), ("fix", "6 · The fix"), ("proof", "7 · Proof on QNX"),
+        ("learned", "8 · What it learned"), ("reliable", "9 · Is it reliable?"), ("try", "10 · Try it")))
     dur = (m.t_end - m.t_start) / 1e6
     body = f"""
 <section class=hero>
@@ -687,7 +823,41 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
   <p class=muted>The buffer is guarded with a semaphore. That looks correct, compiles cleanly, and passes code review.</p>
 </section>
 
-<section id=recording><div class=eyebrow>Step 2</div><h2>The recording</h2>
+<section id=target><div class=eyebrow>Step 2</div><h2>Where it runs: QNX 8.0 on a QEMU machine</h2>
+  <p>Nothing here is a mock-up. The programs run on a real QNX 8.0 kernel booted in QEMU, with the instrumented
+  kernel (<code>procnto-smp-instr</code>) on 4 CPUs. TraceLens drives that machine from the host, over ssh, in four steps:</p>
+  <div class=grid3>
+    <div class=card><span class=step>1 &middot; Boot</span><h3>Start the target</h3>
+      <pre>tracelens target up --user-net</pre>
+      <p class=muted>QEMU boots the QNX image. Its own virtual network forwards ssh to <code>127.0.0.1:2222</code>,
+      so there is no bridge, DHCP server or admin password to set up.</p></div>
+    <div class=card><span class=step>2 &middot; Record</span><h3>Run it under the kernel tracer</h3>
+      <pre>tracelens capture ./z1_infusion_pump</pre>
+      <p class=muted>The program is copied to the machine, run with <code>tracelogger</code> on, and the raw kernel
+      trace is brought back.</p></div>
+    <div class=card><span class=step>3 &middot; Analyze</span><h3>Find the bug</h3>
+      <pre>tracelens analyze trace.txt</pre>
+      <p class=muted>The rules and the learned radar run on the host. Same trace in, same answer out.</p></div>
+    <div class=card><span class=step>4 &middot; Fix and prove</span><h3>Patch, rebuild, re-record</h3>
+      <pre>tracelens fix z1_infusion_pump</pre>
+      <p class=muted>The patch is compiled with the real QNX toolchain and run on the same machine, several times
+      before and after, then judged by a statistical test.</p></div>
+  </div>
+  <h3>What has run on it</h3>
+  <div class=grid3>
+    <div class="card stat"><b>{len(res.det["workloads"])} programs</b><span>with a planted real-time bug, each
+      recorded {res.det.get("runs_per_build", 10)} times on this machine, plus a fixed version of each</span></div>
+    <div class="card stat"><b>{runs_on_target} recordings</b><span>in the detection table alone, every one captured
+      on the QNX kernel and committed with the code</span></div>
+    <div class="card stat"><b>{neg_runs} healthy runs</b><span>of QNX's own programs (pidin, an idle system,
+      a file listing) to check the tool stays quiet</span></div>
+  </div>
+  {f'<div class=btns><a class="btn primary" href="/replay/{res.replay_for("z1_infusion_pump")}">Watch a real fix run on the QEMU machine</a></div>' if res.replay_for("z1_infusion_pump") else ""}
+  <p class=muted>The recorded fix above is not a screen recording: it is the event log of a real
+  <code>tracelens fix</code> run on this machine, replayed.</p>
+</section>
+
+<section id=recording><div class=eyebrow>Step 3</div><h2>The recording</h2>
   <p>The program ran on a QNX 8.0 machine with the kernel tracer on: {len(m.events):,} kernel events in
   {dur:,.0f} ms. Every scheduling decision is in there; here are four of them, exactly as the kernel wrote them.</p>
   <pre>{evidence_lines(a, inv, 4)}</pre>
@@ -695,20 +865,44 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
   takes the CPU; the logger, which holds the semaphore, only releases it milliseconds later.</p>
 </section>
 
-<section id=found><div class=eyebrow>Step 3</div><h2>What TraceLens found</h2>
+<section id=found><div class=eyebrow>Step 4</div><h2>What TraceLens found</h2>
   <p>This is the report you would get for your own program. Detection is a set of fixed rules over the kernel's
   own events: the same recording always gives the same answer.</p>
   {''.join(problem_card(a, f, i, remedies) for i, f in enumerate([f for f in findings if f.severity != "low"], 1))}
   {LEGEND}
 </section>
 
-<section id=fix><div class=eyebrow>Step 4</div><h2>The fix TraceLens wrote</h2>
+<section id=how><div class=eyebrow>Step 5</div><h2>How it knows: the QNX mechanisms underneath</h2>
+  <p>Nothing above is inferred from source code or guessed from timing alone. Each finding is a rule over
+  events the QNX kernel itself recorded, and the rules encode how QNX actually schedules.</p>
+  <div class=scroll><table><thead><tr><th>What TraceLens reads</th><th>What it gets from it</th></tr></thead><tbody>
+  {''.join(f'<tr><td>{w}</td><td class=muted>{d}</td></tr>' for w, d in QNX_FACILITIES)}
+  </tbody></table></div>
+
+  <h3>The chain of evidence for the finding above</h3>
+  <p>Priority inversion is not "a thread was slow". It is four facts that must all hold, each one an event
+  with a timestamp, and TraceLens shows the event ids so you can find them in the raw recording:</p>
+  <div class=scroll><table><thead><tr><th>Must hold</th><th>In this recording</th></tr></thead><tbody>
+  {evidence_chain(a, inv)}
+  </tbody></table></div>
+  <p class=muted>On QNX most textbook inversions cannot happen: a pthread mutex inherits priority by default.
+  The ones that can come from objects with no owner to inherit from — an ownerless semaphore, or a channel
+  created with <code>_NTO_CHF_FIXED_PRIORITY</code>. Those are what these rules look for.</p>
+
+  <h3>The recording itself</h3>
+  <p>Before trusting a finding, check the recording it came from. TraceLens reports this for every trace,
+  and refuses a verdict on one where the kernel dropped events:</p>
+  <div class=scroll><table><tbody>{trace_facts(a)}</tbody></table></div>
+  <div class=btns><a class="btn ghost" href="/trace/z1_infusion_pump">Full engineer's report for this trace</a></div>
+</section>
+
+<section id=fix><div class=eyebrow>Step 6</div><h2>The fix TraceLens wrote</h2>
   <p>TraceLens checked that the semaphore is only ever used as a lock (it starts at 1, and every function that
   takes it also gives it back) before replacing it with a QNX mutex that lends its priority to whoever waits.</p>
   <details><summary>Show the full patch</summary><div class=in><pre>{diff_html(patch_txt)}</pre></div></details>
 </section>
 
-<section id=proof><div class=eyebrow>Step 5</div><h2>Proof on the QNX kernel</h2>
+<section id=proof><div class=eyebrow>Step 7</div><h2>Proof on the QNX kernel</h2>
   <p>TraceLens built the patched program with <code>qcc</code>, ran it 5 times on the QNX machine, and compared
   against 5 runs of the original. The first fix was not enough, and TraceLens said so.</p>
   <div class=grid2>
@@ -724,9 +918,24 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
   <div><div class=k>After round 2: 25 ms from the middle of a run of the fixed program</div><div class=scroll>{svgs[1] if len(svgs) > 1 else ""}</div></div>
   <p class=muted>Before, the dose controller sits blocked (red) for most of every period while lower-priority
   telemetry runs (green). After, it runs on time in short bursts.</p>
+
+  <h3>The numbers behind the verdict</h3>
+  <div class=scroll><table><thead><tr><th>Round</th><th>Runs</th><th>Worst case (p99)</th><th>Late jobs</th>
+    <th>Mann-Whitney U</th><th>Verdict</th></tr></thead><tbody>{verdict_rows(rounds)}</tbody></table></div>
+  <p class=muted small>Five recordings per side, each a separate run of the program on the kernel. The test is
+  one-sided: it asks whether the patched program's response times are drawn from a faster distribution, not
+  merely whether an average moved. A round passes only if every targeted finding is gone in every run, no new
+  finding kind appears, and the response times are significantly faster.</p>
 </section>
 
-<section id=reliable><div class=eyebrow>Step 6</div><h2>Is it reliable?</h2>
+<section id=learned><div class=eyebrow>Step 8</div><h2>What it learned: the bugs no rule knows</h2>
+  <p>Rules only find what someone wrote a rule for. TraceLens also learns what healthy QNX scheduling looks
+  like — one thread, one 20 ms window, 19 features of behaviour and no thread names or absolute priorities, so
+  a model cannot memorise our programs — and reports threads that fit nothing healthy.</p>
+  {radar_section(a, res)}
+</section>
+
+<section id=reliable><div class=eyebrow>Step 9</div><h2>Is it reliable?</h2>
   <div class=grid3>
     <div class="card stat"><b>{res.verified} of 5</b><span>bugs fixed and verified on QNX; the fifth (a deadlock) gets the exact lines to change</span></div>
     <div class="card stat"><b>{caught}/{runs}</b><span>buggy runs caught across the five programs</span></div>
@@ -759,7 +968,7 @@ def demo_page(a: Analysis, cfg: Config, res: Results, sources: dict[str, str]) -
   </div>
 </section>
 
-<section id=try><div class=eyebrow>Step 7</div><h2>Try it</h2>
+<section id=try><div class=eyebrow>Step 10</div><h2>Try it</h2>
   <p>Open the other four programs, or analyze your own recording.</p>
   <div class=btns><a class="btn primary" href="/analyze">Analyze your trace</a>
   <a class="btn ghost" href="/examples">The five examples</a></div>
@@ -813,7 +1022,7 @@ background:var(--surface);color:var(--muted);cursor:pointer}.tabs button[aria-pr
 
 
 def live_page(mode: str, events_url: str, title: str = "Live fix", intro: str = "") -> bytes:
-    """The fix as it happens: where the error is, the fix, each run on the target, the verdict.
+    """The fix as it happens: what is wrong, the fix, each run on the target, the verdict.
     ``mode`` is "live" (EventSource from a running `tracelens fix --watch`) or "replay"."""
     controls = ("" if mode == "live" else
                 '<div id=lv-controls hidden><button class="btn ghost" id=lv-pause type=button>Pause</button>'
@@ -831,10 +1040,10 @@ def live_page(mode: str, events_url: str, title: str = "Live fix", intro: str = 
 </section>
 <div class=livegrid>
   <div>
-    <div class=panel><h2>Where the error is</h2><div id=lv-where><p class=muted>TraceLens shows the problem here as soon
+    <div class=panel><h2>What is wrong</h2><div id=lv-where><p class=muted>TraceLens shows the problem here as soon
       as it has read the recordings of the original program.</p></div></div>
     <div class=panel><h2>Your code <span class="muted small" id=lv-file></span></h2>
-      <div class=tabs><button type=button data-tab=base aria-pressed=true>With the error</button>
+      <div class=tabs><button type=button data-tab=base aria-pressed=true>Original</button>
       <button type=button data-tab=fixed aria-pressed=false>After the fix</button>
       <button type=button data-tab=patch aria-pressed=false>The patch</button></div>
       <pre id=lv-code></pre>

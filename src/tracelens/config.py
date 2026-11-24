@@ -39,6 +39,10 @@ class Thresholds:
     deadline_marginal_overshoot: float = 0.25
     irq_max_latency_us: float = 200
     irq_max_handler_us: float = 500
+    # Optional: also flag a handler whose MEDIAN time masked exceeds this (0 = off, the default). A tail
+    # statistic is what emulation jitter inflates; a systematic overrun moves the median too, a one-off
+    # stall does not (docs/results/aarch64.md section 6).
+    irq_median_handler_us: float = 0
     deadlock_min_blocked_us: float = 50_000
     chain_min_depth: int = 3
 

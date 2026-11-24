@@ -35,10 +35,12 @@ BUGGY = {"z1_infusion_pump": S.z1_prio_inversion, "z3_sensor_fusion": S.z3_ipc_d
 class FakeTarget:
     def __init__(self, leaky_reference: str | None = None):
         self.calls = []
+        self.backgrounds = []
         self.leaky_reference = leaky_reference
 
     def __call__(self, label, i, binary, command, args, out, background=None):
         self.calls.append((label, binary, command, tuple(args)))
+        self.backgrounds.append((label, background))
         name = label.split("-")[0]
         if command is not None or label.endswith("-fixed") and name != self.leaky_reference:
             text = S.z0_clean()
@@ -155,3 +157,53 @@ def test_a_lossy_run_is_replaced_by_a_fresh_capture(zoo, cfg, tmp_path):
     assert w["reference_verdict"] == "VERIFIED"
     assert sum(1 for c in inner.calls if c[0] == "z3_sensor_fusion-buggy") == 6
 
+
+
+def test_bin_dir_selects_another_architectures_build(zoo, cfg, tmp_path):
+    """QNX ships mostly on ARM: an aarch64le bug zoo is built beside the x86 one
+    (`make -C bugzoo ARCH=aarch64le OUT=out-aarch64le`), and the evaluation must be able to run that
+    build without moving binaries around. Default behaviour is unchanged (<zoo>/out)."""
+    fake = FakeTarget()
+    eval_detect(zoo, cfg, fake, tmp_path / "res", runs=5, bin_dir=zoo / "out-aarch64le")
+    assert ("z1_infusion_pump-buggy", zoo / "out-aarch64le" / "z1_infusion_pump", None, ("-d", "2")) in fake.calls
+    assert any(c[1] == zoo / "out-aarch64le" / "z1_infusion_pump_fixed" for c in fake.calls)
+    # nothing reached for the x86 build; the healthy negatives are shell commands, not binaries
+    assert all("out-aarch64le" in str(c[1]) for c in fake.calls if c[1] is not None)
+
+
+def test_irq_load_replaces_only_the_interrupt_workloads_background(zoo, cfg, tmp_path):
+    """The zoo records the x86 guest's interrupt source (a serial flood). On the aarch64 virt guest that
+    interrupt never reaches a second listener and a disk write loop does, so the source is a parameter -
+    and it must reach the interrupt-driven workload only, never the others."""
+    default, other = FakeTarget(), FakeTarget()
+    eval_detect(zoo, cfg, default, tmp_path / "a", runs=5, irq=7, only=["z5_motor_encoder"])
+    eval_detect(zoo, cfg, other, tmp_path / "b", runs=5, irq=79, only=["z5_motor_encoder"], irq_load="DISK-LOOP")
+    assert {b for _, b in default.backgrounds} == {load_zoo(zoo / "zoo.toml")[0][-1].background}
+    assert {b for _, b in other.backgrounds} == {"DISK-LOOP"}
+    mixed = FakeTarget()
+    eval_detect(zoo, cfg, mixed, tmp_path / "c", runs=5, only=["z1_infusion_pump"], irq_load="DISK-LOOP")
+    assert "DISK-LOOP" not in {b for _, b in mixed.backgrounds}
+
+
+def test_allow_lossy_keeps_the_traces_and_says_how_many(zoo, cfg, tmp_path):
+    """On emulated aarch64 most traces are 'lossy' by an x86-calibrated check, so excluding them left z5 with
+    no data at all. --allow-lossy keeps them, and the table says how many were kept."""
+    class Lossy(FakeTarget):
+        def __call__(self, label, i, binary, command, args, out, background=None):
+            p = super().__call__(label, i, binary, command, args, out, background)
+            p.write_text(p.read_text(encoding="utf-8") + "\nthis is not a trace line\n", encoding="utf-8")
+            return p
+
+    import tracelens.evaluation as ev
+
+    real = ev.summarize
+    ev.summarize = lambda a, c, path="": ev.replace(real(a, c, path), lossy=True)  # every trace judged lossy
+    try:
+        strict = eval_detect(zoo, cfg, FakeTarget(), tmp_path / "a", runs=5, only=["z1_infusion_pump"])
+        kept = eval_detect(zoo, cfg, FakeTarget(), tmp_path / "b", runs=5, only=["z1_infusion_pump"], allow_lossy=True)
+    finally:
+        ev.summarize = real
+    s, k = strict["workloads"][0], kept["workloads"][0]
+    assert s["buggy_clean_runs"] == 0 and s["lossy_included"] == 0 and s["reference_verdict"] == "INCONCLUSIVE"
+    assert k["buggy_clean_runs"] == 5 and k["lossy_included"] == 10 and k["detected_runs"] == 5
+    assert "10 kept" in (tmp_path / "b" / "detect.md").read_text(encoding="utf-8")

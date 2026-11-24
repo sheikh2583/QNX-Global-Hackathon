@@ -8,8 +8,8 @@ from tracelens.analyze import analyze_text
 from tracelens.cli import main
 from tracelens.config import Config, Deadline
 from tracelens.testing import scenarios as S
-from tracelens.verdict import (INCONCLUSIVE, NOT_FIXED, VERIFIED, RunSummary, compare_runs,
-                               mann_whitney_less, summarize)
+from tracelens.verdict import (INCONCLUSIVE, NOT_FIXED, VERIFIED, RunSummary, compare_runs, holm,
+                               mann_whitney_greater, mann_whitney_less, summarize)
 
 
 @pytest.fixture
@@ -30,6 +30,41 @@ def test_mann_whitney_direction_and_ties():
     _, p_same = mann_whitney_less([5] * 6, [5] * 6)
     assert p_small < 0.01 < 0.99 < p_big
     assert p_same == 1.0 or p_same > 0.4
+
+
+def test_small_samples_get_the_exact_p_value():
+    """5 against 5 has only 252 arrangements, so the smallest one-sided p-value is 1/252 = 0.004.
+
+    The normal approximation puts it near 0.002, which would make a 5-run gate look twice as sure
+    of itself as the data allows.
+    """
+    _, p = mann_whitney_greater([10, 11, 12, 13, 14], [1, 2, 3, 4, 5])
+    assert p == pytest.approx(1 / 252)
+    _, p4 = mann_whitney_greater([5, 6, 7, 8], [1, 2, 3, 4])
+    assert p4 == pytest.approx(1 / 70)
+    _, p3 = mann_whitney_greater([4, 5, 6], [1, 2, 3])
+    assert p3 == pytest.approx(1 / 20)  # 3 runs a side can never reach alpha = 0.05 after correction
+    # Ties are handled exactly too: identical samples cannot be told apart in either direction.
+    assert mann_whitney_greater([1, 1, 1, 1], [1, 1, 1, 1])[1] == 1.0
+    # ...and the two directions agree with each other.
+    a, b = [1, 4, 2, 9, 3], [2, 5, 3, 1, 8]
+    assert mann_whitney_greater(a, b)[1] == pytest.approx(mann_whitney_less(b, a)[1])
+
+
+def test_large_samples_fall_back_to_the_normal_approximation():
+    """The fix engine pools every job of every run; the approximation is right there and is fast."""
+    big_a, big_b = list(range(200)), list(range(100, 300))
+    _, p = mann_whitney_less(big_a, big_b)
+    assert 0 < p < 1e-10
+    assert mann_whitney_less(list(range(40)), list(range(40)))[1] == pytest.approx(0.5, abs=0.05)
+
+
+def test_holm_keeps_the_family_wise_error_rate():
+    assert holm([0.004]) == [0.004]
+    assert holm([0.01, 0.02, 0.03]) == pytest.approx([0.03, 0.04, 0.04])  # x3, x2, x1, kept monotone
+    assert holm([0.5, 0.6]) == pytest.approx([1.0, 1.0])  # clamped at 1
+    # Order in, order out: the adjusted values line up with the metrics they came from.
+    assert holm([0.9, 0.001, 0.5]) == pytest.approx([1.0, 0.003, 1.0])
 
 
 def test_real_fix_is_verified(cfg):

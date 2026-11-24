@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import tomllib
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from collections.abc import Callable
@@ -44,6 +44,16 @@ class NegativeEntry:
     command: str
 
 
+def load_for(z: ZooEntry, irq_load: str | None) -> str | None:
+    """The background load for one workload: the interrupt-driven ones take ``irq_load`` when given.
+
+    The zoo records the x86 guest's interrupt source (a serial flood). Another machine drives its
+    interrupts differently - on the aarch64 `virt` guest the serial port's interrupt never reaches a
+    second listener, a disk write loop's does - so the source is a parameter, not a constant.
+    """
+    return irq_load if (z.needs_irq and irq_load) else z.background
+
+
 def load_zoo(path: str | Path) -> tuple[list[ZooEntry], list[NegativeEntry]]:
     data = tomllib.loads(Path(path).read_text(encoding="utf-8"))
     neg = [NegativeEntry(k, v["command"]) for k, v in data.pop("negative", {}).items()]
@@ -59,6 +69,7 @@ class WorkloadResult:
     runs: int = 0
     skipped: str = ""
     lossy: int = 0
+    lossy_included: int = 0  # lossy traces kept because allow_lossy was set
     buggy_clean_runs: int = 0
     detected_runs: int = 0  # clean buggy runs where every expected kind appeared
     kind_rates: dict[str, float] = field(default_factory=dict)
@@ -80,23 +91,32 @@ class NegativeResult:
 
 
 def _runs(capture: EvalCapturer, label: str, n: int, binary, command, args, out, cfg: Config,
-          background: str | None = None):
+          background: str | None = None, allow_lossy: bool = False):
+    """``allow_lossy``: keep traces the integrity check called lossy instead of excluding and replacing
+    them. For a machine whose clocks make nearly every trace "lossy" (emulated aarch64: 35 of 50), so the
+    exclusion would leave no data; the number kept is returned and reported, never hidden."""
     summaries, kinds_per_run = [], []
-    clean, i = 0, 0
+    clean, i, kept = 0, 0, 0
     while clean < n and i < 2 * n:  # a lossy capture is excluded and replaced, up to n extra
         trace = capture(label, i, binary, command, args, out, background=background)
         i += 1
         a = analyze_file(trace, cfg)
         s = summarize(a, cfg, str(trace))
+        if allow_lossy and s.lossy:
+            s = replace(s, lossy=False)
+            kept += 1
         summaries.append(s)
         kinds_per_run.append(None if s.lossy else {f.kind for f in a.findings if at_least(f.severity, cfg.fail_on)})
         clean += not s.lossy
-    return summaries, kinds_per_run
+    return summaries, kinds_per_run, kept
 
 
 def eval_detect(zoo_dir: str | Path, cfg: Config, capture: EvalCapturer, out_dir: str | Path,
-                runs: int = 5, irq: int | None = None, only: list[str] | None = None) -> dict:
+                runs: int = 5, irq: int | None = None, only: list[str] | None = None,
+                bin_dir: str | Path | None = None, irq_load: str | None = None,
+                allow_lossy: bool = False) -> dict:
     zoo_dir, out = Path(zoo_dir), Path(out_dir)
+    bins = Path(bin_dir) if bin_dir else zoo_dir / "out"
     out.mkdir(parents=True, exist_ok=True)
     zoo, negatives = load_zoo(zoo_dir / "zoo.toml")
     results: list[WorkloadResult] = []
@@ -110,10 +130,11 @@ def eval_detect(zoo_dir: str | Path, cfg: Config, capture: EvalCapturer, out_dir
             continue
         args = [a.replace("{irq}", str(irq)) for a in z.args]
         tdir = out / "traces" / z.name
-        buggy, buggy_kinds = _runs(capture, f"{z.name}-buggy", runs, zoo_dir / "out" / z.name, None, args, tdir,
-                                   cfg, z.background)
-        fixed, fixed_kinds = _runs(capture, f"{z.name}-fixed", runs, zoo_dir / "out" / f"{z.name}_fixed", None,
-                                   args, tdir, cfg, z.background)
+        buggy, buggy_kinds, kept_b = _runs(capture, f"{z.name}-buggy", runs, bins / z.name, None, args, tdir,
+                                           cfg, load_for(z, irq_load), allow_lossy)
+        fixed, fixed_kinds, kept_f = _runs(capture, f"{z.name}-fixed", runs, bins / f"{z.name}_fixed", None,
+                                           args, tdir, cfg, load_for(z, irq_load), allow_lossy)
+        r.lossy_included = kept_b + kept_f
         clean_b = [k for k in buggy_kinds if k is not None]
         clean_f = [k for k in fixed_kinds if k is not None]
         r.runs = runs
@@ -134,13 +155,14 @@ def eval_detect(zoo_dir: str | Path, cfg: Config, capture: EvalCapturer, out_dir
             continue
         nr = NegativeResult(n.name, n.command)
         neg_results.append(nr)
-        _, kinds = _runs(capture, f"negative-{n.name}", runs, None, n.command, [], out / "traces" / "negative", cfg)
+        _, kinds, _kept = _runs(capture, f"negative-{n.name}", runs, None, n.command, [], out / "traces" / "negative",
+                                cfg, allow_lossy=allow_lossy)
         clean = [k for k in kinds if k is not None]
         nr.runs, nr.lossy = len(kinds), len(kinds) - len(clean)
         nr.runs_with_findings = sum(1 for k in clean if k)
         nr.kinds = sorted(set().union(*clean)) if clean else []
 
-    report = {"runs_per_build": runs, "fail_on": cfg.fail_on,
+    report = {"runs_per_build": runs, "fail_on": cfg.fail_on, "allow_lossy": allow_lossy,
               "workloads": [asdict(r) for r in results], "negatives": [asdict(n) for n in neg_results]}
     (out / "detect.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     (out / "detect.md").write_text(detect_markdown(report), encoding="utf-8")
@@ -161,8 +183,10 @@ def detect_markdown(report: dict) -> str:
         ref = f"{w['reference_runs_with_findings']}/{w['reference_clean_runs']}"
         if w["reference_kinds"]:
             ref += f" ({', '.join(w['reference_kinds'])})"
+        lossy_cell = (f"{w['lossy']} excluded, {w['lossy_included']} kept" if report.get("allow_lossy")
+                      else str(w["lossy"]))  # unchanged format unless --allow-lossy
         lines.append(f"| `{w['name']}` | {', '.join(w['expect'])} | {w['detected_runs']}/{clean_b}{extra} "
-                     f"| {ref} | {w['lossy']} | {w['reference_verdict']} |")
+                     f"| {ref} | {lossy_cell} | {w['reference_verdict']} |")
     if report["negatives"]:
         lines += ["", "### Healthy programs (must stay clean)", "",
                   "| Program | Command | Runs with findings | Lossy runs excluded |", "|---|---|---|---|"]
@@ -174,9 +198,11 @@ def detect_markdown(report: dict) -> str:
 
 
 def eval_fix(zoo_dir: str | Path, cfg: Config, make_engine: Callable[..., Any], capture: EvalCapturer,
-             out_dir: str | Path, runs: int = 5, irq: int | None = None, only: list[str] | None = None) -> dict:
+             out_dir: str | Path, runs: int = 5, irq: int | None = None, only: list[str] | None = None,
+             bin_dir: str | Path | None = None, irq_load: str | None = None) -> dict:
     """``make_engine(workload_dir, out_dir) -> FixEngine`` builds a configured engine."""
     zoo_dir, out = Path(zoo_dir), Path(out_dir)
+    bins = Path(bin_dir) if bin_dir else zoo_dir / "out"
     out.mkdir(parents=True, exist_ok=True)
     zoo, _ = load_zoo(zoo_dir / "zoo.toml")
     rows = []
@@ -189,8 +215,8 @@ def eval_fix(zoo_dir: str | Path, cfg: Config, make_engine: Callable[..., Any], 
         args = [a.replace("{irq}", str(irq)) for a in z.args]
         before, clean, i = [], 0, 0
         while clean < runs and i < 2 * runs:  # replace lossy captures, as eval detect does
-            t = capture(f"{z.name}-before", i, zoo_dir / "out" / z.name, None, args, out / z.name / "before",
-                        background=z.background)
+            t = capture(f"{z.name}-before", i, bins / z.name, None, args, out / z.name / "before",
+                        background=load_for(z, irq_load))
             i += 1
             before.append(t)
             clean += not analyze_file(t, cfg).model.lossy

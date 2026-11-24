@@ -1,0 +1,135 @@
+{
+  "runs_per_build": 5,
+  "fail_on": "high",
+  "workloads": [
+    {
+      "name": "z1_infusion_pump",
+      "expect": [
+        "priority_inversion",
+        "deadline_miss"
+      ],
+      "runs": 5,
+      "skipped": "",
+      "lossy": 12,
+      "buggy_clean_runs": 4,
+      "detected_runs": 4,
+      "kind_rates": {
+        "priority_inversion": 1.0,
+        "deadline_miss": 1.0
+      },
+      "unexpected_kinds": [],
+      "reference_runs_with_findings": 0,
+      "reference_clean_runs": 4,
+      "reference_kinds": [],
+      "reference_verdict": "INCONCLUSIVE"
+    },
+    {
+      "name": "z2_brake_by_wire",
+      "expect": [
+        "priority_inversion",
+        "deadline_miss"
+      ],
+      "runs": 5,
+      "skipped": "",
+      "lossy": 7,
+      "buggy_clean_runs": 5,
+      "detected_runs": 5,
+      "kind_rates": {
+        "priority_inversion": 1.0,
+        "deadline_miss": 1.0
+      },
+      "unexpected_kinds": [],
+      "reference_runs_with_findings": 2,
+      "reference_clean_runs": 5,
+      "reference_kinds": [
+        "deadline_miss"
+      ],
+      "reference_verdict": "NOT FIXED"
+    },
+    {
+      "name": "z3_sensor_fusion",
+      "expect": [
+        "ipc_deadlock"
+      ],
+      "runs": 5,
+      "skipped": "",
+      "lossy": 6,
+      "buggy_clean_runs": 5,
+      "detected_runs": 5,
+      "kind_rates": {
+        "ipc_deadlock": 1.0
+      },
+      "unexpected_kinds": [],
+      "reference_runs_with_findings": 0,
+      "reference_clean_runs": 5,
+      "reference_kinds": [],
+      "reference_verdict": "VERIFIED"
+    },
+    {
+      "name": "z4_camera_pipeline",
+      "expect": [
+        "mutex_contention",
+        "deadline_miss"
+      ],
+      "runs": 5,
+      "skipped": "",
+      "lossy": 4,
+      "buggy_clean_runs": 5,
+      "detected_runs": 5,
+      "kind_rates": {
+        "mutex_contention": 1.0,
+        "deadline_miss": 1.0
+      },
+      "unexpected_kinds": [],
+      "reference_runs_with_findings": 1,
+      "reference_clean_runs": 5,
+      "reference_kinds": [
+        "deadline_miss"
+      ],
+      "reference_verdict": "NOT FIXED"
+    },
+    {
+      "name": "z5_motor_encoder",
+      "expect": [
+        "irq_handler_overrun"
+      ],
+      "runs": 0,
+      "skipped": "needs --irq (interrupt source)",
+      "lossy": 0,
+      "buggy_clean_runs": 0,
+      "detected_runs": 0,
+      "kind_rates": {},
+      "unexpected_kinds": [],
+      "reference_runs_with_findings": 0,
+      "reference_clean_runs": 0,
+      "reference_kinds": [],
+      "reference_verdict": ""
+    }
+  ],
+  "negatives": [
+    {
+      "name": "pidin_loop",
+      "command": "for i in 1 2 3 4 5 6 7 8 9 10; do pidin > /dev/null; done",
+      "runs": 10,
+      "lossy": 10,
+      "runs_with_findings": 0,
+      "kinds": []
+    },
+    {
+      "name": "idle_system",
+      "command": "sleep 2",
+      "runs": 10,
+      "lossy": 10,
+      "runs_with_findings": 0,
+      "kinds": []
+    },
+    {
+      "name": "shell_io",
+      "command": "for i in 1 2 3 4 5; do ls -lR /proc/boot > /dev/null; done",
+      "runs": 10,
+      "lossy": 10,
+      "runs_with_findings": 0,
+      "kinds": []
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Free, local CI: lint, tests and every trace verdict (incl. the timing gate) before a push leaves this machine.
+# Install once with: scripts/install-hooks.sh   Skip in an emergency with: git push --no-verify
+set -u
+cd "$(git rev-parse --show-toplevel)"
+echo "pre-push: running scripts/check.sh lint, tests, gate"
+for step in lint tests gate; do
+  scripts/check.sh "$step" || { echo "pre-push: $step failed, push aborted" >&2; exit 1; }
+done

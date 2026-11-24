@@ -2,6 +2,7 @@
 
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -145,3 +146,48 @@ def test_a_broken_viewer_never_breaks_the_fix(cfg, tmp_path):
     eng = FixEngine(ROOT / "bugzoo" / "z1_infusion_pump", [ROOT / "bugzoo" / "common"], cfg, FakeBuilder(),
                     capturer(S.z1_prio_inversion, S.z0_clean), tmp_path / "bundle", runs=5, on_event=boom)
     assert eng.run().status == "VERIFIED"
+
+
+# ----------------------------------------------- the rebuilt binary must match the target's arch
+def test_qcc_builder_targets_the_architecture_it_is_given(tmp_path):
+    """QNX ships mostly on ARM. A fix rebuilt for x86_64 will not run on an aarch64 target at all,
+    so the qcc target is a parameter, not a constant (docs/results/aarch64.md)."""
+    from tracelens.fix import QccBuilder
+
+    seen = []
+
+    def run(argv):
+        seen.append(argv)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    src = tmp_path / "main.c"
+    src.write_text("int main(void){return 0;}\n", encoding="utf-8")
+    QccBuilder(run=run).build([src], [], tmp_path / "a")
+    assert "-Vgcc_ntox86_64" in seen[0]  # the default stays the architecture every number comes from
+    QccBuilder(arch="aarch64le", run=run).build([src], [], tmp_path / "a")
+    assert "-Vgcc_ntoaarch64le" in seen[1]
+
+
+def test_fix_command_passes_its_arch_to_the_builder(tmp_path, monkeypatch):
+    """`tracelens fix --arch aarch64le` must reach qcc; without the flag the loop silently built
+    x86_64 binaries whatever the target was."""
+    import tracelens.fix as fix_mod
+    from tracelens.cli import main
+
+    built = {}
+
+    class Engine:
+        def __init__(self, _wl, _inc, _cfg, builder, *_a, **_kw):
+            built["arch"] = builder.arch
+
+        def run(self, before_traces=None):
+            return SimpleNamespace(workload="w", runs=1, remedies=[], verdict=None,
+                                   status="NOTHING TO FIX", quick=True, bundle=tmp_path)
+
+    monkeypatch.setattr(fix_mod, "FixEngine", Engine)
+    wl = tmp_path / "z9_demo"
+    wl.mkdir()
+    assert main(["fix", str(wl), "--host", "127.0.0.1:2223", "--arch", "aarch64le"]) == 0
+    assert built["arch"] == "aarch64le"
+    assert main(["fix", str(wl), "--host", "127.0.0.1:2223"]) == 0
+    assert built["arch"] == "x86_64"

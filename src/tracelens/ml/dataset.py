@@ -187,7 +187,12 @@ def tlgen_args(scenario: str, params: dict, seconds: int = 2, irq: int = 4) -> l
     return args
 
 
-def make_plan(per_scenario: int, seed: int = 7, scenarios: list[str] | None = None) -> list[dict]:
+def make_plan(per_scenario: int, seed: int = 7, scenarios: list[str] | None = None, irq: int = 4,
+              irq_load: str = IRQ_BACKGROUND) -> list[dict]:
+    """``irq``: the interrupt the interrupt scenarios attach to; ``irq_load``: the shell command that
+    makes it fire. The defaults are the x86 QEMU guest's: COM1 (interrupt 4) driven by a serial flood.
+    On the aarch64 ``virt`` guest neither works - attaching to interrupt 4 waits forever and the UART's
+    own interrupt (33) never reaches a second listener - the virtio disk (79) with a write loop does."""
     rng = random.Random(seed)
     plan = []
     for scenario in scenarios or list(SCENARIOS):
@@ -197,8 +202,8 @@ def make_plan(per_scenario: int, seed: int = 7, scenarios: list[str] | None = No
             h = int(hashlib.sha256(f"{seed}:{ident}".encode()).hexdigest(), 16)
             plan.append({"id": ident, "scenario": scenario, "label": SCENARIOS[scenario].label,
                          "known": SCENARIOS[scenario].known, "split": split_of(scenario, params, h),
-                         "params": params, "args": tlgen_args(scenario, params),
-                         "background": IRQ_BACKGROUND if SCENARIOS[scenario].needs_irq else None})
+                         "params": params, "args": tlgen_args(scenario, params, irq=irq),
+                         "background": irq_load if SCENARIOS[scenario].needs_irq else None})
     return plan
 
 

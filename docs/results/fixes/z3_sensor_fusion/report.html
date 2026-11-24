@@ -46,7 +46,7 @@ border-radius:10px;padding:10px}
 border:1px solid var(--line);margin-left:6px;color:var(--muted)}
 </style></head><body><main>
 <h1>z3_sensor_fusion<span class="verdict v-guide">GUIDED</span></h1>
-<div class=muted>Found in the trace, fixed in the source, proven on QNX: 5 runs before, 5 after. TraceLens 0.1.0.dev0, no model involved.</div>
+<div class=muted>Found in the trace, fixed in the source, proven on QNX: 5 runs before, 5 after. The patch is written by fixed rules, not a model. TraceLens 0.1.0.</div>
 
 <h2>What TraceLens changed, and why</h2>
 <div class=rem><b>Break the Send/Reply cycle with a send hierarchy</b><span class=tag>guided</span><span class=tag>rule ipc-cycle</span><span class=tag>round 1</span><p>QNX message passing is synchronous: a thread blocked in MsgSend() cannot receive. If two servers send to each other, each waits for the other to receive. QNX designs avoid this with a send hierarchy: messages only flow one way; the other direction uses non-blocking notifications (MsgSendPulse()/MsgDeliverEvent()) and the notified side pulls the data.</p><div class=muted>Source locations</div><ul><li><code>main.c:31</code> <code>if (MsgSend(coid, &amp;msg, sizeof msg, &amp;reply, sizeof reply) == -1)</code></li></ul><div class=muted>What to do</div><ul><li>The trace shows the cycle fusion_a -&gt; fusion_b -&gt; fusion_a; these MsgSend() calls are where it closes.</li><li>Pick a direction (usually: the more central server never sends to its clients). On the other side, replace MsgSend() with MsgSendPulse() (or MsgDeliverEvent() from a reply), and let the receiver fetch what it needs with its own MsgSend() down the hierarchy.</li><li>Not automated: the reply carries data, so the new protocol is a design decision.</li></ul></div>

@@ -28,6 +28,12 @@ Recorded runs: [results_real.md](ml/results_real.md), [results_sim.md](ml/result
   5 detectors + deadline misses, HTML/JSON/SARIF/Perfetto output, exit codes.
 - **Fix engine** — QNX-specific source transforms with safety preconditions, `qcc` build, before/after
   capture, Mann-Whitney U verdict, up to 3 rounds.
+- **Regression gate** — `tracelens baseline save` records per-deadline and per-job-stream response
+  distributions with provenance into committable JSON; `tracelens gate` fails a later build that is
+  statistically slower (one-sided Mann-Whitney U on per-capture p99, Holm-Bonferroni across metrics,
+  effect floors), that grew a new finding kind, or that went newly over budget. Says INCONCLUSIVE
+  rather than guessing when there are too few clean captures, a deadline vanished or a budget moved.
+  Terminal, `--json` and HTML output; 24 tests on the committed real captures and the simulator.
 - **Web app** — consumer pages, guided demo for judges, upload-your-own-trace, Render blueprint.
 - **Simulator** — a model of the QNX 8.0 scheduler writing real `traceprinter` traces: 1,920 labelled
   recordings in ~6 minutes, no target needed.
@@ -59,6 +65,15 @@ Recorded runs: [results_real.md](ml/results_real.md), [results_sim.md](ml/result
 - [ ] Simulated interrupt threads are preempted ~2x more often than real ones (`preempts_per_ms` 4.2–4.9
       vs 0–2.1) and serve interrupts ~2x as often; real threads spread over more CPUs than the simulated
       scheduler allows. Then re-run `scripts/sim_experiment.py` so the recorded numbers match. *(me)*
+
+### 3b. The judges' demo — technical depth (2026-11-23)
+- [x] New step **"How it knows"**: the QNX facilities each rule reads (`procnto-smp-instr`/`tracelogger -w`,
+      THREAD state events, kernel-call arguments, COMM pairing, `IST_ATTACH`, `qcc`), the chain of evidence
+      for a finding with event ids and timestamps, and the recording's own integrity figures.
+- [x] The verdict now shows its statistics: runs per side, p99 before/after, late jobs, the actual
+      Mann-Whitney p-value per round.
+- [x] New step **"What it learned"**: the radar's live finding on the demo trace, and what it adds overall,
+      read from `docs/results/ml.json` (written by `scripts/train_eval.py`, never typed in).
 
 ### 4. Submission
 - [ ] **Render URL is recorded nowhere** (README, Devpost) and the live site has not been checked since

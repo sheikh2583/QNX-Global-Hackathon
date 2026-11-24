@@ -212,3 +212,22 @@ def test_one_long_mutex_wait_is_not_a_hotspot(cfg):
         return next(f for f in analyze_text(_mutex_trace(waits), cfg).findings if f.kind == "mutex_contention")
     assert cont([40] * 6 + [2500]).severity == "medium"
     assert cont([40] * 4 + [2500] * 3).severity == "high"  # three long waits: a pattern
+
+
+def test_median_handler_rule_is_off_by_default_and_ignores_a_tail_spike(cfg):
+    """On a jittery machine (emulated aarch64) a healthy handler's TAIL is inflated, so a tail budget must
+    be loose; a systematic overrun moves the MEDIAN as well, a stall does not. The median rule is opt-in
+    (0 = off) so every published x86 number is unchanged."""
+    from dataclasses import replace
+
+    def over(work, **kw):
+        c = Config(thresholds=replace(cfg.thresholds, irq_max_handler_us=2400, **kw), deadlines=cfg.deadlines)
+        return [f for f in analyze_text(S.z5_irq_overrun(work), c).findings if f.kind == "irq_handler_overrun"]
+
+    steady = [1500] * 200          # every interrupt overruns by 1.5 ms: under a loose 2.4 ms tail budget
+    spike = [50] * 199 + [2000]    # one stall: under the same budget too
+    assert over(steady) == [] and over(spike) == []              # the loose tail rule sees neither
+    on = over(steady, irq_median_handler_us=800)
+    assert len(on) == 1 and on[0].severity == "high" and "median handler time is 1500 us" in on[0].summary
+    assert on[0].metrics["p50_handler_us"] == pytest.approx(1500, abs=2)
+    assert over(spike, irq_median_handler_us=800) == []          # the median rule ignores the tail spike

@@ -27,23 +27,29 @@ def _feature_rows(job: tuple[dict, str, str | None]) -> tuple[str, list[dict]]:
     a = analyze_file(trace if trace.is_absolute() else Path(data_dir) / trace, cfg)
     return item["id"], [
         {"id": item["id"], "scenario": item["scenario"], "label": item["label"], "split": item["split"],
-         "triggered": item.get("triggered"), "thread": a.model.label(key),
+         "triggered": item.get("triggered"), "lossy": bool(item.get("lossy")), "thread": a.model.label(key),
          "role": role_of(item["scenario"], a.model.label(key)), "t0": t0, "t1": t1, "f": f}
         for key, t0, t1, f in windows(a.model)]
 
 
 def features_from_manifest(data_dir: str | Path, out: str | Path, cfg: Config,
                            log: Callable[[str], None] = print, workers: int = 0,
-                           config_path: str | None = None, resume: bool = False) -> int:
+                           config_path: str | None = None, resume: bool = False,
+                           include_lossy: bool = False) -> int:
     """One feature row per (thread, 20 ms window) of every usable trace in ``data_dir``.
 
     ``workers``: processes to parse traces in (0 = one per CPU, 1 = in this one). Parsing dominates,
     and an interrupt-driven capture is ten times the size of a periodic one (35 MB against 3 MB,
     measured), so a serial pass over a night's collection takes hours where a parallel one takes
     minutes. ``resume``: keep the rows already in ``out`` and only add the traces missing from it.
+    ``include_lossy``: also featurise traces the integrity check called lossy, each row tagged
+    ``lossy``. Training never sets it. A cross-machine comparison does: on another machine the check
+    can condemn nearly every trace for a handful of cross-CPU ordering slips, and a comparison that
+    drops them says nothing about the machine (docs/results/aarch64.md).
     """
     data = Path(data_dir)
-    items = [i for i in read_jsonl(data / "manifest.jsonl") if i.get("status") == "ok" and not i.get("lossy")]
+    items = [i for i in read_jsonl(data / "manifest.jsonl")
+             if i.get("status") == "ok" and (include_lossy or not i.get("lossy"))]
     done: set[str] = set()
     if resume and Path(out).exists():
         with open(out, encoding="utf-8") as fh:

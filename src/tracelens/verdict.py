@@ -30,17 +30,11 @@ from .findings import at_least
 VERIFIED, NOT_FIXED, INCONCLUSIVE = "VERIFIED", "NOT FIXED", "INCONCLUSIVE"
 
 
-def mann_whitney_less(after: list[float], before: list[float]) -> tuple[float, float]:
-    """One-sided Mann-Whitney U test that ``after`` tends to be smaller than ``before``.
+EXACT_MAX_N = 60  # above this the normal approximation is used (the DP below gets slow, and n is ample)
 
-    Returns (U for ``after``, p-value) using the normal approximation with tie
-    correction and continuity correction (fine for the >= 5 runs x several jobs
-    sample sizes used here).
-    """
-    n1, n2 = len(after), len(before)
-    if n1 == 0 or n2 == 0:
-        return 0.0, 1.0
-    pooled = sorted([(v, 0) for v in after] + [(v, 1) for v in before])
+
+def _midranks(pooled: list[tuple[float, int]]) -> tuple[list[float], float]:
+    """Mid-ranks of a sorted pooled sample, plus the tie correction sum(t^3 - t)."""
     ranks = [0.0] * len(pooled)
     ties = 0.0
     i = 0
@@ -54,8 +48,51 @@ def mann_whitney_less(after: list[float], before: list[float]) -> tuple[float, f
         t = j - i + 1
         ties += t ** 3 - t
         i = j + 1
-    r1 = sum(r for r, (_, g) in zip(ranks, pooled, strict=False) if g == 0)
+    return ranks, ties
+
+
+def _exact_p_le(ranks: list[float], n1: int, r1: float) -> float:
+    """P(rank sum of a random size-``n1`` subset <= ``r1``) under the null, ties and all.
+
+    The exact conditional permutation distribution: every one of the C(n, n1) splits of these
+    rank values is equally likely when the two samples come from the same distribution. Mid-ranks
+    are multiples of 0.5, so the sums are counted in doubled units with an integer DP over
+    (subset size, doubled sum) -- no enumeration of the splits themselves.
+    """
+    doubled = [int(round(2 * r)) for r in ranks]
+    total = sum(doubled)
+    counts = [[0] * (total + 1) for _ in range(n1 + 1)]
+    counts[0][0] = 1
+    for d in doubled:
+        for k in range(min(n1, len(doubled)) - 1, -1, -1):
+            row, nxt = counts[k], counts[k + 1]
+            for sm in range(total - d, -1, -1):
+                if row[sm]:
+                    nxt[sm + d] += row[sm]
+    row = counts[n1]
+    whole = sum(row)
+    target = int(round(2 * r1))
+    return sum(row[: target + 1]) / whole if whole else 1.0
+
+
+def mann_whitney_less(after: list[float], before: list[float], exact: bool | None = None) -> tuple[float, float]:
+    """One-sided Mann-Whitney U test that ``after`` tends to be smaller than ``before``.
+
+    Returns (U for ``after``, p-value). Small samples (``n <= EXACT_MAX_N``, or ``exact=True``)
+    get the exact conditional permutation p-value, which matters for the run-level comparisons the
+    regression gate makes: with 5 runs against 5 the normal approximation is off by a factor of
+    two, and the smallest p-value obtainable is 1/252 = 0.004. Larger samples (the fix engine pools
+    every job of every run) use the normal approximation with tie and continuity corrections.
+    """
+    n1, n2 = len(after), len(before)
+    if n1 == 0 or n2 == 0:
+        return 0.0, 1.0
+    pooled = sorted([(v, 0) for v in after] + [(v, 1) for v in before])
+    ranks, ties = _midranks(pooled)
+    r1 = sum(r for r, (_, g) in zip(ranks, pooled, strict=True) if g == 0)
     u1 = r1 - n1 * (n1 + 1) / 2
+    if exact or (exact is None and n1 + n2 <= EXACT_MAX_N):
+        return u1, _exact_p_le(ranks, n1, r1)
     mu = n1 * n2 / 2
     n = n1 + n2
     var = n1 * n2 / 12 * ((n + 1) - ties / (n * (n - 1)))
@@ -64,6 +101,32 @@ def mann_whitney_less(after: list[float], before: list[float]) -> tuple[float, f
     z = (u1 - mu + 0.5) / math.sqrt(var)  # small U = after smaller; +0.5 continuity
     p = 0.5 * math.erfc(-z / math.sqrt(2))  # P(Z <= z)
     return u1, p
+
+
+def mann_whitney_greater(x: list[float], y: list[float], exact: bool | None = None) -> tuple[float, float]:
+    """One-sided test that ``x`` tends to be *larger* than ``y`` -- the regression direction."""
+    u, p = mann_whitney_less(y, x, exact=exact)
+    return u, p
+
+
+def holm(p_values: list[float]) -> list[float]:
+    """Holm-Bonferroni adjusted p-values, in the order given.
+
+    Test k metrics at alpha and one of them crosses by chance roughly k*alpha of the time. Holm
+    multiplies the smallest raw p-value by k, the next by k-1, and so on (keeping the sequence
+    monotone), which holds the chance of failing a build that did not regress at alpha *overall*,
+    not per metric. Chosen over Benjamini-Hochberg because a release gate's expensive mistake is
+    the false alarm: controlling the family-wise error rate is the behaviour a team can trust.
+    Uniformly more powerful than plain Bonferroni, and stdlib arithmetic.
+    """
+    k = len(p_values)
+    order = sorted(range(k), key=lambda i: p_values[i])
+    out = [0.0] * k
+    running = 0.0
+    for rank, i in enumerate(order):
+        running = max(running, min(1.0, (k - rank) * p_values[i]))
+        out[i] = running
+    return out
 
 
 @dataclass

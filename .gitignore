@@ -8,6 +8,7 @@ dist/
 reports/
 *.kev.tmp
 bugzoo/out/
+bugzoo/out-*/
 .tracelens-cache/
 captures/
 /fixes/
@@ -17,4 +18,11 @@ demo/out/
 /tracelens-fix.patch
 /reports/
 /models/
+# raw aarch64 captures (7 GB of .kev); the numbers they produced are in docs/results/aarch64.md
+docs/results/aarch64/traces/
+docs/results/aarch64_z5/traces/
+docs/results/aarch64_z5_uart/traces/
 third_party/rt-tests/out/
+
+# promo video work (large, regenerable)
+promo/

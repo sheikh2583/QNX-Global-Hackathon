@@ -6,7 +6,7 @@ Exit codes (CI contract):
   2  usage or input error (including a trace without a clock rate)
   3  inconclusive: the trace is lossy (scheduler state machine broken, usually dropped
      events), so no verdict is given; rerun the capture or pass --allow-lossy.
-     For `compare`: too few clean runs to decide.
+     For `compare` and `gate`: too few clean runs to decide.
 """
 
 from __future__ import annotations
@@ -21,6 +21,10 @@ from .analyze import analyze_file
 from .config import load_config
 from .findings import at_least
 from .ingest.traceprinter import TraceFormatError
+
+#: qcc target the fix loop rebuilds for. The QEMU guest every published number comes from is x86_64;
+#: an ARM image needs ``--arch aarch64le`` so the rebuilt binary runs on it (docs/results/aarch64.md).
+ARCH = "x86_64"
 
 EXIT_LOSSY = 3
 
@@ -150,6 +154,106 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     return {VERIFIED: 0, INCONCLUSIVE: EXIT_LOSSY}.get(v.verdict, 1)
 
 
+def _cmd_baseline(args: argparse.Namespace) -> int:
+    """Record a timing baseline that a later `tracelens gate` run can be measured against."""
+    from .gate import build_baseline, load_baseline, save_baseline, stats_of
+
+    if args.baseline_cmd == "show":
+        try:
+            doc = load_baseline(args.baseline)
+        except ValueError as exc:
+            print(f"tracelens baseline show: {exc}", file=sys.stderr)
+            return 2
+        print(f"TraceLens baseline '{doc['name']}' | {doc['runs']} clean capture(s) | recorded {doc['created']} "
+              f"by TraceLens {doc['tool_version']}")
+        print(f"  config: {doc['config'].get('path') or '(defaults)'}  fail_on={doc['config'].get('fail_on')}")
+        for t in doc["traces"]:
+            print(f"  {'LOSSY ' if t['lossy'] else '      '}{t['name']}  {t['jobs']} jobs  {t['sha256'][:12]}")
+        for kind, rate in doc["finding_rates"].items():
+            print(f"  finding {kind:<24} {rate:.0%} of runs")
+        if not doc["finding_rates"]:
+            print("  no finding at or above the gate severity in any capture")
+        for key, m in doc["metrics"].items():
+            budget = f", budget {m['budget_ms']:.2f} ms" if m.get("budget_ms") else ""
+            print(f"  {key:<24} p99 {min(m['p99_ms']):.2f}-{max(m['p99_ms']):.2f} ms over "
+                  f"{len(m['p99_ms'])} run(s){budget}")
+        for key in doc.get("metrics_not_in_every_run", []):
+            print(f"  note: '{key}' was not in every capture, so it is not part of the baseline", file=sys.stderr)
+        return 0
+
+    cfg = load_config(args.config)
+    if args.fail_on:
+        cfg.fail_on = args.fail_on
+    caps = [stats_of(t, cfg) for t in args.trace]
+    doc = build_baseline(caps, cfg, args.name or Path(args.out).stem, args.config)
+    if not doc["runs"]:
+        print(f"tracelens baseline save: all {len(caps)} captures are lossy, so there is nothing to base a gate "
+              f"on. Recapture (keep the host idle) and try again.", file=sys.stderr)
+        return EXIT_LOSSY
+    out = save_baseline(args.out, doc)
+    print(f"TraceLens {__version__} | baseline '{doc['name']}' -> {out}")
+    print(f"  {doc['runs']} clean capture(s)"
+          + (f", {doc['lossy_excluded']} lossy excluded" if doc["lossy_excluded"] else ""))
+    for key, m in doc["metrics"].items():
+        print(f"  {key:<24} p99 {min(m['p99_ms']):.2f}-{max(m['p99_ms']):.2f} ms, {sum(m['jobs_per_run'])} jobs")
+    if doc["finding_rates"]:
+        print("  findings already in the baseline (the gate reports what *changes*): "
+              + ", ".join(f"{k} {v:.0%}" for k, v in doc["finding_rates"].items()))
+    if doc["runs"] < 5:
+        print(f"  note: {doc['runs']} capture(s) is too few for a rank test; `tracelens gate` will fall back to a "
+              f"threshold rule and say so. 5+ captures per build make the verdict statistical.", file=sys.stderr)
+    return 0
+
+
+def _cmd_gate(args: argparse.Namespace) -> int:
+    """Fail a build whose timing or findings got worse than a recorded baseline."""
+    from .gate import BETTER, PASS, REGRESSION, UNKNOWN, WORSE, gate_files
+
+    cfg = load_config(args.config)
+    if args.fail_on:
+        cfg.fail_on = args.fail_on
+    try:
+        r = gate_files(args.trace, args.baseline, cfg, min_runs=args.min_runs, alpha=args.alpha,
+                       min_regression_pct=args.min_regression_pct, min_regression_us=args.min_regression_us,
+                       strict=args.strict)
+    except ValueError as exc:
+        print(f"tracelens gate: {exc}", file=sys.stderr)
+        return 2
+
+    tag = {WORSE: "WORSE", BETTER: "faster", UNKNOWN: "NO ANSWER"}
+    if not args.quiet:
+        created = r.baseline.get("created")
+        print(f"TraceLens {__version__} | gate '{r.name}' vs baseline from {created} "
+              f"({r.runs_base} capture(s)) | this build: {r.runs_new} clean capture(s)"
+              + (f", {r.lossy_excluded} LOSSY EXCLUDED" if r.lossy_excluded else ""))
+        tested = sum(1 for m in r.metrics if m.p_value is not None)
+        if r.statistical:
+            print(f"  evidence: one-sided Mann-Whitney U on per-capture p99, Holm-adjusted across {tested} "
+                  f"metric(s), alpha {args.alpha:g}")
+        else:
+            print(f"  evidence: threshold rule - {r.runs_base}+{r.runs_new} captures is too few for a p-value")
+        print()
+        for kind, (rb, ra) in r.kind_rates.items():
+            mark = "   NEW: a finding kind the baseline never had" if kind in r.new_kinds else (
+                "   gone" if kind in r.gone_kinds else "")
+            print(f"  {kind:<22} baseline {rb:>4.0%} of runs  ->  now {ra:>4.0%}{mark}")
+        for m in r.metrics:
+            print(f"  {m.key:<22} p99 {m.base_p99_ms:>7.2f} -> {m.new_p99_ms:>7.2f} ms  "
+                  f"{tag.get(m.status, 'same'):<9} {m.reason}")
+        for x in r.reasons:
+            print(f"  - {x}")
+        for w in r.warnings:
+            print(f"  warning: {w}")
+        print(f"  VERDICT: {r.verdict}")
+
+    if args.json:
+        Path(args.json).write_text(json.dumps(r.to_dict(), indent=2) + "\n", encoding="utf-8")
+    if args.html:
+        from .report.gate_html import render_gate
+        Path(args.html).write_text(render_gate(r), encoding="utf-8")
+    return {PASS: 0, REGRESSION: 1}.get(r.verdict, EXIT_LOSSY)
+
+
 def _cmd_remedy(args: argparse.Namespace) -> int:
     """Plan fixes from a trace and the workload source. No target, no network."""
     from .remedy import plan
@@ -244,7 +348,7 @@ def _cmd_fix(args: argparse.Namespace) -> int:
         url = start_live_view(feed, args.watch_port, f"Fixing {workload.name}", open_browser=not args.no_browser)
         print(f"  live view: {url}  (it updates as the fix runs)", flush=True)
         on_event = feed.publish
-    engine = FixEngine(workload, includes, cfg, QccBuilder(), capturer, out, runs=args.runs,
+    engine = FixEngine(workload, includes, cfg, QccBuilder(arch=args.arch), capturer, out, runs=args.runs,
                        target_kinds=args.kind or None, on_event=on_event)
     res = engine.run(before_traces=args.before or None)
     if args.watch:
@@ -305,7 +409,8 @@ def _cmd_simulate(args: argparse.Namespace) -> int:
 def _cmd_data(args: argparse.Namespace) -> int:
     from .ml import dataset
     if args.data_cmd == "plan":
-        plan = dataset.make_plan(args.per_scenario, args.seed, args.scenario or None)
+        plan = dataset.make_plan(args.per_scenario, args.seed, args.scenario or None, irq=getattr(args, "irq", 4),
+                                 irq_load=getattr(args, "irq_load", None) or dataset.IRQ_BACKGROUND)
         dataset.write_jsonl(args.out, plan)
         by = {}
         for item in plan:
@@ -335,7 +440,8 @@ def _cmd_data(args: argparse.Namespace) -> int:
         return 0
     if args.data_cmd == "simulate":
         from .sim.dataset import generate
-        plan = dataset.make_plan(args.per_scenario, args.seed, args.scenario or None)
+        plan = dataset.make_plan(args.per_scenario, args.seed, args.scenario or None, irq=getattr(args, "irq", 4),
+                                 irq_load=getattr(args, "irq_load", None) or dataset.IRQ_BACKGROUND)
         rows = [r for r in generate(plan, args.out, args.config, plan_seed=args.seed, workers=args.workers,
                                     keep_traces=not args.no_traces) if r.get("status") == "ok"]
         by: dict[str, list[int]] = {}
@@ -348,7 +454,7 @@ def _cmd_data(args: argparse.Namespace) -> int:
         return 0
     from .ml.train import features_from_manifest
     n = features_from_manifest(args.data, args.out, load_config(args.config), workers=args.workers,
-                               config_path=args.config, resume=args.resume)
+                               config_path=args.config, resume=args.resume, include_lossy=args.include_lossy)
     print(f"wrote {n} feature rows to {args.out}")
     return 0
 
@@ -389,9 +495,9 @@ def _cmd_target(args: argparse.Namespace) -> int:
     import os
     from .target import Target
     from .target.check import FAIL, preflight, summary_status
-    from .target.qemu import QemuImage
+    from .target.qemu import USER_NET_PORT, QemuImage
 
-    qemu = QemuImage(args.image_dir)
+    qemu = QemuImage(args.image_dir, user_net_port=args.ssh_port or USER_NET_PORT)
     try:
         if args.action == "up":
             ip = qemu.up(timeout=args.timeout, user_net=args.user_net)
@@ -438,7 +544,7 @@ def _cmd_target(args: argparse.Namespace) -> int:
 
 def _cmd_eval(args: argparse.Namespace) -> int:
     import os
-    from .evaluation import eval_detect, eval_fix
+    from .evaluation import eval_detect, eval_fix, load_for
     from .target import Target, capture
 
     cfg = load_config(args.config)
@@ -460,7 +566,8 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     out = Path(args.out)
     try:
         if args.eval_cmd == "detect":
-            eval_detect(args.zoo, cfg, cap, out, runs=args.runs, irq=args.irq, only=only)
+            eval_detect(args.zoo, cfg, cap, out, runs=args.runs, irq=args.irq, only=only,
+                        bin_dir=args.bin_dir, irq_load=args.irq_load, allow_lossy=args.allow_lossy)
             print((out / "detect.md").read_text(encoding="utf-8"))
             return 0
         from .fix import FixEngine, QccBuilder
@@ -469,11 +576,12 @@ def _cmd_eval(args: argparse.Namespace) -> int:
             def fix_cap(binary, _ws, label, i, o):
                 entry = _zoo_entry(args.zoo, Path(workload_dir).name)
                 wargs = [a.replace("{irq}", str(args.irq)) for a in entry.args]
-                return cap(label, i, binary, None, wargs, o, background=entry.background)
-            return FixEngine(workload_dir, [Path(args.zoo) / "common"], cfg, QccBuilder(), fix_cap, engine_out,
-                             runs=args.runs)
+                return cap(label, i, binary, None, wargs, o, background=load_for(entry, args.irq_load))
+            return FixEngine(workload_dir, [Path(args.zoo) / "common"], cfg, QccBuilder(arch=args.arch), fix_cap,
+                             engine_out, runs=args.runs)
 
-        eval_fix(args.zoo, cfg, make_engine, cap, out, runs=args.runs, irq=args.irq, only=only)
+        eval_fix(args.zoo, cfg, make_engine, cap, out, runs=args.runs, irq=args.irq, only=only,
+                 bin_dir=args.bin_dir, irq_load=args.irq_load)
         print((out / "fix.md").read_text(encoding="utf-8"))
         return 0
     except (FileNotFoundError, ImportError) as exc:
@@ -571,6 +679,41 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--json", help="write the verdict as JSON here")
     v.set_defaults(func=_cmd_compare)
 
+    bl = sub.add_parser("baseline", help="record a timing baseline for `tracelens gate` (save | show)")
+    bls = bl.add_subparsers(dest="baseline_cmd", required=True)
+    b1 = bls.add_parser("save", help="per deadline and per job stream, the response-time distribution of N captures")
+    b1.add_argument("trace", nargs="+", help="captures of ONE build (several runs of the same binary)")
+    b1.add_argument("--name", help="what this baseline is of (default: the --out file stem)")
+    b1.add_argument("--out", required=True, help="where to write the baseline JSON (commit it)")
+    b1.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines); fingerprinted in the baseline")
+    b1.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
+    b1.set_defaults(func=_cmd_baseline)
+    b2 = bls.add_parser("show", help="print a baseline file")
+    b2.add_argument("baseline")
+    b2.set_defaults(func=_cmd_baseline)
+
+    g = sub.add_parser("gate", help="fail a build that is statistically slower than a recorded baseline")
+    g.add_argument("trace", nargs="+", help="captures of the build under test")
+    g.add_argument("--baseline", required=True, help="baseline JSON from `tracelens baseline save`")
+    g.add_argument("-c", "--config", help="tracelens.toml (thresholds, deadlines)")
+    g.add_argument("--min-runs", type=int, default=5,
+                   help="clean captures needed on each side for a p-value (default 5; below it, a stated "
+                        "threshold rule and a loud caveat)")
+    g.add_argument("--alpha", type=float, default=0.05,
+                   help="family-wise significance level across every metric tested (default 0.05)")
+    g.add_argument("--min-regression-pct", type=float, default=10.0,
+                   help="a regression must also be this much worse in percent (default 10; 0 disables)")
+    g.add_argument("--min-regression-us", type=float, default=50.0,
+                   help="...and this much worse in absolute microseconds (default 50; 0 disables)")
+    g.add_argument("--strict", action="store_true",
+                   help="withhold a verdict (exit 3) rather than decide without a p-value, or with any lossy "
+                        "capture in the set")
+    g.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
+    g.add_argument("--json", help="write the gate result as JSON here")
+    g.add_argument("--html", help="write an HTML gate report here")
+    g.add_argument("-q", "--quiet", action="store_true")
+    g.set_defaults(func=_cmd_gate)
+
     r = sub.add_parser("remedy", help="plan QNX fixes from a trace + source (no target needed); writes a patch")
     r.add_argument("trace")
     r.add_argument("--source", required=True, help="workload directory (or one .c file)")
@@ -594,6 +737,8 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--kind", action="append", help="finding kind the fix must remove")
     f.add_argument("--before", nargs="+", metavar="TRACE", help="reuse existing 'before' traces")
     f.add_argument("--include", action="append", default=[], help="read-only include dir (default: ../common)")
+    f.add_argument("--arch", default=ARCH, help=f"qcc target for the rebuilt binary (default {ARCH}); use "
+                   "aarch64le when the target is an ARM image, or the patched program will not run on it")
     f.add_argument("--out", help="evidence bundle folder (default: fixes/<workload>)")
     f.add_argument("--watch", action="store_true", help="open a live view of the fix in your browser")
     f.add_argument("--watch-port", type=int, default=8777, help="port for --watch (default 8777)")
@@ -641,6 +786,10 @@ def build_parser() -> argparse.ArgumentParser:
     tg.add_argument("--user-net", dest="user_net", action="store_true", default=None,
                     help="up: run the VM on QEMU's own network with ssh forwarded to 127.0.0.1:2222 "
                          "(no bridge, no DHCP server, no sudo; the default when libvirt's DHCP is not serving)")
+    tg.add_argument("--ssh-port", type=int,
+                    help="up --user-net: host port forwarded to the guest's ssh (default 2222). Give a "
+                         "second VM - another architecture, another session - its own port and its own "
+                         "--image-dir so the two never adopt or stop each other.")
     tg.add_argument("--bridge", dest="user_net", action="store_false",
                     help="up: use libvirt's bridge even if its DHCP looks down")
     tg.add_argument("--host", help="target address for check (default: TRACELENS_TARGET or mkqnximage --getip)")
@@ -655,6 +804,11 @@ def build_parser() -> argparse.ArgumentParser:
     d1.add_argument("--per-scenario", type=int, default=150)
     d1.add_argument("--seed", type=int, default=7)
     d1.add_argument("--scenario", action="append", help="only these scenarios (repeatable)")
+    d1.add_argument("--irq-load", help="shell command that drives that interrupt during each interrupt "
+                    "scenario (default: a serial flood, which works on the x86 guest only)")
+    d1.add_argument("--irq", type=int, default=4,
+                    help="interrupt the interrupt scenarios attach to (default 4, COM1 on the x86 guest; "
+                         "the aarch64 virt machine's UART is 33)")
     d1.add_argument("--out", default="data/plan.jsonl")
     d2 = dps.add_parser("collect", help="run the plan on the QNX target (resumable; keep the host idle)")
     d2.add_argument("--plan", default="data/plan.jsonl")
@@ -681,6 +835,9 @@ def build_parser() -> argparse.ArgumentParser:
     d3.add_argument("--workers", type=int, default=0,
                     help="processes to parse traces in (default: one per CPU; 1 = no parallelism)")
     d3.add_argument("--resume", action="store_true", help="keep the rows already written and add the missing traces")
+    d3.add_argument("--include-lossy", action="store_true",
+                    help="also featurise traces the integrity check called lossy (rows are tagged); for "
+                         "comparing machines, never for training")
     for d in (d1, d2, d3, d4):
         d.set_defaults(func=_cmd_data)
 
@@ -708,8 +865,16 @@ def build_parser() -> argparse.ArgumentParser:
         e2.add_argument("--runs", type=int, default=5)
         e2.add_argument("--seconds", type=int, default=4)
         e2.add_argument("--irq", type=int, help="interrupt for z5 (skipped without it)")
+        e2.add_argument("--allow-lossy", action="store_true",
+                        help="detect: keep traces the integrity check called lossy, and say how many were "
+                             "kept (for a machine whose clocks make most traces lossy)")
+        e2.add_argument("--irq-load", help="shell command that drives that interrupt (default: the zoo's, a "
+                        "serial flood that works on the x86 guest; see docs/results/aarch64.md section 6)")
         e2.add_argument("--only", help="comma-separated workload names")
         e2.add_argument("--out", default="docs/results")
+        e2.add_argument("--arch", default=ARCH, help=f"qcc target for rebuilt binaries (default {ARCH})")
+        e2.add_argument("--bin-dir", help="folder holding the prebuilt workloads (default <zoo>/out); an "
+                        "aarch64le build lives beside the x86 one, e.g. bugzoo/out-aarch64le")
         e2.add_argument("--host")
         e2.add_argument("--user")
         e2.add_argument("--key")

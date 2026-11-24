@@ -5,8 +5,19 @@ from __future__ import annotations
 from html import escape
 
 from .. import __version__
+
 from ..analyze import Analysis
 from ..model.trace import TraceModel
+
+
+def _file_name(path) -> str:
+    """The file's own name, never the folder it happens to live in on this machine."""
+    return str(path).replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _release(version: str) -> str:
+    """'0.1.0.dev0' reads as unfinished to a visitor; show the release it leads up to."""
+    return version.split(".dev")[0]
 
 STATE_COLORS = {
     "RUNNING": "var(--run)",
@@ -136,7 +147,7 @@ def _integrity(a: Analysis) -> str:
                    f'recapture with fewer event classes or a larger buffer.<ul>{items}</ul></div>')
     notes = list(m.trace.issues)
     if getattr(a, "snapshot_path", None):
-        notes.append(f"base priorities seeded from thread snapshot {a.snapshot_path}")
+        notes.append(f"base priorities seeded from the thread snapshot {_file_name(a.snapshot_path)}")
     if notes:
         out.append('<div class=notebox>' + "<br>".join(escape(n) for n in notes) + "</div>")
     return "".join(out)
@@ -150,7 +161,7 @@ def render(a: Analysis) -> str:
         '<meta name=viewport content="width=device-width,initial-scale=1">',
         f"<title>TraceLens Report</title><style>{CSS}</style></head><body><main>",
         "<h1>TraceLens report</h1>",
-        f'<div class=muted>{escape(m.trace.source)} · TraceLens {escape(__version__)}</div>',
+        f'<div class=muted>{escape(_file_name(m.trace.source))} · TraceLens {escape(_release(__version__))}</div>',
         '<div class=stats>',
         f'<div class=stat><b>{len(a.findings)}</b>findings</div>',
         f'<div class=stat><b>{counts["critical"]}</b>critical</div>',
