@@ -119,7 +119,9 @@ file with the current code gives the same 988,704 and 0.87. They come from drift
 produced the committed report and today's code (the stored rows also carry a `lossy` column the current
 extractor no longer writes, and 202 pilot rows have a different `triggered` flag); I did not chase it
 further and did not overwrite `docs/ml/results_train.md`. The simulated-data experiment
-(`scripts/sim_experiment.py`) was not re-run.
+(`scripts/sim_experiment.py --per-scenario 120 --seed 7`, 1,920 simulated traces, then the real fixtures scored
+with the frozen models) **was also re-run** on the fixed parser: the report is identical to the committed
+`docs/ml/results_sim.md` except for the elapsed time (196 s, committed 191 s).
 
 ## 5. What this does not show
 
