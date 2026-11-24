@@ -15,6 +15,7 @@ captures/
 demo/out/
 .site/
 /data/
+/data/bugfix/
 /tracelens-fix.patch
 /reports/
 /models/

@@ -1,0 +1,101 @@
+# Real-bug benchmark manifest (research track R3). Metadata only: no upstream code is stored here.
+#
+# Inclusion criteria (also in docs/research/PROTOCOL.md, E3):
+#   - C or C++ using POSIX threads, semaphores, condition variables, message queues, timers or QNX APIs
+#   - builds with qcc for QNX 8.0 through headers/shims only, no edits to upstream lines
+#   - the bug shows up as scheduling behaviour: hang, deadlock, priority inversion, lost wake-up, starvation, latency
+#   - ground truth exists: an upstream issue or commit describing it, ideally with the developer's fix
+#   - the licence allows redistribution, or the file is fetched by hash
+# status: candidate | reproduced | excluded.  "tool_frozen_before_driver" is false for every entry below: these were
+# worked on before any freeze tag existed, so they are CASE STUDIES, not blind results (see docs/research/CLAIMS.md).
+# Every field marked (verify) has not been checked against the primary source.
+
+[[bug]]
+id = "ttk4147-inversion"
+project = "NTNU TTK4147 exercise 4 (course teaching code)"
+url = "https://github.com/TTK4147/ttk4147-2026-exercise-4-concurrency"
+buggy_commit = "8b4ba232abd89988ff9ec38ec17e4f0749696d85"
+fixed_commit = ""            # the fix is the exercise's own task E; no upstream fix commit
+files_sha256 = { "UnboundedPriorityInversion.c" = "49a59a88ac51eb3608a8caa7e2a28e3cf7b5d8f64b5a2ce5eeaefa03352e8abd" }
+licence = "none stated upstream"
+class_claimed_upstream = "unbounded priority inversion (semaphore used as a lock)"
+symptom_oracle = "TraceLens deadline on the high-priority thread (not independent)"
+port_layer_lines = 0         # header-level shims only (third_party/ttk4147_pi/qnx/include)
+status = "reproduced"
+tool_frozen_before_driver = false
+exclusion_reason = ""
+
+[[bug]]
+id = "memcached-1348"
+project = "memcached 1.6.45"
+url = "https://github.com/memcached/memcached/issues/1348"
+buggy_commit = "2d51e364799bc9698bd4b11728ea978cea12da6e"
+fixed_commit = ""            # open when worked on; the fix tested is the one-line rule output, not an upstream commit
+files_sha256 = { "logger.c" = "9f316367b5b7a3e9c09af97cb398e1e43f610745f2b05dbcca75abffbb5b5d85" }
+licence = "BSD-3-Clause"     # (verify) from the upstream LICENSE file
+class_claimed_upstream = "lost wake-up at graceful shutdown (logger_stop)"
+symptom_oracle = "driver exits 3 when the daemon is still running 6 s after SIGUSR1"
+port_layer_lines = 0         # shims: config.h stand-in, sysexits.h, limits.h (IOV_MAX), -DSA_RESTART=0
+status = "reproduced"
+tool_frozen_before_driver = false
+exclusion_reason = ""
+
+[[bug]]
+id = "nng-1813"
+project = "NNG (nanomsg-next-gen)"
+url = "https://github.com/nanomsg/nng/issues/1813"
+buggy_commit = "85fbe7f9e4642b554d0d97f2e3ff2aa12978691a"   # tag v1.7.3
+fixed_commit = "aac4dc360faca9ccece487ba16371d20d90e6406"   # PR #1824 merge, 2024-04-24
+files_sha256 = {}            # whole-library build; pinned by commit
+licence = "MIT"              # (verify)
+class_claimed_upstream = "deadlock in nng_close() on REQ/REP over ipc://"
+symptom_oracle = "driver watchdog exits 3 when one open/send/close cycle takes over 6 s"
+port_layer_lines = 0         # CMake toolchain file, -DSA_RESTART=0
+status = "reproduced"
+tool_frozen_before_driver = false   # the system missed it first; stuck_job was written afterwards
+exclusion_reason = ""
+
+[[bug]]
+id = "mosquitto-3175"
+project = "Eclipse Mosquitto"
+url = "https://github.com/eclipse-mosquitto/mosquitto/issues/3175"
+buggy_commit = "cd0987a6~1"  # parent of the fix (resolve to a full sha before use)
+fixed_commit = "cd0987a6"    # "Fix potential deadlock in mosquitto_sub if -W is used", 2025-02-27
+files_sha256 = {}
+licence = "EPL-2.0 / EDL-1.0"   # (verify)
+class_claimed_upstream = "mosquitto_sub -W: signal handler re-locks the logging mutex"
+symptom_oracle = "mosquitto_sub still running 8 s after start (external watchdog)"
+port_layer_lines = 0
+status = "excluded"
+tool_frozen_before_driver = true    # pre-registered, system hash 24fec05b8f9f7746
+exclusion_reason = "did not reproduce on QNX 8.0: 0 hangs in 39 runs (docs/results/blind_test/README.md)"
+
+[[bug]]
+id = "jemalloc-585"
+project = "jemalloc"
+url = "https://github.com/jemalloc/jemalloc/issues/585"
+buggy_commit = ""
+fixed_commit = ""
+files_sha256 = {}
+licence = "BSD-2-Clause"     # (verify)
+class_claimed_upstream = "deadlock in je_prof_boot2 (musl libc, libgcc unwinder re-enters malloc)"
+symptom_oracle = ""
+port_layer_lines = 0
+status = "excluded"
+tool_frozen_before_driver = true
+exclusion_reason = "musl-specific; cannot occur on QNX's libc"
+
+[[bug]]
+id = "libzmq-2759"
+project = "libzmq"
+url = "https://github.com/zeromq/libzmq/issues/2759"
+buggy_commit = ""
+fixed_commit = ""
+files_sha256 = {}
+licence = "MPL-2.0"          # (verify)
+class_claimed_upstream = "deadlock between zmq_poll and zmq_send on inproc PAIR sockets"
+symptom_oracle = ""
+port_layer_lines = 0
+status = "excluded"
+tool_frozen_before_driver = true
+exclusion_reason = "no code fix exists; maintainers closed it as misuse of PAIR sockets, so a fix cannot be verified"

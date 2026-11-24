@@ -66,7 +66,7 @@ These are decisions, not preferences. Breaking one makes the project worse in a 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-pytest -q                                          # 203 tests
+pytest -q                                          # 219 tests
 tracelens analyze fixtures/real/z1_infusion_pump.txt.gz -c fixtures/real/tracelens.toml --radar
 tracelens simulate lost_wakeup -o t.txt.gz         # make a trace without a target
 ```
@@ -177,7 +177,7 @@ real ones, and real threads spread over more CPUs than the simulated scheduler a
 
 ```bash
 scripts/check.sh lint     # ruff: dead code, bug patterns, deprecated APIs
-scripts/check.sh tests    # 203 tests (5 skipped); DeprecationWarning is an error
+scripts/check.sh tests    # 219 tests (5 skipped); DeprecationWarning is an error
 scripts/check.sh gate     # every real and synthetic trace gets its expected verdict
 ```
 
