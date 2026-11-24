@@ -94,7 +94,7 @@ tracelens data simulate --per-scenario 120 --out data/sim
 
 # Train and evaluate any mix. Writes models/ and a markdown report.
 python scripts/train_eval.py --real data/real                   # real only
-python scripts/train_eval.py --sim data/sim --real data/real    # both
+python scripts/train_eval.py --sim data/sim --real data/real --test-on data/real   # both; tested on real only (the quoted numbers)
 python scripts/train_eval.py --sim data/sim --test-on data/real # train simulated, test on real
 python scripts/train_eval.py --real data/real --no-classifier   # radar only, no scikit-learn
 
@@ -130,7 +130,7 @@ real ones, and real threads spread over more CPUs than the simulated scheduler a
 
 ## 7. What to do next, in order
 
-1. **Train on the overnight data.** `python scripts/train_eval.py --sim data/sim --real data/real`.
+1. **Train on the overnight data.** `python scripts/train_eval.py --sim data/sim --real data/real --test-on data/real` (without `--test-on` the test set also includes simulated rows, so the numbers differ).
    This is the first time the models see real QNX data; the report tells you which claim is weakest.
 2. **Re-record the Z5 live replay** (~15 min): `tracelens fix bugzoo/z5_motor_encoder --watch --no-browser
    --out fixes/z5_live` then copy `events.jsonl` to `docs/results/fixes/z5_motor_encoder_live/`. The

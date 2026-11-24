@@ -1,6 +1,6 @@
 # TraceLens models: training run
 
-Trained on 988,702 windows from 1,920 traces (qnx, sim); evaluated on 1,909 traces from data/real. Reproduce: `python scripts/train_eval.py --sim data/sim --real data/real --test-on data/real`.
+Trained on 988,704 windows from 1,920 traces (qnx, sim); evaluated on 1,909 traces from data/real. Reproduce: `python scripts/train_eval.py --sim data/sim --real data/real --test-on data/real`.
 
 ## Radar on held-out QNX traces
 
@@ -34,7 +34,7 @@ False alarms on held-out healthy traces: **0 of 148**.
 | healthy | 0.96 | 0.99 | 78361 |
 | ipc_deadlock | 1.00 | 1.00 | 14397 |
 | irq_handler_overrun | 1.00 | 1.00 | 10968 |
-| mutex_contention | 0.96 | 0.88 | 27005 |
+| mutex_contention | 0.96 | 0.87 | 27005 |
 | priority_inversion | 1.00 | 1.00 | 18495 |
 
 ## What the radar adds to the rules
