@@ -2,7 +2,7 @@
 
 Written 2026-11-25. **Status: skeleton.** Each experiment section must be completed and frozen (`frozen: <git sha> <date>`)
 **before any data for it is collected.** After freezing, changes are appended as dated amendments, never edited in place.
-Research questions RQ1-RQ6 are defined in [BUILD_BRIEF.md](BUILD_BRIEF.md); use those labels everywhere.
+Research questions RQ1-RQ6 are defined in [BUILD_AGENT_BRIEF.md](BUILD_AGENT_BRIEF.md); use those labels everywhere.
 
 Global rules: the statistical unit is the **capture**; lossy captures are excluded and counted; failed builds are excluded
 and counted; every table reports misses and false positives; the host is idle during captures and load is logged.

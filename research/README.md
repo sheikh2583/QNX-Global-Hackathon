@@ -1,6 +1,6 @@
 # research/
 
-Experiment code for the research track ([docs/research/BUILD_BRIEF.md](../docs/research/BUILD_BRIEF.md)). It lives apart
+Experiment code for the research track ([docs/research/BUILD_AGENT_BRIEF.md](../docs/research/BUILD_AGENT_BRIEF.md)). It lives apart
 from the product (`src/tracelens/`) so the product keeps its promise: standard library only, no API keys, no cloud,
 deterministic. Nothing here is imported by `src/tracelens/`.
 
