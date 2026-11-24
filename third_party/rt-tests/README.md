@@ -110,3 +110,11 @@ pins them. `ptsematest` and `pmqtest` both run and report cycles.
 
 What TraceLens then found is written up in
 [docs/results/third_party/README.md](../../docs/results/third_party/README.md).
+
+## `control/busy_medium.c` — our own control, not upstream
+
+A ~200-line MIT program written for this project (no upstream code, no compat layer, no TraceLens markers) that holds
+one CPU with a busy medium-priority thread while a low-priority thread holds a lock the high-priority thread wants,
+and measures the high thread's wait itself. `make -C third_party/rt-tests busy` builds `out/busy_medium`;
+`-m pi|none|sem` picks inheriting mutex, `PTHREAD_PRIO_NONE` mutex, or semaphore. It exists because `pi_stress`'s barriers
+keep its inversion short. Results: [docs/results/third_party/README.md](../../docs/results/third_party/README.md) section 7.

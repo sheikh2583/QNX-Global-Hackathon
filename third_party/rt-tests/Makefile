@@ -61,5 +61,13 @@ $(CONTROL): $(OUT)/pi_stress_nopi.c $(LIB_SRC) $(COMPAT)
 
 control: $(CONTROL)
 
+# SECOND CONTROL: our own busy_medium workload (control/busy_medium.c, MIT, not upstream).  It
+# does not use the compat layer or any upstream file.
+BUSY      = $(OUT)/busy_medium
+busy: $(BUSY)
+$(BUSY): control/busy_medium.c | $(OUT)
+	$(QCC) -Vgcc_nto$(ARCH) $(CFLAGS) $(WARN) -o $@ $<
+.PHONY: busy
+
 clean:
 	rm -rf $(OUT)
