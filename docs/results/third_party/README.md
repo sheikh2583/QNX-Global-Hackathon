@@ -98,8 +98,10 @@ quote is tracked, continuation text is attached to the owning event, and a follo
 always wins, so an unterminated quote can never swallow the rest of a trace. Two regression tests
 were added in `tests/test_parser.py`; the full suite passes (166 tests).
 
-The full pytest suite passes. I did **not** run `scripts/check.sh gate` or re-run the earlier
-real-trace evaluations (`docs/ml/results_*.md`), so I have not shown the change leaves them untouched.
+The full pytest suite passes, and `scripts/check.sh gate` passes: every real buggy capture is still
+caught, every reference fix and healthy trace still clean. I did **not** re-run the ML evaluations
+(`docs/ml/results_*.md`), which use the same parser, and I have not diffed their feature tables
+against the old parser's output.
 
 ## 5. What this does not show
 
