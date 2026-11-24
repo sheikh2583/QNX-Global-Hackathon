@@ -8,8 +8,9 @@ and traced on the real target, **the rule detectors reported nothing on any of 1
 them a lossy capture the tool itself refused to judge). The only output was a MEDIUM, learned-radar note on one
 of the three programs, and by the program's design that note is **not a bug**. No rule fired, so
 there was nothing for `remedy` or `fix` to act on. This is a clean result on unseen code, not a
-demonstration that the tool finds bugs; it also does not show the tool *would* find an inversion in
-this kind of program (see "What this does not show").
+demonstration that the tool finds bugs. A separate, labelled control of our own (section 7) shows
+the inversion rule does fire on a sustained inversion on QNX 8.0 (9 of 9 runs) and stays silent
+with priority inheritance on (6 of 6), but it is our program, written to have a known answer.
 
 Parsing real third-party traces did expose one **parser bug, now fixed with a regression test**
 (section 4).
@@ -116,13 +117,15 @@ against the old parser's output.
   its barrier, so even without inheritance the high thread's wait stays short, and the program
   completed all 51 inversions of a smoke run without the deadlock its header comment describes. A
   control that never produces a sustained inversion cannot test whether the rule would fire on one.
+  (Section 7 adds a control that does, and it settles the rule's behaviour on that case.)
 - **Three programs, 16 short runs, one machine** (QEMU VM, 4 virtual CPUs). The ping-pong radar
   alert is one program's behaviour repeated four times, not four independent samples.
 - **The port shims are ours.** Thread-pinning goes through our `sched_setaffinity` emulation;
   upstream's own `verify_cpu()` accepted every worker, so pinning worked, but this is a port, not
   the upstream program on its native OS. `ptsematest`'s own latency numbers are degenerate on QNX
   (a measurement artefact of its `gettimeofday` deltas); TraceLens does not use them.
-- **`remedy` / `fix` were not exercised:** they only act on a rule finding, and none occurred.
+- **`remedy` / `fix` were not exercised on the rt-tests runs:** they only act on a rule finding,
+  and none occurred there. `remedy` was tried on the section 7 control; `fix` was not run.
 
 ## 6. The negative control, as run
 
@@ -144,5 +147,68 @@ of the inversion rule. Two of three captures being lossy is also worth noting: t
 pressure at ~40k events/s is my guess, unverified).
 
 A control that *would* test the rule needs a program whose medium thread keeps the CPU busy while
-the low thread holds the lock, which `pi_stress` does not do. That is a different, labelled workload
-and not run here.
+the low thread holds the lock, which `pi_stress` does not do. That is section 7.
+
+## 7. A control that does sustain the inversion: `busy_medium`
+
+**This is our own program, not third-party code**, and it is a control, so read it as such: we
+wrote it to have a known answer. [`third_party/rt-tests/control/busy_medium.c`](../../../third_party/rt-tests/control/busy_medium.c)
+(MIT, about 200 lines, no TraceLens markers, no use of the port shims) puts three SCHED_FIFO
+threads on **one CPU**: low (prio 10) takes a lock and works for `-c` us; one tick later high
+(prio 30) wants the lock and a medium thread (prio 20) spins for `-b` us. It **measures the high
+thread's wait itself**, so the ground truth does not rely on TraceLens. One flag picks the lock:
+
+| `-m` | Lock | Expected high-thread wait |
+|---|---|---|
+| `pi` | mutex, `PTHREAD_PRIO_INHERIT` | about the critical section |
+| `none` | mutex, `PTHREAD_PRIO_NONE` | about the medium thread's burst |
+| `sem` | `sem_t` used as a lock (ownerless) | about the medium thread's burst |
+
+**Ground truth (the program's own clock, 40 rounds, same VM).** `-c 4000 -b 20000`: `pi` median
+wait 3.1 ms, `none` 20.1 ms, `sem` 20.0 ms. `-c 1500 -b 20000`: `pi` 0.6 ms, `none` 20.1 ms. So
+the inversion is real and sustained without inheritance, and inheritance removes it. The program
+also reads the mutex protocol back after setting it (`PTHREAD_PRIO_NONE` = 1, accepted by QNX 8.0),
+which settles the earlier doubt about whether the `pi_stress` control had really turned
+inheritance off: it had; that program's barriers were what kept the inversion short.
+
+**What TraceLens said** (3 runs per cell, `tracelens capture ... -- -m <mode> -d 2 [-c 1500]`, then
+`analyze --radar`, defaults, nothing tuned, all captures clean, none lossy):
+
+| Variant | Rule findings (all 3 runs agree) | Radar |
+|---|---|---|
+| `none`, `-c 4000` | **CRITICAL priority inversion** (`bm_high` waited on `bm_low` via a mutex) + HIGH mutex contention | MEDIUM on both threads |
+| `none`, `-c 1500` | **CRITICAL priority inversion** + HIGH mutex contention | MEDIUM on both threads |
+| `sem`, `-c 4000` | **CRITICAL priority inversion** (via a semaphore) | MEDIUM on both threads |
+| `pi`, `-c 4000` | **no inversion**; HIGH mutex contention (3 of 3) | MEDIUM on both threads |
+| `pi`, `-c 1500` | **no inversion**; no contention finding in 2 of 3 runs, MEDIUM contention in 1 | MEDIUM on `bm_low` only (3 of 3) |
+
+Evidence: [`control/json/`](control/json/) (all 15 runs), [`control/traces/`](control/traces/) (5
+traces), [`control/remedy_output.txt`](control/remedy_output.txt), [`control/binary.sha256`](control/binary.sha256).
+
+**Judgement.**
+
+- **The inversion rule detects a sustained inversion on code it was not written for, and stays
+  silent on the same program with inheritance on.** That is 9 of 9 true positives and 6 of 6 true
+  negatives on the rule that matters, on a binary compiled once, with the lock type as the only
+  difference. This answers the question section 6 left open. It is still one program of ours on
+  one VM: the control was written knowing the rule's shape, so it shows the rule is *not blind to
+  this textbook case*, not that it generalises to inversions in code we have not seen.
+- **The `pi` / `-c 4000` HIGH contention finding is the rule doing what it is documented to do, and
+  it is a real limitation.** The rule raises HIGH on 3 or more waits of 2 ms or longer; this
+  program's high thread waits about 3 ms on every one of 40 rounds *by construction*, with
+  inheritance working. A gate that treats HIGH as failure would fail the fixed program. The rule
+  cannot tell a long, bounded critical section from an unbounded one; the inversion rule can, and
+  does. I did not change the rule: doing so on this evidence would be tuning to the test. With the
+  shorter critical section (`-c 1500`, waits well under 2 ms) the false HIGH disappears, which is
+  consistent with that reading.
+- **The radar fires MEDIUM on both threads in every variant, including the fixed one.** As with
+  `ptsematest`, this is a periodic lock hand-off shape the healthy training set does not cover. It
+  is not evidence for or against the inversion, and by design cannot fail the gate.
+- **`remedy` was exercised for the first time on third-party-style code, with mixed results.** On
+  the semaphore variant it pointed at the real lock and unlock lines (`busy_medium.c:88`, `:94`)
+  with the right explanation, but declined to patch automatically because the semaphore is not
+  used "strictly as a lock" (my wrapper selects mutex or semaphore at run time). That refusal is
+  correct and the safe side. On the `PTHREAD_PRIO_NONE` mutex variant it produced **no remedy for
+  the inversion** (only a generic "move work out of the critical section" for the contention
+  finding), although the fix is a one-line protocol change. I treat that as a missing remedy, not
+  a detector bug, and did not add one here. `fix` (which needs an API key the user sets) was not run.

@@ -1,0 +1,132 @@
+{
+  "tool": "tracelens",
+  "version": "0.1.0.dev0",
+  "trace": {
+    "source": "/tmp/bm/busy_medium_pi_short_2.txt",
+    "events": 16575,
+    "duration_ms": 3999.287,
+    "cycles_per_sec": 2419815204,
+    "threads": 154,
+    "unparsed_lines": 0
+  },
+  "summary": {
+    "critical": 0,
+    "high": 0,
+    "medium": 1,
+    "low": 0
+  },
+  "findings": [
+    {
+      "kind": "unusual_behavior",
+      "severity": "medium",
+      "title": "Unusual behaviour in bm_low",
+      "summary": "bm_low (prio 10) behaved unlike healthy QNX programs in 80 of its 80 time windows; the most unusual stretch lasted 80 ms. It stands out in: longest wait for a CPU (higher than healthy), time waiting for a CPU (higher than healthy), time asleep (lower than healthy). The closest pattern TraceLens has seen is healthy_irq_deferred (distance 0.17, inside the 0.852 typical for that pattern).",
+      "t_start": 1100000000,
+      "t_end": 1180000000,
+      "threads": [
+        "bm_low"
+      ],
+      "evidence": [
+        5473,
+        5754,
+        5756,
+        5760,
+        5770,
+        5772,
+        5775,
+        5777
+      ],
+      "metrics": {
+        "source": "radar",
+        "score": 5.14,
+        "threshold": 3.46,
+        "unusual_windows": 80,
+        "like": "healthy_irq_deferred",
+        "like_label": "healthy",
+        "like_distance": 0.17,
+        "like_radius": 0.852,
+        "like_within": true,
+        "z_max_ready_frac": 8.1,
+        "z_share_ready": 4.6,
+        "z_share_sleep": -2.7
+      },
+      "qnx_note": "Learned from healthy QNX 8.0 traces: this thread behaved unlike any healthy run in the features listed. It is not a proven bug and gets no automatic fix: look at the timeline around it. Any resemblance to a known pattern is measured against labelled example windows, never a rule that fired.",
+      "id": "TL-001",
+      "evidence_events": [
+        {
+          "id": 5473,
+          "t_ms": 1001.216775,
+          "cpu": 1,
+          "line": 13840,
+          "pid": 35229718,
+          "tid": 2,
+          "raw": "t:0xc9e39ca00609 CPU:01 THREAD          :THNANOSLEEP        pid:35229718 tid:2 priority:10 policy:1"
+        },
+        {
+          "id": 5754,
+          "t_ms": 1101.688412,
+          "cpu": 1,
+          "line": 14394,
+          "pid": 35229718,
+          "tid": 2,
+          "raw": "t:0xc9e3ab1dc875 CPU:01 THREAD          :THREADY            pid:35229718 tid:2 priority:10 policy:1"
+        },
+        {
+          "id": 5756,
+          "t_ms": 1101.693238,
+          "cpu": 1,
+          "line": 14396,
+          "pid": 35229718,
+          "tid": 2,
+          "raw": "t:0xc9e3ab1df612 CPU:01 THREAD          :THRUNNING          pid:35229718 tid:2 priority:10 policy:1"
+        },
+        {
+          "id": 5760,
+          "t_ms": 1102.640513,
+          "cpu": 1,
+          "line": 14403,
+          "pid": 35229718,
+          "tid": 2,
+          "raw": "t:0xc9e3ab40f019 CPU:01 THREAD          :THREADY            pid:35229718 tid:2 priority:10 policy:1"
+        },
+        {
+          "id": 5770,
+          "t_ms": 1102.666557,
+          "cpu": 1,
+          "line": 14419,
+          "pid": 35229718,
+          "tid": 2,
+          "raw": "t:0xc9e3ab41e647 CPU:01 THREAD          :THREADY            pid:35229718 tid:2 priority:30 policy:1"
+        },
+        {
+          "id": 5772,
+          "t_ms": 1102.666857,
+          "cpu": 1,
+          "line": 14421,
+          "pid": 35229718,
+          "tid": 2,
+          "raw": "t:0xc9e3ab41e91d CPU:01 THREAD          :THRUNNING          pid:35229718 tid:2 priority:30 policy:1"
+        },
+        {
+          "id": 5775,
+          "t_ms": 1103.19945,
+          "cpu": 1,
+          "line": 14427,
+          "pid": 35229718,
+          "tid": 2,
+          "raw": "t:0xc9e3ab559365 CPU:01 THREAD          :THRUNNING          pid:35229718 tid:2 priority:10 policy:1"
+        },
+        {
+          "id": 5777,
+          "t_ms": 1103.199932,
+          "cpu": 1,
+          "line": 14429,
+          "pid": 35229718,
+          "tid": 2,
+          "raw": "t:0xc9e3ab5597f4 CPU:01 THREAD          :THREADY            pid:35229718 tid:2 priority:10 policy:1"
+        }
+      ]
+    }
+  ],
+  "errors": []
+}

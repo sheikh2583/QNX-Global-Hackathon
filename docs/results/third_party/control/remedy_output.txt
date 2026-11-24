@@ -1,0 +1,16 @@
+##### tracelens remedy busy_medium_sem_1
+TraceLens 0.1.0.dev0 | remedies for busy_medium_sem_1.txt (1 findings)
+
+  [GUIDED] Replace the semaphore used as a lock with a priority-inheriting mutex
+      A POSIX semaphore has no owner, so the QNX kernel cannot raise the priority of the thread that holds it: a medium-priority thread preempts the holder and the high-priority waiter waits for both. A pthread mutex has an owner; with PTHREAD_PRIO_INHERIT (the QNX default) the holder runs at the waiter's priority until it unlocks.
+      busy_medium.c:88  if (use_sem ? sem_wait(&sem) : pthread_mutex_lock(&mtx))
+      busy_medium.c:94  if (use_sem ? sem_post(&sem) : pthread_mutex_unlock(&mtx))
+      - Replace the semaphore that guards the shared data with a pthread_mutex_t initialised with PTHREAD_PRIO_INHERIT; keep semaphores for signalling only.
+      (not automatic: busy_medium.c: A is not used strictly as a lock (init value, trywait/timedwait, waits and posts in different functions, or other uses))
+      (not automatic: busy_medium.c: sem is not used strictly as a lock (init value, trywait/timedwait, waits and posts in different functions, or other uses))
+##### tracelens remedy busy_medium_none_1
+TraceLens 0.1.0.dev0 | remedies for busy_medium_none_1.txt (2 findings)
+
+  [GUIDED] Move work that touches no shared data out of the critical section
+      Every MUTEX wait in a QNX trace is real contention (uncontended mutexes never enter the kernel). The lock only needs to cover statements that read or write the data it protects; computation on private buffers inside it serialises the threads for nothing.
+      - Copy data out (or in) under the lock and do the processing outside it; publish results with a pointer swap; or split the lock per resource.
