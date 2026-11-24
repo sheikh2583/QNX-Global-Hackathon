@@ -108,13 +108,18 @@ the 1,920-trace real training set. Only the text of a message payload argument (
 `) differs on 787 of the 1,979 real, pilot and fixture traces, and no analysis code reads those
 arguments. The frozen-model evaluation (`scripts/real_vs_sim.py`) on the fixed-parser pilot features
 reproduces the same report as on the stored features: radar 8 of 10 planted-bug traces flagged, 0 false
-alarms on 6 healthy traces. Training and the classifier were **not** re-run: scikit-learn is not
-installed in this environment, and with identical inputs the deterministic training gives identical
-models. Two caveats: the committed `docs/ml/results_real.md` does not reproduce exactly from the stored
-pilot features either (a few window counts differ, e.g. 72/100 against 83/100, and the stored
-`triggered` flag differs on 202 rows of one trace), because other code changed after that data was
-extracted. That drift is independent of the parser (the old parser gives the same rows as the new one)
-and I did not investigate it further. I also did not re-run the simulated-data experiment.
+alarms on 6 healthy traces. **Training and the classifier were then re-run** (scikit-learn 1.9.1
+installed in the WSL venv; `scripts/train_eval.py --sim data/sim --real <fixed-parser rows> --test-on <same>`).
+The report matches the committed `docs/ml/results_train.md` apart from two things: the training window
+count (988,704, committed 988,702) and one cell (`mutex_contention` classifier F1 0.87, committed 0.88).
+Every other table, including the radar's 726-of-883 caught and 0 false alarms on the 148 healthy
+captures, is identical, and the radar threshold (3.4563) and persistence cut-off match the shipped
+`radar.json`. The two differences are **not caused by the parser**: training on the *stored* feature
+file with the current code gives the same 988,704 and 0.87. They come from drift between the code that
+produced the committed report and today's code (the stored rows also carry a `lossy` column the current
+extractor no longer writes, and 202 pilot rows have a different `triggered` flag); I did not chase it
+further and did not overwrite `docs/ml/results_train.md`. The simulated-data experiment
+(`scripts/sim_experiment.py`) was not re-run.
 
 ## 5. What this does not show
 
