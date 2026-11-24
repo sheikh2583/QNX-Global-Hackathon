@@ -1,0 +1,13 @@
+# TraceLens configuration for the whole memcached 1.6.45 daemon on QNX 8.0 (memcached/memcached#1348).
+# Nothing is tuned. [build] says how to compile memcached's own files for QNX: memcached's main() is
+# renamed so that the driver (daemon_repro.c) can run it in a thread; SA_RESTART does not exist on QNX
+# (libevent and memcached use it only to restart interrupted calls); the generated config.h and the
+# header-only shims are in qnx/daemon/.
+[build]
+defines = ["HAVE_CONFIG_H", "NDEBUG", "SA_RESTART=0", "main=memcached_main"]
+libs = ["event", "socket"]
+libdirs = ["third_party/memcached_logger/deps/le-install/lib"]
+
+# SIGUSR1 to the daemon until the daemon has exited. A clean shutdown takes well under a second.
+[deadlines.graceful_shutdown]
+budget_us = 3000000

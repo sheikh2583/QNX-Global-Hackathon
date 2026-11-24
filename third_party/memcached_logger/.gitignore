@@ -1,0 +1,6 @@
+# Fetched source (BSD-3 upstream, not vendored): run ./fetch.sh, which rebuilds work/ from src/ and harness.c
+src/
+work/
+out/
+deps/
+work_daemon/

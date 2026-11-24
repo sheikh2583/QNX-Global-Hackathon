@@ -1,0 +1,167 @@
+{
+  "tool": "tracelens",
+  "version": "0.1.0.dev0",
+  "trace": {
+    "source": "/tmp/mc_cap0/mc_logger.txt",
+    "events": 55953,
+    "duration_ms": 13996.855,
+    "cycles_per_sec": 2419815204,
+    "threads": 153,
+    "unparsed_lines": 0
+  },
+  "summary": {
+    "critical": 0,
+    "high": 1,
+    "medium": 1,
+    "low": 0
+  },
+  "findings": [
+    {
+      "kind": "lost_wakeup",
+      "severity": "high",
+      "title": "Lost wake-up: mc-log waits on a signal that already came",
+      "summary": "mc_logger[1] signalled condition variable 0x00000051cd514018 at 9669.54 ms when no thread was waiting on it, then joined mc-log. mc-log only began its wait 696.53 ms later and was still blocked 3630.78 ms on, until the end of the trace, with no further signal: the program is hung.",
+      "t_start": 9669537579,
+      "t_end": 13996855467,
+      "threads": [
+        "mc_logger[1]",
+        "mc-log"
+      ],
+      "evidence": [
+        34987,
+        37376,
+        37377,
+        34989,
+        34990
+      ],
+      "metrics": {
+        "condvar": "0x00000051cd514018",
+        "signal_to_wait_ms": 696.533,
+        "stuck_ms": 3630.784,
+        "waiter": "mc-log",
+        "signaller": "mc_logger[1]"
+      },
+      "qnx_note": "pthread_cond_signal() wakes a thread that is already waiting; with no waiter the signal is lost. Wait in a loop that re-checks the condition while holding the mutex (the thread that sets the condition must also hold the mutex), and test the stop flag before every wait.",
+      "id": "TL-001",
+      "evidence_events": [
+        {
+          "id": 34987,
+          "t_ms": 9669.537579,
+          "cpu": 1,
+          "line": 82921,
+          "pid": 73125910,
+          "tid": 1,
+          "raw": "t:0x11cf119c82697 CPU:01 KER_CALL        :SYNC_CONDVAR_SIGNAL/83\n                    sync_p:0x00000051cd514018\n                       all:0\n               sync->count:0\n               sync->owner:-5"
+        },
+        {
+          "id": 37376,
+          "t_ms": 10366.067963,
+          "cpu": 1,
+          "line": 86858,
+          "pid": 73125910,
+          "tid": 2,
+          "raw": "t:0x11cf17e3e7493 CPU:01 KER_CALL        :SYNC_CONDVAR_WAIT/82\n                    sync_p:0x00000051cd514018\n                   mutex_p:0x00000051cd514020\n               sync->count:0\n               sync->owner:-5\n              mutex->count:-2147483648\n              mutex->owner:1343619074"
+        },
+        {
+          "id": 37377,
+          "t_ms": 10366.070981,
+          "cpu": 1,
+          "line": 86865,
+          "pid": 73125910,
+          "tid": 2,
+          "raw": "t:0x11cf17e3e911b CPU:01 THREAD          :THCONDVAR          pid:73125910 tid:2 priority:10 policy:2"
+        },
+        {
+          "id": 34989,
+          "t_ms": 9669.539011,
+          "cpu": 1,
+          "line": 82927,
+          "pid": 73125910,
+          "tid": 1,
+          "raw": "t:0x11cf119c83420 CPU:01 KER_CALL        :THREAD_JOIN/50    \n                       tid:2\n                  status_p:0x0000000000000000"
+        },
+        {
+          "id": 34990,
+          "t_ms": 9669.544221,
+          "cpu": 1,
+          "line": 82930,
+          "pid": 73125910,
+          "tid": 1,
+          "raw": "t:0x11cf119c8655e CPU:01 THREAD          :THJOIN             pid:73125910 tid:1 priority:10 policy:2"
+        }
+      ]
+    },
+    {
+      "kind": "unusual_behavior",
+      "severity": "medium",
+      "title": "Unusual behaviour in mc-log",
+      "summary": "mc-log (prio 10) behaved unlike healthy QNX programs in 180 of its 222 time windows; the most unusual stretch lasted 3600 ms. It stands out in: time waiting on a condition variable (higher than healthy), longest single block (higher than healthy), time asleep (lower than healthy). The closest pattern TraceLens has seen is priority inversion while waiting on a condition variable, but only loosely (distance 9.83 against 0.847 typical for it): treat this as behaviour of its own.",
+      "t_start": 10360000000,
+      "t_end": 13960000000,
+      "threads": [
+        "mc-log"
+      ],
+      "evidence": [
+        32356,
+        37371,
+        37374,
+        37377
+      ],
+      "metrics": {
+        "source": "radar",
+        "score": 28.4,
+        "threshold": 3.46,
+        "unusual_windows": 180,
+        "like": "condvar_inversion",
+        "like_label": "priority_inversion",
+        "like_distance": 9.83,
+        "like_radius": 0.847,
+        "like_within": false,
+        "z_share_condvar": 50.0,
+        "z_max_block_frac": 32.2,
+        "z_share_sleep": -3.0
+      },
+      "qnx_note": "Learned from healthy QNX 8.0 traces: this thread behaved unlike any healthy run in the features listed. It is not a proven bug and gets no automatic fix: look at the timeline around it. Any resemblance to a known pattern is measured against labelled example windows, never a rule that fired.",
+      "id": "TL-002",
+      "evidence_events": [
+        {
+          "id": 32356,
+          "t_ms": 9364.547616,
+          "cpu": 1,
+          "line": 76492,
+          "pid": 73125910,
+          "tid": 2,
+          "raw": "t:0x11cf0edcade82 CPU:01 THREAD          :THNANOSLEEP        pid:73125910 tid:2 priority:10 policy:2"
+        },
+        {
+          "id": 37371,
+          "t_ms": 10365.88024,
+          "cpu": 1,
+          "line": 86850,
+          "pid": 73125910,
+          "tid": 2,
+          "raw": "t:0x11cf17e378624 CPU:01 THREAD          :THREADY            pid:73125910 tid:2 priority:10 policy:2"
+        },
+        {
+          "id": 37374,
+          "t_ms": 10366.021088,
+          "cpu": 1,
+          "line": 86853,
+          "pid": 73125910,
+          "tid": 2,
+          "raw": "t:0x11cf17e3cb980 CPU:01 THREAD          :THRUNNING          pid:73125910 tid:2 priority:10 policy:2"
+        },
+        {
+          "id": 37377,
+          "t_ms": 10366.070981,
+          "cpu": 1,
+          "line": 86865,
+          "pid": 73125910,
+          "tid": 2,
+          "raw": "t:0x11cf17e3e911b CPU:01 THREAD          :THCONDVAR          pid:73125910 tid:2 priority:10 policy:2"
+        }
+      ]
+    }
+  ],
+  "errors": []
+}

@@ -1,0 +1,469 @@
+{
+  "tool": "tracelens",
+  "version": "0.1.0.dev0",
+  "trace": {
+    "source": "/tmp/nr/buggy-5/run.txt",
+    "events": 71021,
+    "duration_ms": 8999.128,
+    "cycles_per_sec": 2419815204,
+    "threads": 193,
+    "unparsed_lines": 0
+  },
+  "summary": {
+    "critical": 1,
+    "high": 0,
+    "medium": 3,
+    "low": 0
+  },
+  "findings": [
+    {
+      "kind": "stuck_job",
+      "severity": "critical",
+      "title": "Job 'close_cycle' started and never finished",
+      "summary": "'close_cycle' started on nng_repro[1] at 4220.10 ms and had not finished 4779.03 ms later, until the end of the trace (budget 500.00 ms). The process's threads were blocked: nng_repro[1] CONDVAR on 0x0000005914e56978; nng_repro[4] CONDVAR on 0x00000011c45d56f0; nng_repro[5] CONDVAR on 0x00000011c45d56f0; nng_repro[6] CONDVAR on 0x00000011c45d56f0; nng_repro[7] CONDVAR on 0x00000011c45d56f0; nng_repro[8] CONDVAR on 0x00000028914afde0; nng_repro[9] CONDVAR on 0x00000028914afde0; nng_repro[10] CONDVAR on 0x00000028914afde0.",
+      "t_start": 4220103007,
+      "t_end": 8999128384,
+      "threads": [
+        "nng_repro[1]"
+      ],
+      "evidence": [
+        51180,
+        53334,
+        20506,
+        20510,
+        20514,
+        20531,
+        50267,
+        50667,
+        52845
+      ],
+      "metrics": {
+        "job": "close_cycle",
+        "stuck_ms": 4779.025,
+        "budget_ms": 500.0,
+        "blocked_threads": 19,
+        "threads": 21,
+        "waiting": "nng_repro[1] CONDVAR on 0x0000005914e56978; nng_repro[4] CONDVAR on 0x00000011c45d56f0; nng_repro[5] CONDVAR on 0x00000011c45d56f0; nng_repro[6] CONDVAR on 0x00000011c45d56f0; nng_repro[7] CONDVAR on 0x00000011c45d56f0; nng_repro[8] CONDVAR on 0x00000028914afde0; nng_repro[9] CONDVAR on 0x00000028914afde0; nng_repro[10] CONDVAR on 0x00000028914afde0"
+      },
+      "qnx_note": "Every thread of the process is listed with what it was blocked on when the trace ended. A cycle of CONDVAR and JOIN waits with no thread left running means each thread waits for another one to make progress: find which of them has to signal, complete or cancel first.",
+      "id": "TL-001",
+      "evidence_events": [
+        {
+          "id": 51180,
+          "t_ms": 4220.103007,
+          "cpu": 0,
+          "line": 130240,
+          "pid": 105218071,
+          "tid": 1,
+          "raw": "t:0x127c6b552e2df CPU:00 USREVENT        :EVENT:1            STR:\"TL_JOB_START name=close_cycle\", d0:0x4a5f4c54 d1:0x535f424f d2:0x54524154 d3:0x6d616e20 d4:0x6c633d65 d5:0x5f65736f d6:0x6c637963 d7:0x00000065"
+        },
+        {
+          "id": 53334,
+          "t_ms": 4222.141518,
+          "cpu": 0,
+          "line": 136051,
+          "pid": 105218071,
+          "tid": 1,
+          "raw": "t:0x127c6b59e27b3 CPU:00 THREAD          :THCONDVAR          pid:105218071 tid:1 priority:10 policy:2"
+        },
+        {
+          "id": 20506,
+          "t_ms": 3975.845161,
+          "cpu": 2,
+          "line": 49583,
+          "pid": 105218071,
+          "tid": 4,
+          "raw": "t:0x127c692180b3c CPU:02 THREAD          :THCONDVAR          pid:105218071 tid:4 priority:10 policy:2"
+        },
+        {
+          "id": 20510,
+          "t_ms": 3975.846081,
+          "cpu": 2,
+          "line": 49593,
+          "pid": 105218071,
+          "tid": 5,
+          "raw": "t:0x127c6921813ef CPU:02 THREAD          :THCONDVAR          pid:105218071 tid:5 priority:10 policy:2"
+        },
+        {
+          "id": 20514,
+          "t_ms": 3975.846947,
+          "cpu": 2,
+          "line": 49603,
+          "pid": 105218071,
+          "tid": 6,
+          "raw": "t:0x127c692181c1f CPU:02 THREAD          :THCONDVAR          pid:105218071 tid:6 priority:10 policy:2"
+        },
+        {
+          "id": 20531,
+          "t_ms": 3975.865234,
+          "cpu": 0,
+          "line": 49671,
+          "pid": 105218071,
+          "tid": 7,
+          "raw": "t:0x127c69218c8f9 CPU:00 THREAD          :THCONDVAR          pid:105218071 tid:7 priority:10 policy:2"
+        },
+        {
+          "id": 50267,
+          "t_ms": 4198.16365,
+          "cpu": 0,
+          "line": 128122,
+          "pid": 105218071,
+          "tid": 8,
+          "raw": "t:0x127c6b228cf39 CPU:00 THREAD          :THCONDVAR          pid:105218071 tid:8 priority:10 policy:2"
+        },
+        {
+          "id": 50667,
+          "t_ms": 4198.520124,
+          "cpu": 1,
+          "line": 129057,
+          "pid": 105218071,
+          "tid": 9,
+          "raw": "t:0x127c6b235f8c2 CPU:01 THREAD          :THCONDVAR          pid:105218071 tid:9 priority:10 policy:2"
+        },
+        {
+          "id": 52845,
+          "t_ms": 4221.939138,
+          "cpu": 0,
+          "line": 134721,
+          "pid": 105218071,
+          "tid": 10,
+          "raw": "t:0x127c6b596aeb8 CPU:00 THREAD          :THCONDVAR          pid:105218071 tid:10 priority:10 policy:2"
+        }
+      ]
+    },
+    {
+      "kind": "unusual_behavior",
+      "severity": "medium",
+      "title": "Unusual behaviour in nng_repro[16]",
+      "summary": "nng_repro[16] (prio 10) behaved unlike healthy QNX programs in 248 of its 248 time windows; the most unusual stretch lasted 4960 ms. It stands out in: time waiting on a condition variable (higher than healthy), longest single block (higher than healthy), CPUs used (higher than healthy). The closest pattern TraceLens has seen is priority inversion while waiting on a condition variable, but only loosely (distance 9.74 against 0.847 typical for it): treat this as behaviour of its own.",
+      "t_start": 4000000000,
+      "t_end": 8960000000,
+      "threads": [
+        "nng_repro[16]"
+      ],
+      "evidence": [
+        23937,
+        26436,
+        26442,
+        26474,
+        26501,
+        26529,
+        26559,
+        26587
+      ],
+      "metrics": {
+        "source": "radar",
+        "score": 28.84,
+        "threshold": 3.46,
+        "unusual_windows": 248,
+        "like": "condvar_inversion",
+        "like_label": "priority_inversion",
+        "like_distance": 9.74,
+        "like_radius": 0.847,
+        "like_within": false,
+        "z_share_condvar": 48.3,
+        "z_max_block_frac": 32.2,
+        "z_cpus_used": 6.0
+      },
+      "qnx_note": "Learned from healthy QNX 8.0 traces: this thread behaved unlike any healthy run in the features listed. It is not a proven bug and gets no automatic fix: look at the timeline around it. Any resemblance to a known pattern is measured against labelled example windows, never a rule that fired.",
+      "id": "TL-002",
+      "evidence_events": [
+        {
+          "id": 23937,
+          "t_ms": 3984.237402,
+          "cpu": 3,
+          "line": 58156,
+          "pid": 105218071,
+          "tid": 16,
+          "raw": "t:0x127c6934dea14 CPU:03 THREAD          :THCONDVAR          pid:105218071 tid:16 priority:10 policy:2"
+        },
+        {
+          "id": 26436,
+          "t_ms": 4007.651447,
+          "cpu": 3,
+          "line": 64660,
+          "pid": 105218071,
+          "tid": 16,
+          "raw": "t:0x127c696ae7112 CPU:03 THREAD          :THMUTEX            pid:105218071 tid:16 priority:10 policy:2"
+        },
+        {
+          "id": 26442,
+          "t_ms": 4007.652281,
+          "cpu": 3,
+          "line": 64672,
+          "pid": 105218071,
+          "tid": 16,
+          "raw": "t:0x127c696ae78f4 CPU:03 THREAD          :THREADY            pid:105218071 tid:16 priority:10 policy:2"
+        },
+        {
+          "id": 26474,
+          "t_ms": 4007.661297,
+          "cpu": 0,
+          "line": 64764,
+          "pid": 105218071,
+          "tid": 16,
+          "raw": "t:0x127c696aece2e CPU:00 THREAD          :THRUNNING          pid:105218071 tid:16 priority:10 policy:2"
+        },
+        {
+          "id": 26501,
+          "t_ms": 4007.666301,
+          "cpu": 0,
+          "line": 64826,
+          "pid": 105218071,
+          "tid": 16,
+          "raw": "t:0x127c696aefd7b CPU:00 THREAD          :THREPLY            pid:105218071 tid:16 priority:10 policy:2"
+        },
+        {
+          "id": 26529,
+          "t_ms": 4007.670145,
+          "cpu": 0,
+          "line": 64909,
+          "pid": 105218071,
+          "tid": 16,
+          "raw": "t:0x127c696af21d0 CPU:00 THREAD          :THREADY            pid:105218071 tid:16 priority:10 policy:2"
+        },
+        {
+          "id": 26559,
+          "t_ms": 4007.701081,
+          "cpu": 0,
+          "line": 64989,
+          "pid": 105218071,
+          "tid": 16,
+          "raw": "t:0x127c696b0463b CPU:00 THREAD          :THRUNNING          pid:105218071 tid:16 priority:10 policy:2"
+        },
+        {
+          "id": 26587,
+          "t_ms": 4007.707231,
+          "cpu": 0,
+          "line": 65062,
+          "pid": 105218071,
+          "tid": 16,
+          "raw": "t:0x127c696b0805f CPU:00 THREAD          :THREPLY            pid:105218071 tid:16 priority:10 policy:2"
+        }
+      ]
+    },
+    {
+      "kind": "unusual_behavior",
+      "severity": "medium",
+      "title": "Unusual behaviour in nng_repro[9]",
+      "summary": "nng_repro[9] (prio 10) behaved unlike healthy QNX programs in 248 of its 248 time windows; the most unusual stretch lasted 4960 ms. It stands out in: time waiting on a condition variable (higher than healthy), longest single block (higher than healthy), CPUs used (higher than healthy). The closest pattern TraceLens has seen is priority inversion while waiting on a condition variable, but only loosely (distance 9.86 against 0.847 typical for it): treat this as behaviour of its own.",
+      "t_start": 4000000000,
+      "t_end": 8960000000,
+      "threads": [
+        "nng_repro[9]"
+      ],
+      "evidence": [
+        23016,
+        25870,
+        25873,
+        25878,
+        25887,
+        25891,
+        25894,
+        25909
+      ],
+      "metrics": {
+        "source": "radar",
+        "score": 28.69,
+        "threshold": 3.46,
+        "unusual_windows": 248,
+        "like": "condvar_inversion",
+        "like_label": "priority_inversion",
+        "like_distance": 9.86,
+        "like_radius": 0.847,
+        "like_within": false,
+        "z_share_condvar": 49.9,
+        "z_max_block_frac": 32.2,
+        "z_cpus_used": 4.0
+      },
+      "qnx_note": "Learned from healthy QNX 8.0 traces: this thread behaved unlike any healthy run in the features listed. It is not a proven bug and gets no automatic fix: look at the timeline around it. Any resemblance to a known pattern is measured against labelled example windows, never a rule that fired.",
+      "id": "TL-003",
+      "evidence_events": [
+        {
+          "id": 23016,
+          "t_ms": 3983.592405,
+          "cpu": 0,
+          "line": 55686,
+          "pid": 105218071,
+          "tid": 9,
+          "raw": "t:0x127c69336194f CPU:00 THREAD          :THCONDVAR          pid:105218071 tid:9 priority:10 policy:2"
+        },
+        {
+          "id": 25870,
+          "t_ms": 4007.143605,
+          "cpu": 0,
+          "line": 63189,
+          "pid": 105218071,
+          "tid": 9,
+          "raw": "t:0x127c6969bb0c0 CPU:00 THREAD          :THMUTEX            pid:105218071 tid:9 priority:10 policy:2"
+        },
+        {
+          "id": 25873,
+          "t_ms": 4007.144398,
+          "cpu": 0,
+          "line": 63195,
+          "pid": 105218071,
+          "tid": 9,
+          "raw": "t:0x127c6969bb83f CPU:00 THREAD          :THREADY            pid:105218071 tid:9 priority:10 policy:2"
+        },
+        {
+          "id": 25878,
+          "t_ms": 4007.145793,
+          "cpu": 0,
+          "line": 63203,
+          "pid": 105218071,
+          "tid": 9,
+          "raw": "t:0x127c6969bc56e CPU:00 THREAD          :THRUNNING          pid:105218071 tid:9 priority:10 policy:2"
+        },
+        {
+          "id": 25887,
+          "t_ms": 4007.149245,
+          "cpu": 0,
+          "line": 63218,
+          "pid": 105218071,
+          "tid": 9,
+          "raw": "t:0x127c6969be60f CPU:00 THREAD          :THMUTEX            pid:105218071 tid:9 priority:10 policy:2"
+        },
+        {
+          "id": 25891,
+          "t_ms": 4007.150076,
+          "cpu": 0,
+          "line": 63228,
+          "pid": 105218071,
+          "tid": 9,
+          "raw": "t:0x127c6969bede9 CPU:00 THREAD          :THREADY            pid:105218071 tid:9 priority:10 policy:2"
+        },
+        {
+          "id": 25894,
+          "t_ms": 4007.150294,
+          "cpu": 0,
+          "line": 63231,
+          "pid": 105218071,
+          "tid": 9,
+          "raw": "t:0x127c6969beff9 CPU:00 THREAD          :THRUNNING          pid:105218071 tid:9 priority:10 policy:2"
+        },
+        {
+          "id": 25909,
+          "t_ms": 4007.153966,
+          "cpu": 0,
+          "line": 63260,
+          "pid": 105218071,
+          "tid": 9,
+          "raw": "t:0x127c6969c12b0 CPU:00 THREAD          :THMUTEX            pid:105218071 tid:9 priority:10 policy:2"
+        }
+      ]
+    },
+    {
+      "kind": "unusual_behavior",
+      "severity": "medium",
+      "title": "Unusual behaviour in nng_repro[13]",
+      "summary": "nng_repro[13] (prio 10) behaved unlike healthy QNX programs in 248 of its 248 time windows; the most unusual stretch lasted 4960 ms. It stands out in: time waiting on a condition variable (higher than healthy), longest single block (higher than healthy), CPUs used (higher than healthy). The closest pattern TraceLens has seen is priority inversion while waiting on a condition variable, but only loosely (distance 9.83 against 0.847 typical for it): treat this as behaviour of its own.",
+      "t_start": 4000000000,
+      "t_end": 8960000000,
+      "threads": [
+        "nng_repro[13]"
+      ],
+      "evidence": [
+        23573,
+        26268,
+        26271,
+        26326,
+        26377,
+        26400,
+        26431,
+        26493
+      ],
+      "metrics": {
+        "source": "radar",
+        "score": 28.64,
+        "threshold": 3.46,
+        "unusual_windows": 248,
+        "like": "condvar_inversion",
+        "like_label": "priority_inversion",
+        "like_distance": 9.83,
+        "like_radius": 0.847,
+        "like_within": false,
+        "z_share_condvar": 49.7,
+        "z_max_block_frac": 32.2,
+        "z_cpus_used": 4.0
+      },
+      "qnx_note": "Learned from healthy QNX 8.0 traces: this thread behaved unlike any healthy run in the features listed. It is not a proven bug and gets no automatic fix: look at the timeline around it. Any resemblance to a known pattern is measured against labelled example windows, never a rule that fired.",
+      "id": "TL-004",
+      "evidence_events": [
+        {
+          "id": 23573,
+          "t_ms": 3983.898465,
+          "cpu": 0,
+          "line": 57109,
+          "pid": 105218071,
+          "tid": 13,
+          "raw": "t:0x127c693416651 CPU:00 THREAD          :THCONDVAR          pid:105218071 tid:13 priority:10 policy:2"
+        },
+        {
+          "id": 26268,
+          "t_ms": 4007.615808,
+          "cpu": 2,
+          "line": 64221,
+          "pid": 105218071,
+          "tid": 13,
+          "raw": "t:0x127c696ad2032 CPU:02 THREAD          :THMUTEX            pid:105218071 tid:13 priority:10 policy:2"
+        },
+        {
+          "id": 26271,
+          "t_ms": 4007.616915,
+          "cpu": 2,
+          "line": 64227,
+          "pid": 105218071,
+          "tid": 13,
+          "raw": "t:0x127c696ad2aa9 CPU:02 THREAD          :THREADY            pid:105218071 tid:13 priority:10 policy:2"
+        },
+        {
+          "id": 26326,
+          "t_ms": 4007.632621,
+          "cpu": 1,
+          "line": 64385,
+          "pid": 105218071,
+          "tid": 13,
+          "raw": "t:0x127c696adbf1f CPU:01 THREAD          :THRUNNING          pid:105218071 tid:13 priority:10 policy:2"
+        },
+        {
+          "id": 26377,
+          "t_ms": 4007.639027,
+          "cpu": 1,
+          "line": 64519,
+          "pid": 105218071,
+          "tid": 13,
+          "raw": "t:0x127c696adfbad CPU:01 THREAD          :THMUTEX            pid:105218071 tid:13 priority:10 policy:2"
+        },
+        {
+          "id": 26400,
+          "t_ms": 4007.643842,
+          "cpu": 1,
+          "line": 64572,
+          "pid": 105218071,
+          "tid": 13,
+          "raw": "t:0x127c696ae2930 CPU:01 THREAD          :THREADY            pid:105218071 tid:13 priority:10 policy:2"
+        },
+        {
+          "id": 26431,
+          "t_ms": 4007.649669,
+          "cpu": 2,
+          "line": 64651,
+          "pid": 105218071,
+          "tid": 13,
+          "raw": "t:0x127c696ae6045 CPU:02 THREAD          :THRUNNING          pid:105218071 tid:13 priority:10 policy:2"
+        },
+        {
+          "id": 26493,
+          "t_ms": 4007.665443,
+          "cpu": 2,
+          "line": 64802,
+          "pid": 105218071,
+          "tid": 13,
+          "raw": "t:0x127c696aef55f CPU:02 THREAD          :THCONDVAR          pid:105218071 tid:13 priority:10 policy:2"
+        }
+      ]
+    }
+  ],
+  "errors": []
+}

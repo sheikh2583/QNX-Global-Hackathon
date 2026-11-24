@@ -1,0 +1,29 @@
+{
+  "verdict": "VERIFIED",
+  "reasons": [],
+  "runs": {
+    "before": 10,
+    "after": 7,
+    "lossy_skipped": 3
+  },
+  "targets": {
+    "stuck_job": {
+      "before_rate": 1.0,
+      "after_rate": 0.0
+    }
+  },
+  "new_kinds": [],
+  "deadlines": [
+    {
+      "name": "close_cycle",
+      "budget_ns": 500000000,
+      "before_p99": 13159320,
+      "after_p99": 11869516,
+      "before_misses": 0,
+      "after_misses": 0,
+      "p_value": 0.02721573201601114,
+      "ok": true,
+      "reason": "within budget"
+    }
+  ]
+}

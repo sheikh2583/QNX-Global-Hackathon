@@ -1,0 +1,5 @@
+# NNG nng_close() hang (nanomsg/nng#1543, #1813). Nothing is tuned; one declared job: one open/send/close cycle.
+# A healthy cycle takes about 85 ms on this VM; 0.5 s is far above that. The budget was set after a first look at
+# one hang trace (the trace window is short, see README), before the 10-run comparison.
+[deadlines.close_cycle]
+budget_us = 500000

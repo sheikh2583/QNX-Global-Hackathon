@@ -1,0 +1,11 @@
+# TraceLens configuration for memcached 1.6.45's logger thread on QNX 8.0 (memcached/memcached#1348).
+# Nothing is tuned: every detector threshold is the default. [build] says only how to compile and
+# link memcached's own files (the real build uses autoconf's config.h; ours is qnx/include/config.h).
+[build]
+defines = ["HAVE_CONFIG_H"]
+libs = ["socket"]
+
+# The driver reports logger_stop() (what memcached calls on a graceful shutdown) as one job.
+# A healthy stop returns in about a millisecond; 1 s is generous and is fixed before any run.
+[deadlines.logger_stop]
+budget_us = 1000000
