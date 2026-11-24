@@ -101,7 +101,10 @@ def main() -> int:
           f"One real capture per scenario ({len(ok)} of {len(manifest)} succeeded, "
           f"{sum(1 for r in ok if r.get('triggered'))} with the planted problem showing, "
           f"{sum(1 for r in ok if r.get('lossy'))} lossy), on the QEMU x86_64 guest with 4 CPUs and "
-          "`procnto-smp-instr`, host idle. Reproduce with `python scripts/real_vs_sim.py --radar data/sim/radar.json` (the radar trained on simulated traces only, which is what this report scored; the radar shipped in `src/tracelens/ml/radar.json` was retrained on real data on 2026-11-16, so the default now gives different window counts).", "",
+          "`procnto-smp-instr`, host idle. Reproduce with `python scripts/real_vs_sim.py --radar data/sim/radar.json` "
+          "(the radar trained on simulated traces only, which is what this report scored; the radar shipped in "
+          "`src/tracelens/ml/radar.json` was retrained on real data on 2026-11-16, so the default now gives different "
+          "window counts).", "",
           "## Did each planted problem show up on the real target?", "",
           "| Scenario | Label | Planted problem showed up | Rules that fired (HIGH+) |", "|---|---|---|---|"]
     for r in manifest:
