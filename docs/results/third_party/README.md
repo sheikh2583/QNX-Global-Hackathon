@@ -100,9 +100,21 @@ always wins, so an unterminated quote can never swallow the rest of a trace. Two
 were added in `tests/test_parser.py`; the full suite passes (166 tests).
 
 The full pytest suite passes, and `scripts/check.sh gate` passes: every real buggy capture is still
-caught, every reference fix and healthy trace still clean. I did **not** re-run the ML evaluations
-(`docs/ml/results_*.md`), which use the same parser, and I have not diffed their feature tables
-against the old parser's output.
+caught, every reference fix and healthy trace still clean. **ML evaluations, re-checked against the fixed parser (2026-11-24).** The fix changes no feature
+the models see. Feature rows re-extracted with the pre-fix parser and with the fixed parser are
+**byte-identical**: 4,334 of 4,334 rows for the 16-scenario real pilot, and 490,951 of 490,951 rows for
+the 1,920-trace real training set. Only the text of a message payload argument (`msg[0]` was `"`, is now
+`"
+`) differs on 787 of the 1,979 real, pilot and fixture traces, and no analysis code reads those
+arguments. The frozen-model evaluation (`scripts/real_vs_sim.py`) on the fixed-parser pilot features
+reproduces the same report as on the stored features: radar 8 of 10 planted-bug traces flagged, 0 false
+alarms on 6 healthy traces. Training and the classifier were **not** re-run: scikit-learn is not
+installed in this environment, and with identical inputs the deterministic training gives identical
+models. Two caveats: the committed `docs/ml/results_real.md` does not reproduce exactly from the stored
+pilot features either (a few window counts differ, e.g. 72/100 against 83/100, and the stored
+`triggered` flag differs on 202 rows of one trace), because other code changed after that data was
+extracted. That drift is independent of the parser (the old parser gives the same rows as the new one)
+and I did not investigate it further. I also did not re-run the simulated-data experiment.
 
 ## 5. What this does not show
 
