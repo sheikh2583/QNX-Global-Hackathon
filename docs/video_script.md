@@ -1,5 +1,11 @@
 # Video script: TraceLens (target 2:45, hard limit 3:00)
 
+> **Two videos, two scripts.** This file is the longer **screen-recording walkthrough** of the `/demo` page
+> and a live QNX run. The short **promo video** (109 s, v7, with the learned second opinion, the gate, code we
+> did not write and emulated aarch64) is built separately in the git-ignored `promo/` folder; its script is
+> `promo/script.md` and its description is `promo/out/youtube_and_credits.md`. Numbers in both come from
+> `docs/results/`. Pick one for the submission; the promo is the one drafted for YouTube.
+
 Recording: OBS at 1920x1080, terminal font 18 pt, browser zoom 125%. **Every shot is a real run.** If a shot
 cannot be reproduced live on the QNX target, it is not in the video. Voiceover is about 150 words per minute;
 the lines below are about 370 words, so about 2:30, which leaves room for screen time.

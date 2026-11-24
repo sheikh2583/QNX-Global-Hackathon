@@ -4,6 +4,11 @@ Everything another person or assistant needs to continue this project without th
 built it. Written 2026-11-16. Companion documents: [PLAN.md](../PLAN.md) (full history and decisions),
 [STATUS.md](STATUS.md) (what is done and what is left), [ml/DESIGN.md](ml/DESIGN.md) (the learning phase).
 
+> **Updated 2026-11-24.** Sections 6 and 7 below describe 2026-11-16. Since then: the models were trained on
+> the overnight real data and re-run (reproduces exactly); the timing regression gate, a third-party proof
+> (`rt-tests` on QNX), an emulated aarch64 track and a promo video were added. [STATUS.md](STATUS.md) is the
+> current state; use it first and treat 6 and 7 as history.
+
 ---
 
 ## 1. What this is
@@ -61,7 +66,7 @@ These are decisions, not preferences. Breaking one makes the project worse in a 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-pytest -q                                          # 156 tests
+pytest -q                                          # 203 tests
 tracelens analyze fixtures/real/z1_infusion_pump.txt.gz -c fixtures/real/tracelens.toml --radar
 tracelens simulate lost_wakeup -o t.txt.gz         # make a trace without a target
 ```
@@ -130,7 +135,7 @@ real ones, and real threads spread over more CPUs than the simulated scheduler a
 
 ## 7. What to do next, in order
 
-1. **Train on the overnight data.** `python scripts/train_eval.py --sim data/sim --real data/real --test-on data/real` (without `--test-on` the test set also includes simulated rows, so the numbers differ).
+1. **Train on the overnight data** (done; re-run 2026-11-24 reproduced the quoted numbers). `python scripts/train_eval.py --sim data/sim --real data/real --test-on data/real` (without `--test-on` the test set also includes simulated rows, so the numbers differ).
    This is the first time the models see real QNX data; the report tells you which claim is weakest.
 2. **Re-record the Z5 live replay** (~15 min): `tracelens fix bugzoo/z5_motor_encoder --watch --no-browser
    --out fixes/z5_live` then copy `events.jsonl` to `docs/results/fixes/z5_motor_encoder_live/`. The
@@ -172,7 +177,7 @@ real ones, and real threads spread over more CPUs than the simulated scheduler a
 
 ```bash
 scripts/check.sh lint     # ruff: dead code, bug patterns, deprecated APIs
-scripts/check.sh tests    # 156 tests; DeprecationWarning is an error
+scripts/check.sh tests    # 203 tests (5 skipped); DeprecationWarning is an error
 scripts/check.sh gate     # every real and synthetic trace gets its expected verdict
 ```
 

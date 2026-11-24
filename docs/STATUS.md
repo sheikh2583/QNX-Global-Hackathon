@@ -1,102 +1,80 @@
-# TraceLens — where it stands
+# TraceLens: where it stands
 
-**2026-11-16.** Submit target **Dec 10**; hard deadline **Dec 16, 1:00 AM Dhaka**. ~24 days to the target.
-Source of truth for plan and history stays [PLAN.md](../PLAN.md); this is the short version.
+**2026-11-24.** Submit target **Dec 10**; hard deadline **Dec 16, 1:00 AM Dhaka**. 16 days to the target.
+Source of truth for plan and history stays [PLAN.md](../PLAN.md); numbers come from the committed files in
+[results/](results/) and [ml/](ml/), never typed by hand. This is the short version.
 
 **What it is:** a host tool for QNX 8.0 that reads a kernel event trace, names the real-time bug, writes
 the QNX-specific fix, and proves the fix on the target. No API keys, no cloud, no black box.
 
 ---
 
-## Proven, on real QNX 8.0
+## Proven, on QNX 8.0
 
-| | Result |
-|---|---|
-| **Detection** (10 captures per build) | every planted bug caught **10/10**; every hand-written reference fix clean **10/10**; healthy system programs **0 findings in 32 runs** |
-| **Fixes** | **4 of 5** fixed automatically and **VERIFIED on the target** (Z1, Z2, Z4, Z5). Z3 (Send/Reply deadlock) gets the exact lines and the send-hierarchy fix — it changes the protocol, so it is guided by design |
-| **Generator** (16 scenarios, one qcc binary) | **16/16** captures on the target, none lossy, every planted problem reproduced, each known family firing its own rule |
-| **Learned models, clean held-out test** | trained only on simulated data, frozen before the captures existed: radar flagged **8/10** buggy traces on the thread that suffers, **0 false alarms** on 6 healthy ones |
-| **Learned models, simulated held-out** | **1 false alarm in 158** healthy traces; 3 of the 4 bug families with no rule caught **100%** |
-| **Simulator fidelity** | **210 of 274** feature medians agree with the real target within 0.10 |
-| **Codebase** | 156 tests, lint clean, deprecations are build failures, stdlib-only core |
-
-Recorded runs: [results_real.md](ml/results_real.md), [results_sim.md](ml/results_sim.md), [results/](results/).
+| | Result | Source |
+|---|---|---|
+| **Detection** (10 captures per build) | all 50 planted-bug runs caught; all 50 hand-written reference-fix runs clean; healthy system programs 0 findings in 30 scored runs (32 captured, 2 lossy runs discarded) | [results/detect.md](results/detect.md) |
+| **Fixes** | **4 of 5** fixed automatically and **VERIFIED on the target** (Z1, Z2, Z4, Z5). Z3 (Send/Reply deadlock) changes the protocol, so it gets the exact lines and the send-hierarchy fix | [results/fix.md](results/fix.md) |
+| **Learned models** | on **883 held-out buggy real captures** the rules alone catch 400; with the learned radar **726** (**+326** in bug classes no rule exists for); **0 false alarms on 148 healthy** real captures. Re-run on 2026-11-24 and reproduced exactly | [ml/results_train.md](ml/results_train.md), [results/ml.json](results/ml.json) |
+| **Regression gate** | `tracelens baseline save` and `tracelens gate`: Z1, Z2 and Z4 fixed builds pass their own baseline; their buggy builds are blocked by the fixed baseline. Says INCONCLUSIVE instead of guessing | README, `scripts/check.sh gate` |
+| **Code we did not write** | `rt-tests` v2.11 (`pi_stress`, `ptsematest`, `pmqtest`) on QNX 8.0: **0 rule findings in 16 runs** (a clean result, not a bug find). Our own sustained-inversion control `busy_medium`: flagged **9 of 9** without priority inheritance, **0 of 6** with it. Found and fixed a real parser bug on the way | [results/third_party/](results/third_party/README.md) |
+| **aarch64** (emulated) | 65 captures over 13 scenarios on QNX 8.0 `aarch64le` under QEMU: the same rules fire on the same workloads; the x86-trained radar flags 38 of 45 planted bugs, 0 false alarms on 20 healthy | [results/aarch64.md](results/aarch64.md) |
+| **Generator** (16 scenarios, one qcc binary) | 16/16 captures on the target, none lossy, every planted problem reproduced | [ml/results_real.md](ml/results_real.md) |
+| **Simulator fidelity** | 210 of 274 feature medians agree with the real target within 0.10 | [ml/results_real.md](ml/results_real.md) |
+| **Codebase** | 203 tests pass (5 skipped), ruff clean, deprecations are build failures, stdlib-only core, pre-push hook runs lint, tests and the gate | `scripts/check.sh`, `.githooks/pre-push` |
 
 ## Built
 
-- **Analyzer** — parser (counter wraps, cross-CPU reordering, lossy detection), thread/priority model,
-  5 detectors + deadline misses, HTML/JSON/SARIF/Perfetto output, exit codes.
-- **Fix engine** — QNX-specific source transforms with safety preconditions, `qcc` build, before/after
+- **Analyzer**: parser (counter wraps, cross-CPU reordering, lossy detection), thread and priority model,
+  5 detectors plus deadline misses, HTML/JSON/SARIF/Perfetto output, exit codes.
+- **Fix engine**: QNX-specific source transforms with safety preconditions, `qcc` build, before/after
   capture, Mann-Whitney U verdict, up to 3 rounds.
-- **Regression gate** — `tracelens baseline save` records per-deadline and per-job-stream response
-  distributions with provenance into committable JSON; `tracelens gate` fails a later build that is
-  statistically slower (one-sided Mann-Whitney U on per-capture p99, Holm-Bonferroni across metrics,
-  effect floors), that grew a new finding kind, or that went newly over budget. Says INCONCLUSIVE
-  rather than guessing when there are too few clean captures, a deadline vanished or a budget moved.
-  Terminal, `--json` and HTML output; 24 tests on the committed real captures and the simulator.
-- **Web app** — consumer pages, guided demo for judges, upload-your-own-trace, Render blueprint.
-- **Simulator** — a model of the QNX 8.0 scheduler writing real `traceprinter` traces: 1,920 labelled
-  recordings in ~6 minutes, no target needed.
-- **Learning** — data engine, 19 features, radar (bundled `radar.json`), classifier, retrieval of
-  labelled exemplars, evaluation protocol fixed before the data existed.
+- **Regression gate**: per-deadline and per-job-stream baselines with provenance; one-sided Mann-Whitney U
+  on per-capture p99, Holm-Bonferroni across metrics, effect floors; new finding kinds and newly-over-budget
+  also fail.
+- **Learning**: data engine, 19 features, radar (bundled `radar.json`), classifier, retrieval of labelled
+  exemplars, an evaluation protocol fixed before the data existed. A learned finding is MEDIUM, never
+  fails a build and never gets an automatic patch.
+- **Simulator**: a model of the QNX 8.0 scheduler writing real `traceprinter` traces; 1,920 labelled
+  recordings in about 6 minutes.
+- **Web app and demo**: consumer pages, a guided demo for judges (10 steps, including the QEMU target and
+  "What it learned"), upload-your-own-trace, a recorded live fix replay, Render blueprint.
+
+## Hosted site and video
+
+- **Live demo:** https://qnx-global-hackathon.onrender.com/ (free tier: the first request after idle takes
+  about a minute).
+- **Promo video v7** (109 s, `promo/`, not in git): hook, fix, proof on QNX, **learned second opinion**,
+  regression gate, code we did not write, emulated aarch64. Description with every caveat:
+  `promo/out/youtube_and_credits.md`.
+- **Screen-recording demo script** ([video_script.md](video_script.md)): the longer walkthrough of `/demo`.
 
 ---
 
 ## Left to do
 
-### 1. The dataset that upgrades every ML number — *biggest win left*
-- [x] **Overnight collection done** (2026-11-16): 1,920 captures, 1,846 triggered, 11 lossy, 0 errors.
-- [x] **Trained on simulated + real, tested on real held-out**: 0 false alarms in 148 healthy real
-      traces; inversions and `ipc_deadlock` 100%, `irq_overrun` 85%, `lock_contention` 70%; of the
-      families with no rule, `lost_wakeup`/`period_overrun` 100%, `mutex_abba` 84%, `cpu_starvation` 0%
-      (the documented blind spot). See [ml/results_train.md](ml/results_train.md).
-- [ ] Put those numbers in README and Devpost, replacing the simulated-only ones.
+- [ ] **You:** listen check of the promo voice lines ("TraceLens", "aarch64"), confirm the Mixkit music
+      licence, upload to YouTube (public), paste the link into Devpost.
+- [ ] **You:** Devpost form: paste [devpost.md](devpost.md), codelab URL, video URL.
+- [ ] **Z5 live replay** still to record (its first attempt reported "nothing to fix": the interrupt bug
+      needs the serial load, which `tracelens fix` now takes from `bugzoo/zoo.toml`).
+- [ ] **Close the measured simulator gaps** (simulated interrupt threads are preempted about 2x more
+      often than real ones) and re-run `scripts/sim_experiment.py`.
+- [ ] Codelab ([codelab/index.md](codelab/index.md)): add the `tracelens simulate` path so a judge without
+      a QNX target can follow it.
 
-### 2. Live debugging in the demo
-- [x] **Z1 recorded** (2026-11-16): a real `tracelens fix` run on the target, 32 events, VERIFIED in one
-      round. `/replay/z1_infusion_pump_live` plays it back, and `/examples` offers "Watch the fix happen".
-- [x] The radar's "Second opinion" block ran against a real fix for the first time, and reads:
-      *control behaves unlike healthy QNX, closest known pattern priority_inversion — score 19.23 vs 3.39*.
-- [ ] **Z5 still to record**: the first attempt reported "nothing to fix" because its interrupt bug needs
-      the serial load running. `tracelens fix` now takes that command from `bugzoo/zoo.toml` by itself, so
-      the re-run is one command once the target is free. *(me, ~15 min)*
+## Known limits, keep stating them
 
-### 3. Close the measured simulator gaps
-- [ ] Simulated interrupt threads are preempted ~2x more often than real ones (`preempts_per_ms` 4.2–4.9
-      vs 0–2.1) and serve interrupts ~2x as often; real threads spread over more CPUs than the simulated
-      scheduler allows. Then re-run `scripts/sim_experiment.py` so the recorded numbers match. *(me)*
-
-### 3b. The judges' demo — technical depth (2026-11-23)
-- [x] New step **"How it knows"**: the QNX facilities each rule reads (`procnto-smp-instr`/`tracelogger -w`,
-      THREAD state events, kernel-call arguments, COMM pairing, `IST_ATTACH`, `qcc`), the chain of evidence
-      for a finding with event ids and timestamps, and the recording's own integrity figures.
-- [x] The verdict now shows its statistics: runs per side, p99 before/after, late jobs, the actual
-      Mann-Whitney p-value per round.
-- [x] New step **"What it learned"**: the radar's live finding on the demo trace, and what it adds overall,
-      read from `docs/results/ml.json` (written by `scripts/train_eval.py`, never typed in).
-
-### 4. Submission
-- [ ] **Render URL is recorded nowhere** (README, Devpost) and the live site has not been checked since
-      the last three deploys. *(you deploy / confirm the URL, me to wire it in and check the pages)*
-- [ ] Devpost text: draft is current in [devpost.md](devpost.md) — needs the final numbers and links. *(me)*
-- [ ] **Demo video** against [video_script.md](video_script.md). *(you)*
-- [ ] Codelab ([codelab/index.md](codelab/index.md)) is verified end to end on QNX; add the `tracelens simulate`
-      path so a judge with no QNX target can still follow it. *(me, ~20 min)*
-
-### 5. Known limits — keep stating them, don't hide them
-- **Starved low-priority job**: invisible to the radar by construction (it behaves exactly like healthy
-  deferred work). The deadline rule catches it when a deadline is declared.
+- **aarch64 is emulated** (QEMU TCG, no KVM for ARM). The claim is "the tool does not depend on x86",
+  not "validated on a Cortex-A part". The radar does not transfer on interrupt traces, and the median
+  interrupt-handler rule that fixes the rules there is optional and off by default.
+- **Third-party result is a clean result**, not a bug find: no rule fired on `rt-tests`, which has no
+  planted bugs.
+- **Starved low-priority job**: invisible to the radar by construction (it behaves like healthy deferred
+  work); the deadline rule catches it when a deadline is declared.
 - **Classifier misses Z3 and Z5** on real traces; the rules catch both outright.
-- **The bug-zoo traces are a development set** since 2026-11-15 — they were used to find simulator gaps.
-  Clean tests are the pilot and anything new.
-- **VM networking**: libvirt's DHCP orphaned itself three times in one evening, each repair needing a
-  password. `tracelens target up` now falls back to QEMU's own NAT (`--user-net`, ssh forwarded to
-  127.0.0.1:2222) — no bridge, no DHCP server, no `sudo`. That is how the overnight run was started.
-
----
-
-## If only three things get done
-
-1. **Overnight collection** — turns "works on simulated data" into "works on real QNX, measured".
-2. **Recorded live replays** — the demo currently tells judges about the fix loop instead of showing it.
-3. **Hosted URL + video** — the two things a judge actually opens first.
+- **The four rule-less bug families were written by us**, so withholding them is an honest experiment,
+  not proof the radar finds an unknown bug in a stranger's code.
+- **Bug-zoo traces are a development set** since 2026-11-15; clean tests are the pilots and anything new.
+- **VM networking**: `tracelens target up --user-net` (QEMU's own NAT, ssh on 127.0.0.1:2222) avoids the
+  libvirt DHCP problem and needs no `sudo`.

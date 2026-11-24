@@ -28,6 +28,7 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
   `traceprinter` format, so 1,920 labelled recordings take five minutes on a laptop and the whole
   pipeline runs on them unchanged. `tracelens simulate <scenario>` gives you one to try without a target.
 - **Try it in a browser:** a hosted demo (`tracelens serve`) shows every real QNX trace analyzed, each fix planned from the trace and the source, the before/after reports proven on the VM, and analyzes uploaded traces live.
+- **Keeps it fixed.** `tracelens gate` compares a build's timing against a committed baseline and blocks a build that is statistically slower (one-sided Mann-Whitney U on per-capture p99), grew a new kind of finding or went over budget; it says INCONCLUSIVE rather than guess when it cannot tell. A pre-push hook runs lint, tests and the gate before anything leaves the machine.
 - **Fits the workflow:** HTML/JSON/SARIF reports, exit codes for scripts (including "inconclusive" for lossy traces), Perfetto export, and `tracelens remedy`, which plans the fix from a trace and the source with no target at all.
 
 **Results on real QNX 8.0** (QEMU VM, 4 CPUs, `procnto-smp-instr`):
@@ -45,6 +46,8 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
   the four bug families **no rule exists for**: a lost wake-up and a period overrun **100%** of the
   time, a lock-order deadlock **84%**, and a starved low-priority job never — that one is the same
   behaviour as healthy deferred work unless a deadline is declared.
+- **On code we did not write**: `rt-tests` v2.11 (`pi_stress`, `ptsematest`, `pmqtest`), vendored unmodified and ported to QNX 8.0 through a compatibility layer, traced on the target: **0 rule findings in 16 runs**, a clean result and not a bug find, since those programs have no planted bugs. A control we wrote that holds a priority inversion on purpose is flagged in **9 of 9** runs without priority inheritance and **0 of 6** with it. The traces also exposed a real parser bug, now fixed with regression tests.
+- **Not tied to x86**: the suite cross-compiles for QNX 8.0 aarch64 with no source change. On an **emulated** aarch64 guest (QEMU `virt`; not ARM hardware) 65 captures over 13 scenarios show the same rules firing on the same workloads, and the x86-trained radar flags 38 of 45 planted bugs with 0 false alarms on 20 healthy traces. It does not transfer on interrupt traces, which need an optional median-handler rule that is off by default.
 - **The simulator is measurably worth having**: trained on the real captures alone the radar gives 2
   false alarms on those 148 healthy traces, and 0 once the simulated traces join training.
 - **Said plainly**: on the five bug classes that have rules, the rules are better — they cite the
@@ -52,6 +55,14 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
   from training is an honest experiment, not proof the radar will catch an unknown bug in a stranger's
   code. What is measured is this: trained only on healthy behaviour, it flags bug classes it was never
   shown, on real hardware, without crying wolf.
+
+## Where QNX shows
+
+- **Video:** 0:00-0:49 is the fix loop; **0:49-1:04 is a real run on the QNX 8.0 target** (`uname -a` on the QNX machine, then `tracelens fix` on the target, ending VERIFIED); 1:04 onward shows the results measured on that target.
+- **Output you can open:** `docs/results/detect.md` and `docs/results/fix.md` (every run captured on QNX 8.0), `fixtures/real/` (raw QNX kernel traces), and the recorded live fix at `/replay/z1_infusion_pump_live` on the demo.
+- **Code that builds for or runs on QNX:** the five workloads in `bugzoo/` (QNX C: `MsgSend`, `ChannelCreate`, `InterruptAttachEvent`, `ThreadCtl`, `TraceEvent`), built with `qcc`; the QNX-specific rewrites in `src/tracelens/remedy/`; the capture path `src/tracelens/target/capture.py` (`tracelogger` on `procnto-smp-instr`). The README's "Evidence of QNX use" table lists every QNX API with its file.
+- **Build and run:** README "Run it on QNX": SDP 8.0, a QEMU x86_64 VM from `mkqnximage`, `qcc -Vgcc_ntox86_64`; the codelab (`docs/codelab/`) walks it end to end.
+- **Built during the submission period:** the repository was created on 2026-11-13, after the 2026-11-02 start, and everything in it was written since.
 
 ## How we built it
 
@@ -79,7 +90,8 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
 
 - A closed loop in which nothing is guessed: the trace proves the cause, a QNX-specific rewrite fixes it, and the real kernel decides whether it worked. What a model contributes is clearly marked, never patched automatically, and never part of the proof.
 - Fixes that refuse to guess: every automatic rewrite checks its preconditions in the code, and tests prove it backs off when they fail.
-- A gate that refuses to pass or fail a lossy trace, and a harness that refuses to verify a bug that never reproduced.
+- A gate that refuses to pass or fail a lossy trace, a regression gate that says INCONCLUSIVE instead of guessing, and a harness that refuses to verify a bug that never reproduced.
+- Honest tests on other people's code and another architecture: a result on unseen code that says only what it shows, and a labelled-emulated aarch64 track whose limits are written next to its numbers.
 
 ## What we learned
 
@@ -92,15 +104,15 @@ TraceLens is a host tool for QNX 8.0 that turns a kernel event trace into findin
 
 ## What's next
 
-Runs on existing QNX software beyond the bug zoo, more remedies (condvar misuse, sporadic-server budgets, automatic send hierarchies for simple request/reply pairs), and a native `.kev` reader so analysis needs no SDP at all.
+Real-time code from more teams (the `rt-tests` run is a first, clean result), a QNX-capable ARM board to move aarch64 from emulated to measured, more remedies (condvar misuse, sporadic-server budgets, automatic send hierarchies for simple request/reply pairs), and a native `.kev` reader so analysis needs no SDP at all.
 
 ## Built with
 
-QNX SDP 8.0 · QNX Neutrino (`procnto-smp-instr`, `tracelogger`, `traceprinter`, `qcc`, `mkqnximage`) · QEMU/KVM · Python · Perfetto · SARIF
+QNX SDP 8.0 (x86_64 and aarch64le) · QNX Neutrino (`procnto-smp-instr`, `tracelogger`, `traceprinter`, `qcc`, `mkqnximage`) · QEMU/KVM · Python · Perfetto · SARIF
 
 ## Links
 
 - Code: https://github.com/sheikh2583/QNX-Global-Hackathon
-- Live demo: `[TBD: Render URL]` (`tracelens serve`: real QNX traces analyzed, fixes planned, uploads)
+- Live demo: https://qnx-global-hackathon.onrender.com/ (`tracelens serve`: real QNX traces analyzed, fixes planned, uploads; the free plan sleeps, so the first load takes about a minute)
 - Codelab: `[TBD: GitHub Pages URL]`
 - Video: `[TBD: YouTube URL]`

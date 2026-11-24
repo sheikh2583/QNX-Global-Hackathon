@@ -42,6 +42,9 @@ no API key, no network, and the same answer every time.
 
 ## Hosted demo
 
+**Live:** https://qnx-global-hackathon.onrender.com/ (free plan: the first request after a quiet
+period takes about a minute to wake the server).
+
 `tracelens serve` is the TraceLens web app, written for people who want their program fixed rather
 than for tool builders:
 
@@ -212,6 +215,27 @@ Exit codes are the usual contract: `0` pass, `1` regression, `3` inconclusive, `
 (Not to be confused with `scripts/check.sh gate`, which is this repository's own self-check that
 every committed trace still gets its expected verdict.)
 
+## Beyond the bug zoo
+
+Every result above is on programs this project wrote. Two further experiments ask what happens when it is not.
+
+**Code we did not write.** `rt-tests` v2.11 (`pi_stress`, `ptsematest`, `pmqtest`; GPL-2.0-or-later,
+vendored unmodified under [third_party/rt-tests/](third_party/rt-tests/) behind a QNX compatibility layer)
+was built with `qcc` and traced on QNX 8.0: **0 rule findings in 16 runs**. That is a clean result on
+unseen code, not a bug find, because these programs have no planted bugs. A control we wrote,
+`busy_medium`, keeps a priority inversion going on purpose: the inversion rule flags it in **9 of 9 runs
+without priority inheritance and in none of 6 runs with it**. Real third-party traces also exposed a
+parser bug (a quoted message spanning lines), now fixed with regression tests, which changes no ML feature
+row. Details and limits: [docs/results/third_party/](docs/results/third_party/README.md).
+
+**Not tied to x86.** The same workload suite cross-compiles for QNX 8.0 `aarch64le` with no source change.
+On an **emulated** aarch64 guest (QEMU `virt`, cortex-a57, 4 CPUs; an x86 host has no KVM for ARM, so this
+is emulated timing, not ARM hardware) 65 captures over 13 scenarios show the same rules firing on the same
+workloads, and the radar trained only on x86 traces flags 38 of 45 planted bugs with 0 false alarms on 20
+healthy traces. It does not transfer on interrupt traces, where an optional median-handler rule (off by
+default) is needed. Claim: the tool does not depend on x86. Not claimed: validated on a Cortex-A part.
+Details: [docs/results/aarch64.md](docs/results/aarch64.md).
+
 ## The bug zoo
 
 Five small QNX C programs with planted, realistic bugs (`bugzoo/`). Hand-written reference fixes live in `bugzoo/reference/`; the fix engine never reads them.
@@ -378,6 +402,11 @@ number here comes from a recorded run — `python scripts/train_eval.py --sim da
 | Real QNX 8.0 captures | [fixtures/real/](fixtures/real/), [docs/results/](docs/results/), [tests/test_real_qnx.py](tests/test_real_qnx.py) |
 
 ## Run it on QNX
+
+**Versions at a glance.** QNX: **SDP 8.0** (QNX Neutrino 8.0, instrumented kernel `procnto-smp-instr`). Target: a **QEMU x86_64 VM**
+(4 CPUs, KVM) built with `mkqnximage`; an emulated `aarch64le` guest (QEMU `virt`) is also supported, see
+[docs/results/aarch64.md](docs/results/aarch64.md). Toolchain: **`qcc -Vgcc_ntox86_64`** (gcc 12.2.0; `-Vgcc_ntoaarch64le`
+for aarch64). Host: Linux or WSL2 Ubuntu 24.04, Python 3.11 or newer.
 
 Linux host (or WSL2 Ubuntu 24.04 on Windows) with KVM, and a free [QNX Everywhere](https://www.qnx.com/products/everywhere/) license:
 
