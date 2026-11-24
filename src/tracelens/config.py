@@ -44,6 +44,9 @@ class Thresholds:
     # stall does not (docs/results/aarch64.md section 6).
     irq_median_handler_us: float = 0
     deadlock_min_blocked_us: float = 50_000
+    # A condition-variable wait still blocked at the end of the trace for this long, after a signal that
+    # woke nobody, with another thread joined on the waiter (lost wake-up hang).
+    lost_wakeup_min_stuck_us: float = 1_000_000
     chain_min_depth: int = 3
 
 
@@ -53,6 +56,7 @@ class Config:
     deadlines: dict[str, Deadline] = field(default_factory=dict)
     fail_on: str = "high"
     target: dict = field(default_factory=dict)  # [target] host, user, port, key
+    build: dict = field(default_factory=dict)  # [build] defines, libs, libdirs: extra qcc flags
 
 
 def load_config(path: str | Path | None) -> Config:
@@ -67,6 +71,7 @@ def load_config(path: str | Path | None) -> Config:
     for name, d in data.get("deadlines", {}).items():
         cfg.deadlines[name] = Deadline(budget_us=d["budget_us"], period_us=d.get("period_us"))
     cfg.target = dict(data.get("target", {}))
+    cfg.build = dict(data.get("build", {}))
     if "fail_on" in data:
         cfg.fail_on = data["fail_on"]
     return cfg

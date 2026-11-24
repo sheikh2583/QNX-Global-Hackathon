@@ -8,8 +8,9 @@ from tracelens.analyze import analyze_text
 from tracelens.cli import main
 from tracelens.config import Config, Deadline
 from tracelens.testing import scenarios as S
-from tracelens.verdict import (INCONCLUSIVE, NOT_FIXED, VERIFIED, RunSummary, compare_runs, holm,
-                               mann_whitney_greater, mann_whitney_less, summarize)
+from tracelens.verdict import (INCONCLUSIVE, NOT_FIXED, VERIFIED, RunSummary, clopper_pearson, compare_runs, holm,
+                               mann_whitney_greater, mann_whitney_less, residual_rate_upper, runs_needed,
+                               summarize)
 
 
 @pytest.fixture
@@ -124,3 +125,40 @@ def test_compare_cli_exit_codes(tmp_path, cfg):
     assert main(["compare", "-c", conf, "--before", *[str(b)] * 5, "--after", *[str(a)] * 5]) == 0
     assert main(["compare", "-c", conf, "--before", *[str(b)] * 5, "--after", *[str(b)] * 5]) == 1
     assert main(["compare", "-c", conf, "--before", str(b), "--after", str(a)]) == 3
+
+
+# ---- the residual-rate bound (research track R1) ------------------------------------------------
+
+def test_zero_of_n_bound_matches_the_closed_form():
+    assert [round(residual_rate_upper(n), 3) for n in (5, 10, 20)] == [0.451, 0.259, 0.139]
+
+
+def test_bound_with_one_failure_matches_the_tabulated_value():
+    # Clopper-Pearson one-sided 95% upper limit for 1 of 10 (standard tables): 0.3942
+    assert residual_rate_upper(10, 1) == pytest.approx(0.3942, abs=5e-4)
+    # and the two-sided interval for 3 of 10: 0.0667 to 0.6525
+    lo, hi = clopper_pearson(3, 10)
+    assert (lo, hi) == (pytest.approx(0.0667, abs=5e-4), pytest.approx(0.6525, abs=5e-4))
+
+
+def test_bound_gets_tighter_with_more_captures_and_looser_with_more_failures():
+    bounds = [residual_rate_upper(n) for n in (5, 10, 20, 40)]
+    assert bounds == sorted(bounds, reverse=True)
+    assert residual_rate_upper(10, 0) < residual_rate_upper(10, 1) < residual_rate_upper(10, 2)
+    assert residual_rate_upper(0) == 1.0 and residual_rate_upper(5, 5) == 1.0
+
+
+def test_runs_needed_for_a_target_rate():
+    assert runs_needed(0.1) == 29 and runs_needed(0.2) == 14
+    assert residual_rate_upper(runs_needed(0.1)) <= 0.1 < residual_rate_upper(runs_needed(0.1) - 1)
+
+
+def test_the_verdict_carries_the_bound_without_changing_the_category(cfg):
+    before, after = runs(S.z1_prio_inversion(), cfg, 6), runs(S.z0_clean(), cfg, 6)
+    v = compare_runs(before, after, cfg, target_kinds=["priority_inversion"])
+    assert v.verdict == VERIFIED
+    d = v.to_dict()["targets"]["priority_inversion"]
+    assert (d["after_k"], d["after_n"], d["before_k"], d["before_n"]) == (0, 6, 6, 6)
+    assert d["residual_rate_upper_95"] == pytest.approx(residual_rate_upper(6), abs=1e-4)
+    assert any("not seen in 6 of 6 clean after-captures" in n and "at most 39%" in n for n in v.notes)
+    assert compare_runs(before, after, cfg, target_kinds=["priority_inversion"], confidence=0.99).verdict == VERIFIED

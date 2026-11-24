@@ -10,7 +10,7 @@ from __future__ import annotations
 from ..findings import SEVERITY_RANK, Finding
 from .rules import RULES, Remedy
 
-CAUSES = {"priority_inversion", "ipc_deadlock", "mutex_contention", "irq_handler_overrun"}
+CAUSES = {"priority_inversion", "ipc_deadlock", "mutex_contention", "irq_handler_overrun", "lost_wakeup"}
 SYMPTOMS = {"deadline_miss", "irq_latency"}
 
 

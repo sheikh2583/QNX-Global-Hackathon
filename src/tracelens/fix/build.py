@@ -34,11 +34,15 @@ def _run(argv: list[str]) -> subprocess.CompletedProcess:
 class QccBuilder:
     arch: str = "x86_64"
     cflags: list[str] = field(default_factory=lambda: ["-O2", "-g"])
+    defines: list[str] = field(default_factory=list)  # -D, from the config's [build] defines
+    libs: list[str] = field(default_factory=list)  # -l, from the config's [build] libs (e.g. socket)
+    libdirs: list[str] = field(default_factory=list)  # -L, from the config's [build] libdirs
     run: Run = _run
 
     def build(self, sources: list[Path], include_dirs: list[Path], out: Path) -> BuildResult:
-        argv = ["qcc", f"-Vgcc_nto{self.arch}", *self.cflags, *WARN,
-                *[f"-I{d}" for d in include_dirs], "-o", str(out), *map(str, sources)]
+        argv = ["qcc", f"-Vgcc_nto{self.arch}", *self.cflags, *WARN, *[f"-D{d}" for d in self.defines],
+                *[f"-I{d}" for d in include_dirs], "-o", str(out), *map(str, sources),
+                *[f"-L{d}" for d in self.libdirs], *[f"-l{lib}" for lib in self.libs]]
         try:
             cp = self.run(argv)
         except FileNotFoundError:

@@ -12,6 +12,7 @@ patched build on the target (``tracelens fix``), never by the rule itself.
                          first, defer the work to a worker thread via a pulse           (auto)
   shrink-critical-section work that touches no shared data moved out of the lock        (auto)
   ipc-cycle              mutual MsgSend() -> send hierarchy                             (guided)
+  recheck-before-wait    lost cond_signal: test the run flag under the lock before waiting (auto)
 """
 
 from __future__ import annotations
@@ -529,5 +530,71 @@ def ipc_cycle(f: Finding, sources: dict[str, str]) -> Remedy | None:
     ]
     return r
 
+# ============================================================================ recheck-before-wait
+def recheck_before_wait(f: Finding, sources: dict[str, str]) -> Remedy | None:
+    """``while (run) { lock(M); if (idle) cond_wait(C, M); ... }`` with a stopper that does
+    ``lock(M); run = 0; cond_signal(C); unlock(M)``: the signal is lost whenever the stopper runs before
+    the waiter reaches its wait. Making the wait ``if (idle && run)`` closes it, because the stopper's
+    write of ``run`` happens under M and the waiter reads it under M."""
+    if f.kind != "lost_wakeup":
+        return None
+    r = Remedy("recheck-before-wait", f.id, f.kind,
+               "Re-check the loop's run flag under the lock before waiting", False,
+               "pthread_cond_signal() wakes only a thread that is already waiting. The stopper sets the flag "
+               "and signals under the mutex, but the waiter tests only its own idle condition before it "
+               "waits, so a stop that lands while the waiter is not yet waiting is lost and the waiter "
+               "sleeps forever. Testing the flag under the same mutex, in the same condition that guards "
+               "the wait, makes the two orderings equivalent: either the waiter sees the flag and skips "
+               "the wait, or it is already waiting when the signal arrives.")
+    found = []  # (path, if_start, paren_open, paren_close, cond, flag, negated)
+    for path, text in sources.items():
+        m = csrc.mask(text)
+        try:
+            fns = csrc.functions(m)
+        except ValueError:  # braces that only balance after the preprocessor has chosen a branch
+            r.notes.append(f"{path}: braces do not balance (preprocessor alternatives?); not scanned")
+            continue
+        for fn in fns:
+            for w in re.finditer(r"\bwhile\s*\(\s*(!?)\s*([A-Za-z_]\w*)\s*\)\s*\{", m[fn.body_open:fn.body_close]):
+                neg, flag = w.group(1) == "!", w.group(2)
+                lb = fn.body_open + w.end() - 1
+                le = csrc.match(m, lb)
+                for iff in re.finditer(r"\bif\s*\(", m[lb:le]):
+                    po = lb + iff.end() - 1
+                    pc = csrc.match(m, po)
+                    rest = m[pc + 1:le].lstrip()
+                    if not rest.startswith("{"):
+                        continue
+                    bo = pc + 1 + (len(m[pc + 1:le]) - len(rest))
+                    wait = re.search(r"\bpthread_cond_wait\s*\(\s*&?\s*(\w+)\s*,\s*&?\s*(\w+)\s*\)", m[bo:csrc.match(m, bo)])
+                    if not wait:
+                        continue
+                    cv, mx = wait.group(1), wait.group(2)
+                    held = re.search(rf"\bpthread_mutex_lock\s*\(\s*&?\s*{mx}\s*\)", m[lb:lb + (po - lb)])
+                    set_to = "1" if neg else "0"
+                    stopper = any(
+                        re.search(rf"\bpthread_mutex_lock\s*\(\s*&?\s*{mx}\s*\)[^}}]*?\b{flag}\s*=\s*{set_to}\s*;"
+                                  rf"[^}}]*?\bpthread_cond_(?:signal|broadcast)\s*\(\s*&?\s*{cv}\s*\)",
+                                  m[g.body_open:g.body_close])
+                        for g in fns if g.name != fn.name)
+                    if held and stopper and flag not in m[po + 1:pc]:
+                        found.append((path, iff.start() + lb, po, pc, text[po + 1:pc].strip(), flag, neg))
+        r.locations += [_loc(path, text, x.start()) for x in re.finditer(r"\bpthread_cond_wait\s*\(", m)]
+    if len(found) != 1:
+        r.guidance.append("Wait in a loop that re-checks every condition under the mutex, including the stop "
+                          "flag the stopper sets: while (!stop && !ready) pthread_cond_wait(&c, &m);")
+        r.notes.append("no single wait of the shape 'while (run) { lock; if (idle) cond_wait }' with a "
+                       "stopper that sets the flag and signals under the same mutex" if not found
+                       else "several waits qualify; not choosing one automatically")
+        return r
+    path, _ifs, po, pc, cond, flag, neg = found[0]
+    text = sources[path]
+    guard = ("!" if neg else "") + flag
+    new = text[:po + 1] + f"({cond}) && {guard}" + text[pc:]
+    r.automatic, r.changes = True, {path: new}
+    r.title = f"Re-check '{guard}' under the lock before the wait: if (({cond}) && {guard})"
+    return r
 
-RULES = [semaphore_as_lock, fixed_priority_channel, ist_defer_work, shrink_critical_section, ipc_cycle]
+
+RULES = [semaphore_as_lock, fixed_priority_channel, ist_defer_work, shrink_critical_section, ipc_cycle,
+         recheck_before_wait]

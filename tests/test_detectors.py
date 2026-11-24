@@ -231,3 +231,53 @@ def test_median_handler_rule_is_off_by_default_and_ignores_a_tail_spike(cfg):
     assert len(on) == 1 and on[0].severity == "high" and "median handler time is 1500 us" in on[0].summary
     assert on[0].metrics["p50_handler_us"] == pytest.approx(1500, abs=2)
     assert over(spike, irq_median_handler_us=800) == []          # the median rule ignores the tail spike
+
+
+def test_lost_wakeup_hang_is_found(cfg):
+    a = analyze_text(S.lost_wakeup(), cfg)
+    assert a.errors == []
+    assert kinds(a) == ["lost_wakeup"]
+    f = a.findings[0]
+    assert f.severity == "high"
+    assert f.threads == ["stopper", "mc-log"]
+    assert f.metrics["stuck_ms"] > 2000
+    assert "re-checks the condition" in f.qnx_note
+
+
+def test_signal_after_the_wait_is_not_a_lost_wakeup(cfg):
+    a = analyze_text(S.lost_wakeup(signal_after_wait=True), cfg)
+    assert kinds(a) == []
+
+
+def test_idle_waiter_nobody_joins_is_not_reported(cfg):
+    """A worker parked on a condition variable after an earlier unmatched signal is normal idling."""
+    text = S.lost_wakeup()
+    lines = text.splitlines(keepends=True)
+    assert any("THREAD_JOIN" in ln for ln in lines)
+    # Drop the join: nobody is waiting for the parked thread any more.
+    out, skip = [], 0
+    for ln in lines:
+        if "THREAD_JOIN" in ln:
+            skip = 2  # the call line carries one argument line
+            continue
+        if skip:
+            skip -= 1
+            continue
+        out.append(ln)
+    assert kinds(analyze_text("".join(out).replace("THJOIN", "THNANOSLEEP"), cfg)) == []
+
+
+def test_a_job_that_starts_and_never_finishes_is_reported_with_what_each_thread_waited_on():
+    c = Config()
+    c.deadlines["cycle"] = Deadline(budget_us=500_000)
+    a = analyze_text(S.stuck_job(), c)
+    assert kinds(a) == ["stuck_job"]
+    f = a.findings[0]
+    assert f.severity == "critical" and f.metrics["blocked_threads"] == 2
+    assert "0x1000" in f.summary and "0x2000" in f.summary
+
+
+def test_a_job_that_finishes_is_not_stuck():
+    c = Config()
+    c.deadlines["cycle"] = Deadline(budget_us=500_000)
+    assert "stuck_job" not in kinds(analyze_text(S.stuck_job(finish=True), c))

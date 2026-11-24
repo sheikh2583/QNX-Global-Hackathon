@@ -62,13 +62,14 @@ class FixEngine:
     def __init__(self, workload_dir: str | Path, include_dirs: list[str | Path], cfg: Config,
                  builder: Any, capturer: Capturer, out_dir: str | Path, runs: int = 5,
                  target_kinds: list[str] | None = None, alpha: float = 0.01, max_rounds: int = 3,
-                 on_event: Callable[[dict], None] | None = None):
+                 on_event: Callable[[dict], None] | None = None, confidence: float = 0.95):
         self.workload_dir = Path(workload_dir)
         self.include_dirs = [Path(d) for d in include_dirs]
         self.cfg, self.builder, self.capturer = cfg, builder, capturer
         self.out = Path(out_dir)
         self.runs, self.target_kinds, self.alpha, self.max_rounds = runs, target_kinds, alpha, max_rounds
         self.on_event = on_event
+        self.confidence = confidence
         self._events_path: Path | None = None
 
     # ------------------------------------------------------------------ events
@@ -206,7 +207,7 @@ class FixEngine:
             self._after_an = after_an
             self._emit("stage", stage="verdict", round=rnd)
             v = compare_runs(before, after, self.cfg, target_kinds=targets, min_runs=min(self.runs, 5),
-                             alpha=self.alpha)
+                             alpha=self.alpha, confidence=self.confidence)
             res.status, res.verdict, res.rounds = v.verdict, v.to_dict(), rnd
             (rdir / "verdict.json").write_text(json.dumps(v.to_dict(), indent=2), encoding="utf-8")
             (self.out / "verdict.json").write_text(json.dumps(v.to_dict(), indent=2), encoding="utf-8")
@@ -332,4 +333,5 @@ def summary_markdown(res: FixResult, remedies: list[Remedy]) -> str:
                          f"(budget {d['budget_ns'] / 1e6:.2f} ms), misses {d['before_misses']} -> "
                          f"{d['after_misses']}: {d['reason']}")
         lines += [f"- {r}" for r in v.get("reasons", [])]
+        lines += [f"- {n}" for n in v.get("notes", [])]
     return "\n".join(lines) + "\n"

@@ -17,6 +17,8 @@ LEVEL = {"critical": "error", "high": "error", "medium": "warning", "low": "note
 RULE_TEXT = {
     "priority_inversion": "A high-priority thread waited on a lower-priority one while medium-priority work held its CPU.",
     "ipc_deadlock": "Processes were SEND/REPLY-blocked on each other in a cycle; none could receive.",
+    "stuck_job": "A declared job started and never finished; the threads of the process were all blocked.",
+    "lost_wakeup": "A condition-variable signal woke nobody; the thread that then waited on it never wakes.",
     "ipc_chain": "A request was blocked through a long chain of message-passing servers.",
     "mutex_contention": "Threads spent a large share of time waiting for one mutex.",
     "irq_latency": "The interrupt handler thread started too late after the interrupt.",

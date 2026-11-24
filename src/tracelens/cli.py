@@ -138,7 +138,7 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     if args.fail_on:
         cfg.fail_on = args.fail_on
     v = compare_files(args.before, args.after, cfg, target_kinds=args.kind or None,
-                      min_runs=args.min_runs, alpha=args.alpha)
+                      min_runs=args.min_runs, alpha=args.alpha, confidence=args.confidence)
     print(f"TraceLens {__version__} | before/after over {v.runs_before} + {v.runs_after} clean runs"
           + (f" ({v.lossy_skipped} lossy skipped)" if v.lossy_skipped else ""))
     for kind, (rb, ra) in v.targets.items():
@@ -148,6 +148,8 @@ def _cmd_compare(args: argparse.Namespace) -> int:
               f"(budget {d.budget_ns / 1e6:.2f} ms; misses {d.before_misses} -> {d.after_misses}); {d.reason}")
     for r in v.reasons:
         print(f"  - {r}")
+    for n in v.notes:
+        print(f"  * {n}")
     print(f"  VERDICT: {v.verdict}")
     if args.json:
         Path(args.json).write_text(json.dumps(v.to_dict(), indent=2), encoding="utf-8")
@@ -313,9 +315,16 @@ def _zoo_background(workload: Path) -> str | None:
         return None
 
 
+def _qcc(args: argparse.Namespace, cfg):
+    """The cross-compiler for ``--arch``, with the config's ``[build]`` defines and libraries."""
+    from .fix import QccBuilder
+    return QccBuilder(arch=args.arch, defines=list(cfg.build.get("defines", [])),
+                      libs=list(cfg.build.get("libs", [])), libdirs=list(cfg.build.get("libdirs", [])))
+
+
 def _cmd_fix(args: argparse.Namespace) -> int:
     import os
-    from .fix import FixEngine, QccBuilder
+    from .fix import FixEngine
     from .target import Target, capture
 
     workload = Path(args.workload)
@@ -348,8 +357,8 @@ def _cmd_fix(args: argparse.Namespace) -> int:
         url = start_live_view(feed, args.watch_port, f"Fixing {workload.name}", open_browser=not args.no_browser)
         print(f"  live view: {url}  (it updates as the fix runs)", flush=True)
         on_event = feed.publish
-    engine = FixEngine(workload, includes, cfg, QccBuilder(arch=args.arch), capturer, out, runs=args.runs,
-                       target_kinds=args.kind or None, on_event=on_event)
+    engine = FixEngine(workload, includes, cfg, _qcc(args, cfg), capturer, out, runs=args.runs,
+                       target_kinds=args.kind or None, on_event=on_event, confidence=args.confidence)
     res = engine.run(before_traces=args.before or None)
     if args.watch:
         import time
@@ -570,14 +579,14 @@ def _cmd_eval(args: argparse.Namespace) -> int:
                         bin_dir=args.bin_dir, irq_load=args.irq_load, allow_lossy=args.allow_lossy)
             print((out / "detect.md").read_text(encoding="utf-8"))
             return 0
-        from .fix import FixEngine, QccBuilder
+        from .fix import FixEngine
 
         def make_engine(workload_dir, engine_out):
             def fix_cap(binary, _ws, label, i, o):
                 entry = _zoo_entry(args.zoo, Path(workload_dir).name)
                 wargs = [a.replace("{irq}", str(args.irq)) for a in entry.args]
                 return cap(label, i, binary, None, wargs, o, background=load_for(entry, args.irq_load))
-            return FixEngine(workload_dir, [Path(args.zoo) / "common"], cfg, QccBuilder(arch=args.arch), fix_cap,
+            return FixEngine(workload_dir, [Path(args.zoo) / "common"], cfg, _qcc(args, cfg), fix_cap,
                              engine_out, runs=args.runs)
 
         eval_fix(args.zoo, cfg, make_engine, cap, out, runs=args.runs, irq=args.irq, only=only,
@@ -675,6 +684,8 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--kind", action="append", help="finding kind that must disappear (default: those in most before-runs)")
     v.add_argument("--min-runs", type=int, default=5, help="clean runs needed on each side (default 5)")
     v.add_argument("--alpha", type=float, default=0.01, help="significance level for timing improvement")
+    v.add_argument("--confidence", type=float, default=0.95,
+                   help="confidence of the bound on how often the bug could still show after the fix (default 0.95)")
     v.add_argument("--fail-on", choices=["critical", "high", "medium", "low"])
     v.add_argument("--json", help="write the verdict as JSON here")
     v.set_defaults(func=_cmd_compare)
@@ -731,6 +742,8 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--port", type=int)
     f.add_argument("--key")
     f.add_argument("--runs", type=int, default=5, help="captures per side (>= 5 for a verified claim)")
+    f.add_argument("--confidence", type=float, default=0.95,
+                   help="confidence of the residual-rate bound in the verdict (default 0.95)")
     f.add_argument("--seconds", type=int, default=4)
     f.add_argument("--background", help="shell command run on the target during each capture "
                    "(default: the workload's bug-zoo entry, e.g. z5's serial load)")

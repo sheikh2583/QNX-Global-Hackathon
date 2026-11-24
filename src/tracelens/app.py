@@ -34,6 +34,19 @@ KIND = {
                   "until a timeout breaks the wait, or forever if there is none.",
         "todo": "Let messages flow one way only (a send hierarchy); use a pulse for the other direction.",
     },
+    "stuck_job": {
+        "name": "A job started and never finished",
+        "impact": "The program stopped making progress inside a job: every thread is waiting for another one.",
+        "todo": "Read the list of what each thread was blocked on, find the cycle, and make one side signal, "
+                "complete or cancel before it waits.",
+    },
+    "lost_wakeup": {
+        "name": "A thread waits for a signal that already came",
+        "impact": "A thread signalled while nobody was waiting, so the signal was thrown away; the thread that "
+                  "waits afterwards sleeps for good, and whoever waits for it hangs too.",
+        "todo": "Test the stop flag (and every other condition) under the same mutex immediately before each "
+                "wait, and wait in a loop.",
+    },
     "mutex_contention": {
         "name": "Threads queue for the same lock",
         "impact": "While one thread holds the lock, the others stop. Work that runs in parallel on paper runs "
@@ -543,6 +556,14 @@ class Results:
             else {"workloads": [], "negatives": []}
         # What the learned radar adds, written by scripts/train_eval.py (never typed in here).
         self.ml = json.loads((r / "ml.json").read_text(encoding="utf-8")) if (r / "ml.json").exists() else {}
+        # Fixes on code the project did not write: each folder holds the verdict the fix loop wrote.
+        self.outside = {}
+        for name, rel in (("third_party_fix", "third_party_fix/confirmation/verdict.json"),
+                          ("memcached_logger", "memcached_logger/daemon/verdict.json"),
+                          ("nng_close", "nng_close/compare.json")):
+            v = r / rel
+            if v.exists():
+                self.outside[name] = json.loads(v.read_text(encoding="utf-8"))
 
     @property
     def verified(self) -> int:
@@ -579,6 +600,46 @@ class Results:
 
 
 # ----------------------------------------------------------------------------- pages
+def _outside_cards(res: Results) -> str:
+    """Cards for what ran on code the project did not write, and for the learned radar. Every number is
+    read from a committed result file (ml.json, the fix loop's verdict.json), never typed here."""
+    cards = []
+    c = (res.ml or {}).get("contribution") or {}
+    if c:
+        by_rules = c["rules_only"] + c["both"]
+        cards.append(f'<div class="card stat"><b>{by_rules + c["radar_only"]} of {c["buggy"]}</b><span>held-out buggy '
+                     f'recordings flagged: {by_rules} by the fixed rules, {c["radar_only"]} more by a learned radar in '
+                     f'bug families no rule covers, and {c["false_alarms"]} false alarms on {c["healthy"]} healthy '
+                     'recordings</span></div>')
+    v = res.outside.get("third_party_fix")
+    if v:
+        k, tg = next(iter(v["targets"].items()))
+        d = v["deadlines"][0]
+        n = v["runs"]["before"]
+        cards.append(f'<div class="card stat"><b>{round(tg["before_rate"] * n)}/{n} to {round(tg["after_rate"] * n)}/{v["runs"]["after"]}'
+                     f'</b><span>runs with a priority inversion before and after TraceLens fixed a real-time exercise from a '
+                     f'university course (code we did not write), on QNX 8.0: worst-case latency '
+                     f'{d["before_p99"] / 1e6:,.0f} to {d["after_p99"] / 1e6:,.0f} ms, p = {d["p_value"]:.1e}</span></div>')
+    v = res.outside.get("memcached_logger")
+    if v:
+        k, tg = next(iter(v["targets"].items()))
+        n = v["runs"]["before"]
+        cards.append(f'<div class="card stat"><b>{round(tg["before_rate"] * n)}/{n} to {round(tg["after_rate"] * n)}/{v["runs"]["after"]}'
+                     '</b><span>runs hung before and after the fix for a lost wake-up in the real memcached 1.6.45 daemon, verified on '
+                     'QNX 8.0. A case study, not a blind test: we wrote the rules after studying this bug</span></div>')
+    v = res.outside.get("nng_close")
+    if v:
+        k, tg = next(iter(v["targets"].items()))
+        n = v["runs"]["before"]
+        cards.append(f'<div class="card stat"><b>{round(tg["before_rate"] * 100)}% to {round(tg["after_rate"] * 100)}%</b>'
+                     f'<span>of runs hung before and after the upstream fix for the famous NNG nng_close() deadlock, measured on QNX 8.0 '
+                     f'over {n} + {v["runs"]["after"]} runs: TraceLens named the hang and confirmed the fix</span></div>')
+    cards.append('<div class=card><h3>Built for the whole workflow</h3><p class=muted>A timing regression gate for CI that '
+                 'says INCONCLUSIVE instead of guessing, SARIF for code scanning, and the same findings on an emulated '
+                 '64-bit ARM QNX image.</p></div>')
+    return "".join(cards)
+
+
 def home(res: Results) -> bytes:
     caught, runs, false, clean = res.detection()
     body = f"""
@@ -600,13 +661,22 @@ def home(res: Results) -> bytes:
 </section>
 
 <section>
+  <div class=eyebrow>Beyond the demo programs</div><h2>It does not only work on bugs we planted</h2>
+  <p>The rules are fixed and explain themselves. A learned radar, a small model that runs offline with no cloud
+  and no API keys, adds a second opinion on bug families no rule covers. And the fix loop has been pointed at
+  code written by other people.</p>
+  <div class=grid3>{_outside_cards(res)}</div>
+  <div class=btns><a class="btn ghost" href="/demo#learned">What the model learned</a></div>
+</section>
+
+<section>
   <div class=eyebrow>How it works</div><h2>Three steps</h2>
   <div class=grid3>
     <div class=card><span class=step>1 · Record</span><h3>Run your program with tracing on</h3>
       <p class=muted>QNX's instrumented kernel records every scheduling decision, message and interrupt. One
       command on your QNX target, a few seconds of normal operation.</p></div>
     <div class=card><span class=step>2 · Analyze</span><h3>Upload the recording</h3>
-      <p class=muted>TraceLens checks it for the five ways real-time QNX programs go wrong and shows each problem
+      <p class=muted>TraceLens checks it for the six ways real-time QNX programs go wrong and shows each problem
       as it happened, thread by thread.</p></div>
     <div class=card><span class=step>3 · Fix and prove</span><h3>Apply the fix, record again</h3>
       <p class=muted>Add your C source and TraceLens writes the QNX-specific fix. Record the fixed program to see
@@ -615,10 +685,11 @@ def home(res: Results) -> bytes:
 </section>
 
 <section>
-  <div class=eyebrow>What it finds</div><h2>The five ways QNX real-time code goes wrong</h2>
+  <div class=eyebrow>What it finds</div><h2>The six ways QNX real-time code goes wrong</h2>
   <div class=grid3>
     {''.join(f'<div class=card><h3>{escape(KIND[k]["name"])}</h3><p class=muted>{escape(KIND[k]["impact"])}</p></div>'
-             for k in ("priority_inversion", "ipc_deadlock", "mutex_contention", "irq_handler_overrun", "deadline_miss"))}
+             for k in ("priority_inversion", "ipc_deadlock", "lost_wakeup", "mutex_contention", "irq_handler_overrun",
+                       "deadline_miss"))}
   </div>
 </section>
 

@@ -214,3 +214,61 @@ def test_interrupt_worker_runs_below_every_interrupt_thread_and_outside_attach(r
     assert "#define TRACELENS_IRQ_WORKER_PRIO 20" in c and "virtio_pci0 irq 256 at 21" in c
     assert c.index("tracelens_irq_worker_start()") < c.index("InterruptAttachEvent(irq")
     assert c.index("InterruptDetach(id)") < c.index("tracelens_irq_worker_stop();")
+
+
+# memcached 1.6.45 logger.c, reduced to the lines that matter (memcached/memcached#1348).
+LOGGER = """\
+#include <pthread.h>
+static volatile int run = 1;
+static int watchers = 0;
+static pthread_mutex_t lk = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t cv = PTHREAD_COND_INITIALIZER;
+
+static void *logger_thread(void *arg) {
+    while (run) {
+        usleep(1000);
+        pthread_mutex_lock(&lk);
+        if (watchers == 0) {
+            pthread_cond_wait(&cv, &lk);
+        }
+        pthread_mutex_unlock(&lk);
+    }
+    return NULL;
+}
+
+static int stop_logger_thread(void) {
+    pthread_mutex_lock(&lk);
+    run = 0;
+    pthread_cond_signal(&cv);
+    pthread_mutex_unlock(&lk);
+    return 0;
+}
+"""
+
+
+def _lost_wakeup_finding():
+    from tracelens.findings import Finding
+    return Finding(kind="lost_wakeup", severity="high", title="Lost wake-up", summary="", t_start=0, t_end=1,
+                   threads=["mc-log"], id="TL-001")
+
+
+def test_lost_wakeup_fix_rechecks_the_run_flag_under_the_lock():
+    from tracelens.remedy import plan
+    remedies, new = plan([_lost_wakeup_finding()], {"logger.c": LOGGER})
+    assert [r.rule for r in remedies] == ["recheck-before-wait"] and remedies[0].automatic
+    assert new["logger.c"] == LOGGER.replace("if (watchers == 0) {", "if ((watchers == 0) && run) {")
+
+
+def test_lost_wakeup_fix_refuses_when_the_stopper_does_not_hold_the_lock():
+    from tracelens.remedy import plan
+    unlocked = LOGGER.replace("    pthread_mutex_lock(&lk);\n    run = 0;", "    run = 0;")
+    remedies, new = plan([_lost_wakeup_finding()], {"logger.c": unlocked})
+    assert not remedies[0].automatic and new["logger.c"] == unlocked
+
+
+def test_lost_wakeup_fix_survives_a_file_it_cannot_parse():
+    """memcached.c has braces that balance only after the preprocessor picks a branch."""
+    from tracelens.remedy import plan
+    odd = "#ifdef A\nvoid f(void) {\n#else\nvoid f(int x) {\n#endif\n  (void)0;\n}\n}\n"
+    remedies, new = plan([_lost_wakeup_finding()], {"odd.c": odd, "logger.c": LOGGER})
+    assert remedies[0].automatic and "&& run" in new["logger.c"]

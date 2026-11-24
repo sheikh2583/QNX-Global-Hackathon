@@ -33,6 +33,63 @@ VERIFIED, NOT_FIXED, INCONCLUSIVE = "VERIFIED", "NOT FIXED", "INCONCLUSIVE"
 EXACT_MAX_N = 60  # above this the normal approximation is used (the DP below gets slow, and n is ample)
 
 
+# --- How sure can we be that a fix worked? (research track R1) -----------------------------------
+# "The bug did not show in 0 of 5 after-captures" bounds the remaining per-capture rate only to about
+# 45% (0 of 10: about 26%, at 95% confidence). A reader would compute this anyway, so we report it.
+# The unit is the capture: periods inside one capture are not independent samples.
+
+
+def _binom_cdf(k: int, n: int, p: float) -> float:
+    """P(X <= k) for X ~ Binomial(n, p), summed in log space so n in the thousands is fine."""
+    if k < 0 or p >= 1.0:
+        return 0.0
+    if k >= n or p <= 0.0:
+        return 1.0
+    lp, lq = math.log(p), math.log1p(-p)
+    terms = [math.lgamma(n + 1) - math.lgamma(i + 1) - math.lgamma(n - i + 1) + i * lp + (n - i) * lq
+             for i in range(k + 1)]
+    m = max(terms)
+    return min(1.0, math.exp(m) * sum(math.exp(t - m) for t in terms))
+
+
+def _root_decreasing(f) -> float:
+    """The p in (0, 1) where the decreasing function f crosses zero, by bisection."""
+    lo, hi = 0.0, 1.0
+    for _ in range(80):
+        mid = (lo + hi) / 2
+        if f(mid) > 0:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def residual_rate_upper(n_clean_after: int, k_after: int = 0, confidence: float = 0.95) -> float:
+    """One-sided Clopper-Pearson upper bound on the per-capture rate at which a bug still shows, given it
+    showed in ``k_after`` of ``n_clean_after`` clean after-captures. For k = 0 it is 1 - (1 - c)^(1/n)."""
+    if n_clean_after <= 0 or k_after >= n_clean_after:
+        return 1.0
+    alpha = 1.0 - confidence
+    if k_after == 0:
+        return 1.0 - alpha ** (1.0 / n_clean_after)
+    return _root_decreasing(lambda p: _binom_cdf(k_after, n_clean_after, p) - alpha)
+
+
+def clopper_pearson(k: int, n: int, confidence: float = 0.95) -> tuple[float, float]:
+    """Two-sided Clopper-Pearson interval for a rate seen in ``k`` of ``n`` captures."""
+    if n <= 0:
+        return (0.0, 1.0)
+    a = (1.0 - confidence) / 2.0
+    lo = 0.0 if k <= 0 else _root_decreasing(lambda p: _binom_cdf(k - 1, n, p) - (1.0 - a))
+    hi = 1.0 if k >= n else _root_decreasing(lambda p: _binom_cdf(k, n, p) - a)
+    return (lo, hi)
+
+
+def runs_needed(target_rate: float, confidence: float = 0.95) -> int:
+    """Fewest clean after-captures, the bug in none of them, that bound the residual rate by ``target_rate``."""
+    return math.ceil(math.log(1.0 - confidence) / math.log(1.0 - target_rate))
+
+
 def _midranks(pooled: list[tuple[float, int]]) -> tuple[list[float], float]:
     """Mid-ranks of a sorted pooled sample, plus the tie correction sum(t^3 - t)."""
     ranks = [0.0] * len(pooled)
@@ -160,12 +217,26 @@ class Verdict:
     runs_before: int = 0
     runs_after: int = 0
     lossy_skipped: int = 0
+    confidence: float = 0.95
+    counts: dict[str, tuple[int, int, int, int]] = field(default_factory=dict)  # (k, n) before, (k, n) after
+    notes: list[str] = field(default_factory=list)  # plain sentences for the reader, not failure reasons
 
     def to_dict(self) -> dict:
+        pct = f"{round(self.confidence * 100):d}"
+        targets = {}
+        for k, (b, a) in self.targets.items():
+            t = {"before_rate": b, "after_rate": a}
+            if k in self.counts:
+                kb, nb, ka, na = self.counts[k]
+                lo, hi = clopper_pearson(kb, nb, self.confidence)
+                t.update({"before_k": kb, "before_n": nb, "before_rate_ci": [round(lo, 4), round(hi, 4)],
+                          "after_k": ka, "after_n": na,
+                          f"residual_rate_upper_{pct}": round(residual_rate_upper(na, ka, self.confidence), 4)})
+            targets[k] = t
         return {
-            "verdict": self.verdict, "reasons": self.reasons,
+            "verdict": self.verdict, "reasons": self.reasons, "notes": self.notes, "confidence": self.confidence,
             "runs": {"before": self.runs_before, "after": self.runs_after, "lossy_skipped": self.lossy_skipped},
-            "targets": {k: {"before_rate": b, "after_rate": a} for k, (b, a) in self.targets.items()},
+            "targets": targets,
             "new_kinds": self.new_kinds,
             "deadlines": [d.__dict__ for d in self.deadlines],
         }
@@ -178,8 +249,8 @@ def summarize(a: Analysis, cfg: Config, path: str = "") -> RunSummary:
 
 def compare_runs(before: list[RunSummary], after: list[RunSummary], cfg: Config,
                  target_kinds: list[str] | None = None, min_runs: int = 5,
-                 alpha: float = 0.01, target_share: float = 0.6) -> Verdict:
-    v = Verdict(verdict=INCONCLUSIVE)
+                 alpha: float = 0.01, target_share: float = 0.6, confidence: float = 0.95) -> Verdict:
+    v = Verdict(verdict=INCONCLUSIVE, confidence=confidence)
     clean_b = [r for r in before if not r.lossy]
     clean_a = [r for r in after if not r.lossy]
     v.lossy_skipped = (len(before) - len(clean_b)) + (len(after) - len(clean_a))
@@ -202,6 +273,15 @@ def compare_runs(before: list[RunSummary], after: list[RunSummary], cfg: Config,
     for k in targets:
         rb, ra = rate(k, clean_b), rate(k, clean_a)
         v.targets[k] = (rb, ra)
+        kb, ka = sum(1 for r in clean_b if k in r.kinds), sum(1 for r in clean_a if k in r.kinds)
+        v.counts[k] = (kb, len(clean_b), ka, len(clean_a))
+        upper = residual_rate_upper(len(clean_a), ka, confidence)
+        if ka == 0:
+            v.notes.append(f"{k}: not seen in {len(clean_a)} of {len(clean_a)} clean after-captures; if the bug is "
+                           f"still there, it shows in at most {upper:.0%} of captures ({confidence:.0%} confidence).")
+        else:
+            v.notes.append(f"{k}: seen in {ka} of {len(clean_a)} clean after-captures; the rate it still shows at is "
+                           f"at most {upper:.0%} of captures ({confidence:.0%} confidence).")
         if rb >= target_share:
             reproduced.append(k)
         else:

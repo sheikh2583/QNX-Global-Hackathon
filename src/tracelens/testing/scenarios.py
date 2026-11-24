@@ -110,6 +110,65 @@ def z2_fixed_prio_channel() -> str:
     return b.text()
 
 
+def lost_wakeup(signal_after_wait: bool = False) -> str:
+    """memcached's logger_stop(), reduced to its kernel events (memcached/memcached#1348).
+
+    The stopper signals a condition variable while the logger thread is still in its sleep, then joins it.
+    The logger wakes later and waits on the condition variable; nothing signals it again, so both hang.
+    With ``signal_after_wait`` the signal comes after the wait: the healthy ordering.
+    """
+    b = TraceBuilder(name="lost_wakeup.kev")
+    S, L = (100, 1), (100, 2)
+    cv = "0x00000051cd514018"
+    b.proc(0, 100, "memd")
+    b.meta(0, 0, S, "stopper", 10)
+    b.meta(0, 1, L, "mc-log", 10)
+    b.run(1000, 1, L)
+    b.block(1100, 1, "NANOSLEEP")
+    b.run(1500, 0, S)
+    if not signal_after_wait:
+        b.call(2000, 0, "SYNC_CONDVAR_SIGNAL", 83, sync=cv, all=0)
+        b.ret(2001, 0, "SYNC_CONDVAR_SIG", 83, ret_val=0)
+        b.call(2100, 0, "THREAD_JOIN", 50, tid=2)
+        b.block(2101, 0, "JOIN")
+    b.run(700_000, 1, L)
+    b.call(700_010, 1, "SYNC_CONDVAR_WAIT", 82, sync=cv, mutex_p="0x00000051cd514020")
+    b.block(700_011, 1, "CONDVAR")
+    if signal_after_wait:
+        b.run(800_000, 0, S)
+        b.call(800_001, 0, "SYNC_CONDVAR_SIGNAL", 83, sync=cv, all=0)
+        b.ret(800_002, 0, "SYNC_CONDVAR_SIG", 83, ret_val=0)
+        b.run(800_003, 1, L)
+        b.ret(800_004, 1, "SYNC_CONDVAR_WAIT", 82, ret_val=0)
+        b.block(800_010, 1, "NANOSLEEP")
+    b.user(3_000_000, 0, "TL_NOTE end")
+    return b.text()
+
+
+def stuck_job(finish: bool = False) -> str:
+    """One job whose START is never followed by an END: the program hangs inside it (NNG's nng_close()).
+
+    The worker waits on one condition variable and the main thread on another; nothing signals either.
+    With ``finish`` the END marker arrives and nothing is wrong.
+    """
+    b = TraceBuilder(name="stuck_job.kev")
+    M, W = (100, 1), (100, 2)
+    b.proc(0, 100, "app")
+    b.meta(0, 0, M, "main", 10)
+    b.meta(0, 1, W, "worker", 10)
+    b.run(1000, 0, M)
+    b.user(1100, 0, "TL_JOB_START name=cycle")
+    b.run(1200, 1, W)
+    b.call(1300, 1, "SYNC_CONDVAR_WAIT", 82, sync="0x1000", mutex_p="0x1008")
+    b.block(1301, 1, "CONDVAR")
+    if finish:
+        b.user(2000, 0, "TL_JOB_END name=cycle")
+    b.call(2100, 0, "SYNC_CONDVAR_WAIT", 82, sync="0x2000", mutex_p="0x2008")
+    b.block(2101, 0, "CONDVAR")
+    b.user(3_000_000, 0, "TL_NOTE end")
+    return b.text()
+
+
 def z3_ipc_deadlock(resolve_after_us: float | None = 1_000_000) -> str:
     """Two sensor-fusion servers that MsgSend() to each other.
 

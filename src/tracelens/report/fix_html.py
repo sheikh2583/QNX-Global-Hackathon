@@ -163,8 +163,9 @@ def render_fix(result: dict, diff: str, before: Analysis, after: Analysis | None
     if diff:
         parts.append(f"<h2>The patch</h2><pre class=diff>{_diff_html(diff)}</pre>")
     v = result.get("verdict") or {}
-    if v.get("reasons"):
-        parts.append("<h2>Verdict notes</h2><ul>" + "".join(f"<li>{escape(x)}</li>" for x in v["reasons"]) + "</ul>")
+    if v.get("reasons") or v.get("notes"):
+        parts.append("<h2>Verdict notes</h2><ul>" + "".join(f"<li>{escape(x)}</li>" for x in
+                                                            [*v.get("reasons", []), *v.get("notes", [])]) + "</ul>")
     parts.append("</main></body></html>")
     return "\n".join(parts)
 
