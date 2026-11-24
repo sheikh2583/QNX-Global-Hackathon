@@ -23,3 +23,6 @@ docs/results/aarch64/traces/
 docs/results/aarch64_z5/traces/
 docs/results/aarch64_z5_uart/traces/
 third_party/rt-tests/out/
+
+# promo video work (large, regenerable)
+promo/
