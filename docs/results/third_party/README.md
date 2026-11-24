@@ -108,13 +108,38 @@ the 1,920-trace real training set. Only the text of a message payload argument (
 `) differs on 787 of the 1,979 real, pilot and fixture traces, and no analysis code reads those
 arguments. The frozen-model evaluation (`scripts/real_vs_sim.py`) on the fixed-parser pilot features
 reproduces the same report as on the stored features: radar 8 of 10 planted-bug traces flagged, 0 false
-alarms on 6 healthy traces. Training and the classifier were **not** re-run: scikit-learn is not
-installed in this environment, and with identical inputs the deterministic training gives identical
-models. Two caveats: the committed `docs/ml/results_real.md` does not reproduce exactly from the stored
-pilot features either (a few window counts differ, e.g. 72/100 against 83/100, and the stored
-`triggered` flag differs on 202 rows of one trace), because other code changed after that data was
-extracted. That drift is independent of the parser (the old parser gives the same rows as the new one)
-and I did not investigate it further. I also did not re-run the simulated-data experiment.
+alarms on 6 healthy traces. **Training and the classifier were then re-run** (scikit-learn 1.9.1
+installed in the WSL venv; `scripts/train_eval.py --sim data/sim --real <fixed-parser rows> --test-on <same>`).
+The report matches the committed `docs/ml/results_train.md` apart from two things: the training window
+count (988,704, committed 988,702) and one cell (`mutex_contention` classifier F1 0.87, committed 0.88).
+Every other table, including the radar's 726-of-883 caught and 0 false alarms on the 148 healthy
+captures, is identical, and the radar threshold (3.4563) and persistence cut-off match the shipped
+`radar.json`. The two differences are **not caused by the parser**: training on the *stored* feature
+file with the current code gives the same 988,704 and 0.87. **The drift is fully explained** (investigated 2026-11-24):
+
+- **`results_train.md` (988,702 / 0.88 against 988,704 / 0.87).** This branch carried a report that was
+  already stale: `main` refreshed it (commit `98b1d2f`, "refresh results_train after the re-run") to
+  exactly 988,704 and 0.87, which is what retraining here gives. The stored `data/real/features.jsonl` was
+  re-extracted on 2026-11-24 03:27 by `main`'s newer extractor, which adds a `lossy` column to every row
+  (`include_lossy` support for the aarch64 comparison, `src/tracelens/ml/train.py` on `main`). That is the
+  column my fresh rows lack; training ignores it, so it is harmless.
+- **`results_real.md` (different per-thread window counts, e.g. 72/100 against 83/100).** That report was
+  generated on 2026-11-16 01:52 with the radar trained on simulated traces only (threshold 3.388, 30%
+  persistence). At 23:30 the same day `src/tracelens/ml/radar.json` was replaced by a radar retrained on real
+  and simulated data (threshold 3.456, 29.3%), and `scripts/real_vs_sim.py` loads the shipped file by
+  default, so the documented command stopped reproducing the report. Run with `--radar data/sim/radar.json`
+  (the simulator-only radar) the report reproduces **exactly**. I corrected the reproduce command in the
+  script and the report header. Consequence: the default run is no longer the clean held-out test the
+  script's docstring describes, because the shipped radar has seen real data.
+- **The `triggered` flag on 202 `cpu_starvation-0000` pilot rows** is a stale features file, not code
+  drift: `triggered` is copied from the manifest, which was rewritten two minutes after the features file
+  was written (01:46 against 01:44 on 2026-11-16) with the corrected value (`True`); the features file kept
+  `False`. Nothing in the reports depends on it for that trace.
+
+The simulated-data experiment
+(`scripts/sim_experiment.py --per-scenario 120 --seed 7`, 1,920 simulated traces, then the real fixtures scored
+with the frozen models) **was also re-run** on the fixed parser: the report is identical to the committed
+`docs/ml/results_sim.md` except for the elapsed time (196 s, committed 191 s).
 
 ## 5. What this does not show
 
