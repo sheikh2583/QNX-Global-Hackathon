@@ -23,8 +23,13 @@ step_tests() {
   echo "== unit tests"
   python -m pytest -q --junitxml=reports/junit.xml || fail "unit tests"
   echo "== committed synthetic fixtures match the generator"
-  tracelens synth --out fixtures/synthetic >/dev/null && git diff --exit-code -- fixtures/synthetic \
+  # Regenerate into a scratch folder and compare with plain diff: no git needed (a worktree made on
+  # Windows has a Windows path in its .git file that WSL's git cannot read) and the committed
+  # fixtures are not rewritten. fixtures/synthetic is pinned to LF by .gitattributes.
+  synth_tmp="$(mktemp -d)"
+  tracelens synth --out "$synth_tmp" >/dev/null && diff -r "$synth_tmp" fixtures/synthetic >/dev/null \
     || fail "fixtures/synthetic differs from 'tracelens synth' output"
+  rm -rf "$synth_tmp"
 }
 
 step_hostcheck() {
