@@ -1,6 +1,6 @@
 # TraceLens on real QNX 8.0: the pilot against the simulator
 
-One real capture per scenario (16 of 16 succeeded, 16 with the planted problem showing, 0 lossy), on the QEMU x86_64 guest with 4 CPUs and `procnto-smp-instr`, host idle. Reproduce with `python scripts/real_vs_sim.py`.
+One real capture per scenario (16 of 16 succeeded, 16 with the planted problem showing, 0 lossy), on the QEMU x86_64 guest with 4 CPUs and `procnto-smp-instr`, host idle. Reproduce with `python scripts/real_vs_sim.py --radar data/sim/radar.json` (the radar trained on simulated traces only, which is what this report scored; the radar shipped in `src/tracelens/ml/radar.json` was retrained on real data on 2026-11-16, so the default now gives different window counts).
 
 ## Did each planted problem show up on the real target?
 

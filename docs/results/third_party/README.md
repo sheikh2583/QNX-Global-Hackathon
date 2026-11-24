@@ -115,10 +115,28 @@ count (988,704, committed 988,702) and one cell (`mutex_contention` classifier F
 Every other table, including the radar's 726-of-883 caught and 0 false alarms on the 148 healthy
 captures, is identical, and the radar threshold (3.4563) and persistence cut-off match the shipped
 `radar.json`. The two differences are **not caused by the parser**: training on the *stored* feature
-file with the current code gives the same 988,704 and 0.87. They come from drift between the code that
-produced the committed report and today's code (the stored rows also carry a `lossy` column the current
-extractor no longer writes, and 202 pilot rows have a different `triggered` flag); I did not chase it
-further and did not overwrite `docs/ml/results_train.md`. The simulated-data experiment
+file with the current code gives the same 988,704 and 0.87. **The drift is fully explained** (investigated 2026-11-24):
+
+- **`results_train.md` (988,702 / 0.88 against 988,704 / 0.87).** This branch carried a report that was
+  already stale: `main` refreshed it (commit `98b1d2f`, "refresh results_train after the re-run") to
+  exactly 988,704 and 0.87, which is what retraining here gives. The stored `data/real/features.jsonl` was
+  re-extracted on 2026-11-24 03:27 by `main`'s newer extractor, which adds a `lossy` column to every row
+  (`include_lossy` support for the aarch64 comparison, `src/tracelens/ml/train.py` on `main`). That is the
+  column my fresh rows lack; training ignores it, so it is harmless.
+- **`results_real.md` (different per-thread window counts, e.g. 72/100 against 83/100).** That report was
+  generated on 2026-11-16 01:52 with the radar trained on simulated traces only (threshold 3.388, 30%
+  persistence). At 23:30 the same day `src/tracelens/ml/radar.json` was replaced by a radar retrained on real
+  and simulated data (threshold 3.456, 29.3%), and `scripts/real_vs_sim.py` loads the shipped file by
+  default, so the documented command stopped reproducing the report. Run with `--radar data/sim/radar.json`
+  (the simulator-only radar) the report reproduces **exactly**. I corrected the reproduce command in the
+  script and the report header. Consequence: the default run is no longer the clean held-out test the
+  script's docstring describes, because the shipped radar has seen real data.
+- **The `triggered` flag on 202 `cpu_starvation-0000` pilot rows** is a stale features file, not code
+  drift: `triggered` is copied from the manifest, which was rewritten two minutes after the features file
+  was written (01:46 against 01:44 on 2026-11-16) with the corrected value (`True`); the features file kept
+  `False`. Nothing in the reports depends on it for that trace.
+
+The simulated-data experiment
 (`scripts/sim_experiment.py --per-scenario 120 --seed 7`, 1,920 simulated traces, then the real fixtures scored
 with the frozen models) **was also re-run** on the fixed parser: the report is identical to the committed
 `docs/ml/results_sim.md` except for the elapsed time (196 s, committed 191 s).
