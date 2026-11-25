@@ -1,0 +1,11 @@
+--- a/main.c
++++ b/main.c
+@@ -26,7 +26,7 @@
+ {
+     struct fusion_msg msg = { kind, 0.0f };
+     struct fusion_msg reply;
+-    uint64_t timeout = 1 * TL_NS_PER_S;
++    uint64_t timeout = 50 * TL_NS_PER_MS;
+     TimerTimeout(CLOCK_MONOTONIC, _NTO_TIMEOUT_SEND | _NTO_TIMEOUT_REPLY, NULL, &timeout, NULL);
+     if (MsgSend(coid, &msg, sizeof msg, &reply, sizeof reply) == -1)
+         return -1;

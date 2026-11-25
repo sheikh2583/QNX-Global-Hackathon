@@ -1,0 +1,19 @@
+--- a/main.c
++++ b/main.c
+@@ -31,12 +31,14 @@
+     for (unsigned k = 0; k < periods; k++) {
+         tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US + id * 100 * TL_NS_PER_US);
+         tl_job_start("frame");
+-        pthread_mutex_lock(&store_lock);
++        if (id >= 2)
++            pthread_mutex_lock(&store_lock);
+         /* Demosaic + colour-correct the tile, then publish it. */
+         memset(tile, (int)(k + id), TILE_BYTES);
+         tl_spin_us(1500);
+         memcpy(frame_store[id], tile, TILE_BYTES);
+-        pthread_mutex_unlock(&store_lock);
++        if (id >= 2)
++            pthread_mutex_unlock(&store_lock);
+         tl_job_end("frame");
+     }
+     free(tile);

@@ -1,0 +1,16 @@
+# Preregistered before any capture of this mutant (docs/research/PROTOCOL.md, E2).
+id = "MC-wrong"
+workload = "memcached"
+truth = "bad"
+expected_verdict = "NOT FIXED"   # O4 (TraceLens full) at the full 20 captures
+confidence = "medium"
+rationale = """The lost wake-up depends on the waiter checking only watcher_count; a second signal does not change that. Medium: the second signal may land in the window and unblock some runs, lowering the hang rate without removing it, which is the point of the mutant."""
+
+# What each oracle should say at the full 20 after-captures. accept = the oracle calls the patch a fix.
+[predicted]
+O1 = "reject"
+O2 = "reject"
+O3 = "reject"
+O4 = "reject"
+O4c = "reject"
+O5 = "reject"

@@ -1,0 +1,95 @@
+--- a/main.c
++++ b/main.c
+@@ -1,17 +1,16 @@
+ /*
+- * Z3 - Sensor fusion server pair.
++ * Z3 reference fix: strict send hierarchy.
+  *
+- *   fusion_a  owns the IMU estimate; sends camera-fusion requests to fusion_b
+- *   fusion_b  owns the camera estimate; sends IMU-sync requests to fusion_a
+- *
+- * Each server sits in MsgReceive() serving the other. Once per run each side
+- * recalibrates: both sides meet at a shared epoch (a process-shared barrier) and
+- * each asks its peer for its current estimate.
++ * fusion_a may MsgSend() to fusion_b (down the hierarchy). fusion_b never
++ * sends to fusion_a; it notifies "up" with MsgSendPulse(), which never blocks,
++ * and fusion_a pulls the data on its next request.
+  */
+ #include <signal.h>
+ #include <sys/mman.h>
+ #include <sys/wait.h>
+ #include "tl.h"
++
++#define PULSE_RECALIBRATE (_PULSE_CODE_MINAVAIL + 1)
+ 
+ struct fusion_msg { uint32_t kind; float value; };
+ 
+@@ -21,7 +20,6 @@
+ static pthread_barrier_t *epoch;
+ static unsigned run_s;
+ 
+-/* Request the peer's current estimate. */
+ static int request(int coid, uint32_t kind, float *out)
+ {
+     struct fusion_msg msg = { kind, 0.0f };
+@@ -34,7 +32,8 @@
+     return 0;
+ }
+ 
+-static void serve(const char *name, int chid, int peer_coid, uint64_t recalibrate_at)
++/* is_upper: fusion_a (sends requests down); otherwise fusion_b (pulses up). */
++static void serve(const char *name, int is_upper, int chid, int peer_coid, uint64_t recalibrate_at)
+ {
+     tl_thread_init(name, 30, TL_ALL_CPUS);
+     const uint64_t end = t0 + (uint64_t)run_s * TL_NS_PER_S;
+@@ -44,18 +43,25 @@
+         if (!recalibrated && tl_now_ns() >= recalibrate_at) {
+             recalibrated = 1;
+             pthread_barrier_wait(epoch);
+-            float peer_state;
+             tl_mark("TL_NOTE recalibrate from=%s", name);
+-            if (request(peer_coid, 1, &peer_state) == -1)
+-                fprintf(stderr, "%s: recalibration request failed: %s\n", name, strerror(errno));
++            if (is_upper) {
++                float peer_state;
++                if (request(peer_coid, 1, &peer_state) == -1)
++                    fprintf(stderr, "%s: request failed: %s\n", name, strerror(errno));
++            } else if (MsgSendPulse(peer_coid, -1, PULSE_RECALIBRATE, 0) == -1) {
++                fprintf(stderr, "%s: pulse failed: %s\n", name, strerror(errno));
++            }
+             continue;
+         }
+-        struct fusion_msg msg;
++        union { struct fusion_msg msg; struct _pulse pulse; } in;
+         uint64_t poll = 5 * TL_NS_PER_MS;
+         TimerTimeout(CLOCK_MONOTONIC, _NTO_TIMEOUT_RECEIVE, NULL, &poll, NULL);
+-        rcvid_t rcvid = MsgReceive(chid, &msg, sizeof msg, NULL);
+-        if (rcvid > 0) {
+-            struct fusion_msg reply = { msg.kind, 1.0f };
++        rcvid_t rcvid = MsgReceive(chid, &in, sizeof in, NULL);
++        if (rcvid == 0 && in.pulse.code == PULSE_RECALIBRATE && is_upper) {
++            float peer_state; /* pull the camera estimate from fusion_b */
++            (void)request(peer_coid, 2, &peer_state);
++        } else if (rcvid > 0) {
++            struct fusion_msg reply = { in.msg.kind, 1.0f };
+             tl_spin_us(100);
+             MsgReply(rcvid, 0, &reply, sizeof reply);
+         }
+@@ -99,7 +105,7 @@
+         int coid_a = ConnectAttach(0, pid_a, chid_a, _NTO_SIDE_CHANNEL, 0);
+         if (coid_a == -1)
+             tl_die("ConnectAttach(a)");
+-        serve("fusion_b", chid_b, coid_a, recalibrate_at);
++        serve("fusion_b", 0, chid_b, coid_a, recalibrate_at);
+         return 0;
+     }
+ 
+@@ -109,7 +115,7 @@
+     int coid_b = ConnectAttach(0, child, chid_b, _NTO_SIDE_CHANNEL, 0);
+     if (coid_b == -1)
+         tl_die("ConnectAttach(b)");
+-    serve("fusion_a", chid_a, coid_b, recalibrate_at);
++    serve("fusion_a", 1, chid_a, coid_b, recalibrate_at);
+     waitpid(child, NULL, 0);
+     return 0;
+ }

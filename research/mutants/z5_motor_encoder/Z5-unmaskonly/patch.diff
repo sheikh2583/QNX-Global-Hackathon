@@ -1,0 +1,12 @@
+--- a/main.c
++++ b/main.c
+@@ -45,8 +45,8 @@
+         if (InterruptWait(0, NULL) == -1)
+             tl_die("InterruptWait");
+         count++; /* read + ack the encoder */
++        InterruptUnmask(irq, id);
+         recompute_velocity_profile();
+-        InterruptUnmask(irq, id);
+     }
+     InterruptDetach(id);
+     printf("encoder_ist: %lu interrupts\n", count);

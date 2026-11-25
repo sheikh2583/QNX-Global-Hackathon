@@ -1,0 +1,16 @@
+# Preregistered before any capture of this mutant (docs/research/PROTOCOL.md, E2).
+id = "Z1-ref"
+workload = "z1_infusion_pump"
+truth = "good"
+expected_verdict = "VERIFIED"   # O4 (TraceLens full) at the full 20 captures
+confidence = "high"
+rationale = """Shipped as a VERIFIED fix on QNX 8.0 (docs/results/fix.md)."""
+
+# What each oracle should say at the full 20 after-captures. accept = the oracle calls the patch a fix.
+[predicted]
+O1 = "accept"
+O2 = "accept"
+O3 = "accept"
+O4 = "accept"
+O4c = "accept"
+O5 = "accept"

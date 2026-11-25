@@ -1,0 +1,19 @@
+--- a/main.c
++++ b/main.c
+@@ -46,6 +46,7 @@
+             tl_die("MsgReceive");
+         if (rcvid == 0)
+             continue; /* pulse */
++        pthread_setschedprio(pthread_self(), 10); /* back to the idle priority */
+         tl_spin_us(200); /* validate against wheel-speed limits */
+         struct brake_ack ack = { req.seq, req.pressure_kpa > 9000 ? 9000 : req.pressure_kpa };
+         MsgReply(rcvid, 0, &ack, sizeof ack);
+@@ -76,7 +77,7 @@
+ {
+     t0 = tl_parse_args(argc, argv, &run_s);
+ 
+-    int chid = ChannelCreate(_NTO_CHF_FIXED_PRIORITY);
++    int chid = ChannelCreate(0);
+     if (chid == -1)
+         tl_die("ChannelCreate");
+ 

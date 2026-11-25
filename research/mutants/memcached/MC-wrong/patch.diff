@@ -1,0 +1,10 @@
+--- a/logger.c
++++ b/logger.c
+@@ -978,6 +978,7 @@
+     do_run_logger_thread = 0;
+     pthread_cond_signal(&logger_stack_cond);
+     pthread_mutex_unlock(&logger_stack_lock);
++    pthread_cond_signal(&logger_stack_cond); /* belt and braces */
+     pthread_join(logger_tid, NULL);
+     return 0;
+ }

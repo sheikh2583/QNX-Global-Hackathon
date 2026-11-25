@@ -1,0 +1,16 @@
+# Preregistered before any capture of this mutant (docs/research/PROTOCOL.md, E2).
+id = "Z1-rare"
+workload = "z1_infusion_pump"
+truth = "bad"
+expected_verdict = "NOT FIXED"   # O4 (TraceLens full) at the full 20 captures
+confidence = "medium"
+rationale = """At the full N=20 each oracle sees about 4 inverted captures and rejects (the chance that none of 20 is inverted is 0.8^20 = 1%). At N=1 O1 accepts about 80% of the time and O3 at N=3 about 51%. The 20% rate is the design; (verify) the realised rate in the pilot before E2 is frozen if time allows."""
+
+# What each oracle should say at the full 20 after-captures. accept = the oracle calls the patch a fix.
+[predicted]
+O1 = "reject"
+O2 = "reject"
+O3 = "reject"
+O4 = "reject"
+O4c = "reject"
+O5 = "reject"

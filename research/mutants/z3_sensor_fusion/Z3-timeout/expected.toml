@@ -1,0 +1,16 @@
+# Preregistered before any capture of this mutant (docs/research/PROTOCOL.md, E2).
+id = "Z3-timeout"
+workload = "z3_sensor_fusion"
+truth = "bad"
+expected_verdict = "NOT FIXED"   # O4 (TraceLens full) at the full 20 captures
+confidence = "low"
+rationale = """Z3 declares no deadline, so O2 accepts vacuously (nothing to violate); this is a property of the oracle and is reported as such. The others reject if the ipc_deadlock rule fires on a 50 ms cycle; (verify) its minimum duration."""
+
+# What each oracle should say at the full 20 after-captures. accept = the oracle calls the patch a fix.
+[predicted]
+O1 = "reject"
+O2 = "accept"
+O3 = "reject"
+O4 = "reject"
+O4c = "reject"
+O5 = "reject"

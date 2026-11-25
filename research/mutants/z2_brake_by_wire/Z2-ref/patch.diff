@@ -1,0 +1,22 @@
+--- a/main.c
++++ b/main.c
+@@ -5,8 +5,8 @@
+  *   arbiter      (process, prio 10)  receives requests, validates them (200 us), replies
+  *   diagnostics  (arbiter process, prio 30)  6 ms of CPU every 10 ms
+  *
+- * All threads are pinned to CPU 0. diagnostics is released one QNX clock tick (1 ms) before
+- * brake_ctrl, so it is already running when the request arrives, on every run.
++ * Reference fix: the channel uses default flags, so the arbiter's receiving
++ * thread runs at the client's priority (60) while serving a request.
+  */
+ #include <signal.h>
+ #include <sys/wait.h>
+@@ -76,7 +76,7 @@
+ {
+     t0 = tl_parse_args(argc, argv, &run_s);
+ 
+-    int chid = ChannelCreate(_NTO_CHF_FIXED_PRIORITY);
++    int chid = ChannelCreate(0); /* default: server inherits the client's priority */
+     if (chid == -1)
+         tl_die("ChannelCreate");
+ 

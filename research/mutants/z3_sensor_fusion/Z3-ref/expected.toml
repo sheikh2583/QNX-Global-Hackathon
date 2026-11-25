@@ -1,0 +1,16 @@
+# Preregistered before any capture of this mutant (docs/research/PROTOCOL.md, E2).
+id = "Z3-ref"
+workload = "z3_sensor_fusion"
+truth = "good"
+expected_verdict = "VERIFIED"   # O4 (TraceLens full) at the full 20 captures
+confidence = "high"
+rationale = """GUIDED rather than auto-fixed in the shipped tool, but the reference removes the cycle, so the build must read as fixed."""
+
+# What each oracle should say at the full 20 after-captures. accept = the oracle calls the patch a fix.
+[predicted]
+O1 = "accept"
+O2 = "accept"
+O3 = "accept"
+O4 = "accept"
+O4c = "accept"
+O5 = "accept"

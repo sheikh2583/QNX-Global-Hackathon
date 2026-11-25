@@ -1,0 +1,27 @@
+--- a/main.c
++++ b/main.c
+@@ -22,6 +22,7 @@
+ 
+ static sem_t buf_lock;
+ static uint64_t t0;
++static uint64_t tele_shift_ns; /* 0: inverted; 2 ms: clear */
+ static unsigned run_s;
+ 
+ static unsigned periods(void) { return run_s * 1000000U / PERIOD_US; }
+@@ -50,7 +51,7 @@
+     (void)arg;
+     tl_thread_init("telemetry", 20, 0x1);
+     for (unsigned k = 0; k < periods(); k++) {
+-        tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US - 1000 * TL_NS_PER_US);
++        tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US - 1000 * TL_NS_PER_US + tele_shift_ns);
+         tl_spin_us(6000); /* compression + upload */
+     }
+     return NULL;
+@@ -78,6 +79,7 @@
+     if (sem_init(&buf_lock, 0, 1) == -1)
+         tl_die("sem_init");
+ 
++    tele_shift_ns = ((tl_now_ns() / TL_NS_PER_MS) % 5 == 0) ? 0 : 2000 * TL_NS_PER_US;
+     pthread_t th[3] = { tl_spawn(logger, NULL), tl_spawn(telemetry, NULL), tl_spawn(control, NULL) };
+     for (int i = 0; i < 3; i++)
+         pthread_join(th[i], NULL);

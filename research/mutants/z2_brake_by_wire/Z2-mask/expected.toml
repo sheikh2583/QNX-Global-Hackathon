@@ -1,0 +1,16 @@
+# Preregistered before any capture of this mutant (docs/research/PROTOCOL.md, E2).
+id = "Z2-mask"
+workload = "z2_brake_by_wire"
+truth = "bad"
+expected_verdict = "NOT FIXED"   # O4 (TraceLens full) at the full 20 captures
+confidence = "low"
+rationale = """Same structure as Z1-mask: O2 accepts; findings-based oracles reject only if the inversion rule fires on a 0.2 ms preemption window (unmeasured)."""
+
+# What each oracle should say at the full 20 after-captures. accept = the oracle calls the patch a fix.
+[predicted]
+O1 = "reject"
+O2 = "accept"
+O3 = "reject"
+O4 = "reject"
+O4c = "reject"
+O5 = "reject"

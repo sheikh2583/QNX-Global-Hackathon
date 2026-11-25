@@ -1,0 +1,11 @@
+--- a/main.c
++++ b/main.c
+@@ -28,7 +28,7 @@
+     tl_thread_init("diagnostics", 30, 0x1);
+     for (unsigned k = 0; k < periods(); k++) {
+         tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US - 1000 * TL_NS_PER_US);
+-        tl_spin_us(6000); /* self-test sweep */
++        tl_spin_us(200); /* self-test sweep, trimmed */
+     }
+     return NULL;
+ }

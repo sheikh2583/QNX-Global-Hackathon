@@ -1,0 +1,7 @@
+--- a/main.c
++++ b/main.c
+@@ -1,3 +1,4 @@
++/* tracelens mutant: comment only */
+ /*
+  * Z3 - Sensor fusion server pair.
+  *

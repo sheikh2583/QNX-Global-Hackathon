@@ -1,0 +1,99 @@
+--- a/main.c
++++ b/main.c
+@@ -1,16 +1,4 @@
+-/*
+- * Z1 - Infusion pump control loop.
+- *
+- * Three threads share a sensor buffer, all pinned to CPU 0:
+- *   control    prio 50  every 10 ms: read the buffer, compute the dose (deadline 1 ms)
+- *   telemetry  prio 20  every 10 ms: compress and upload readings (6 ms of CPU)
+- *   logger     prio 10  every 10 ms: append the buffer to the black-box log
+- *
+- * Releases are one QNX clock tick (1 ms) apart: logger at -2 ms, telemetry at -1 ms,
+- * control at 0. Timers fire on tick boundaries, so a spacing of whole ticks fixes the
+- * order on every run regardless of the tick's phase.
+- */
+-#include <semaphore.h>
++/* Z1 reference fix: the sensor buffer is guarded by a priority-inheriting mutex. */
+ #include "tl.h"
+ 
+ #define PERIOD_US 10000
+@@ -20,7 +8,7 @@
+     unsigned n;
+ } sensor_buf;
+ 
+-static sem_t buf_lock;
++static pthread_mutex_t buf_lock; /* QNX default protocol: PTHREAD_PRIO_INHERIT */
+ static uint64_t t0;
+ static unsigned run_s;
+ 
+@@ -33,12 +21,12 @@
+     for (unsigned k = 0; k < periods(); k++) {
+         tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US);
+         tl_job_start("control");
+-        sem_wait(&buf_lock);
++        pthread_mutex_lock(&buf_lock);
+         double dose = 0;
+         for (unsigned i = 0; i < sensor_buf.n; i++)
+             dose += sensor_buf.samples[i];
+-        tl_spin_us(100); /* dose computation */
+-        sem_post(&buf_lock);
++        tl_spin_us(100);
++        pthread_mutex_unlock(&buf_lock);
+         (void)dose;
+         tl_job_end("control");
+     }
+@@ -51,7 +39,7 @@
+     tl_thread_init("telemetry", 20, 0x1);
+     for (unsigned k = 0; k < periods(); k++) {
+         tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US - 1000 * TL_NS_PER_US);
+-        tl_spin_us(6000); /* compression + upload */
++        tl_spin_us(6000);
+     }
+     return NULL;
+ }
+@@ -60,14 +48,20 @@
+ {
+     (void)arg;
+     tl_thread_init("logger", 10, 0x1);
++    double snapshot[64];
+     for (unsigned k = 0; k < periods(); k++) {
+         tl_sleep_until(t0 + (uint64_t)k * PERIOD_US * TL_NS_PER_US - 2000 * TL_NS_PER_US);
+-        sem_wait(&buf_lock);
++        pthread_mutex_lock(&buf_lock);
+         sensor_buf.n = 64;
+         for (unsigned i = 0; i < sensor_buf.n; i++)
+             sensor_buf.samples[i] = (double)(k + i);
+-        tl_spin_us(2500); /* write to flash */
+-        sem_post(&buf_lock);
++        memcpy(snapshot, sensor_buf.samples, sizeof snapshot);
++        pthread_mutex_unlock(&buf_lock);
++        /* Flash write happens on the snapshot, outside the lock: holding the
++         * mutex for 2.5 ms would make control wait every period, which
++         * TraceLens (correctly) reports as mutex contention. */
++        tl_spin_us(2500);
++        (void)snapshot;
+     }
+     return NULL;
+ }
+@@ -75,12 +69,17 @@
+ int main(int argc, char **argv)
+ {
+     t0 = tl_parse_args(argc, argv, &run_s);
+-    if (sem_init(&buf_lock, 0, 1) == -1)
+-        tl_die("sem_init");
++
++    pthread_mutexattr_t ma;
++    pthread_mutexattr_init(&ma);
++    pthread_mutexattr_setprotocol(&ma, PTHREAD_PRIO_INHERIT); /* explicit, though default */
++    if ((errno = pthread_mutex_init(&buf_lock, &ma)) != 0)
++        tl_die("pthread_mutex_init");
++    pthread_mutexattr_destroy(&ma);
+ 
+     pthread_t th[3] = { tl_spawn(logger, NULL), tl_spawn(telemetry, NULL), tl_spawn(control, NULL) };
+     for (int i = 0; i < 3; i++)
+         pthread_join(th[i], NULL);
+-    sem_destroy(&buf_lock);
++    pthread_mutex_destroy(&buf_lock);
+     return 0;
+ }

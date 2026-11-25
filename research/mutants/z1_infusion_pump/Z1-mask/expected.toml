@@ -1,0 +1,16 @@
+# Preregistered before any capture of this mutant (docs/research/PROTOCOL.md, E2).
+id = "Z1-mask"
+workload = "z1_infusion_pump"
+truth = "bad"
+expected_verdict = "NOT FIXED"   # O4 (TraceLens full) at the full 20 captures
+confidence = "low"
+rationale = """Predicted: the deadline oracle (O2) accepts; findings-based oracles reject IF the inversion rule fires on a 0.3 ms window. That depends on the rule's minimum duration, which we have not measured for this window; if the rule stays silent, O1/O3/O4/O5 accept too and the mutant is a false accept for TraceLens itself, which is a result."""
+
+# What each oracle should say at the full 20 after-captures. accept = the oracle calls the patch a fix.
+[predicted]
+O1 = "reject"
+O2 = "accept"
+O3 = "reject"
+O4 = "reject"
+O4c = "reject"
+O5 = "reject"

@@ -1,0 +1,16 @@
+# Preregistered before any capture of this mutant (docs/research/PROTOCOL.md, E2).
+id = "Z2-selfprio"
+workload = "z2_brake_by_wire"
+truth = "bad"
+expected_verdict = "NOT FIXED"   # O4 (TraceLens full) at the full 20 captures
+confidence = "medium"
+rationale = """The scheduling is that of the original during the 200 us validation, so the inversion should persist. Medium: (verify) the effect of pthread_setschedprio on a thread that holds an inherited priority on QNX 8.0."""
+
+# What each oracle should say at the full 20 after-captures. accept = the oracle calls the patch a fix.
+[predicted]
+O1 = "reject"
+O2 = "reject"
+O3 = "reject"
+O4 = "reject"
+O4c = "reject"
+O5 = "reject"

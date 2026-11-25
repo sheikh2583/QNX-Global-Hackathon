@@ -27,11 +27,33 @@ see [../results/blind_test/PREREGISTRATION.md](../results/blind_test/PREREGISTRA
 
 - **Hypothesis:** single-capture and deadline-only oracles falsely accept symptom-masking and rare-race patches; the full
   oracle rejects them; false accepts of rare-race patches fall as N grows.
-- **Expected outcomes (to be written before capture, one line per mutant, in each `expected.toml`):** O1/O2 accept Z1-mask,
-  Z1-rare, Z2-mask often; O4 rejects them; Z4-racy is accepted by every timing oracle (a timing oracle cannot see data races).
-- **Metric:** false-accept rate, false-reject rate, INCONCLUSIVE rate per oracle and N in {1,3,5,10,20}; 1,000 seeded subsets.
-- **Sample size:** 20 clean captures per mutant and per unpatched build. **Exclusions:** lossy captures (replaced and counted).
-- frozen: (not frozen)
+- **Mutants:** 21 (7 good controls, 14 bad) in `research/mutants/<workload>/<id>/{patch.diff,README.md,expected.toml}`, generated
+  by `research/mutants/make_mutants.py` (`--check` keeps them in step). Third-party controls TP-ttk-ref and MC-ref and the
+  memcached MC-wrong mutant are listed but run by hand from existing harnesses; the five zoo workloads are automated by
+  `research/mutants/run.py`. Z4-partial uses 2 locked workers of 4 (the brief's 3-of-4 variant leaves one locker and so no
+  contention, i.e. a full fix).
+- **Oracles** (`research/oracles.py`, unit-tested): O1 single capture, O2 deadline-only (vacuous accept when no deadline is
+  declared), O3 findings-only, **O4 the shipped verdict** (its deadline test pools every job of every capture into one rank
+  test), **O4c the same verdict with that test on one p99 per capture** (the gate's unit, exact test), O5 = O4 plus a 95%
+  residual-rate bound of at most 0.2 (needs 14 clean after-captures). `src/tracelens/verdict.py` is NOT changed by this study.
+- **Expected outcomes:** one line per mutant per oracle in each `expected.toml` (`[predicted]`, with `confidence`), written
+  before any mutant capture. Summary: O1/O2/O3 accept the symptom-masking mutants only where the finding rule is silent on the
+  small window (low confidence, stated per file); O2 accepts Z1-mask, Z2-mask, Z3-* (no deadline), Z4-partial; Z1-rare is
+  accepted by O1 about 80% of the time and by O3 with probability 0.8^N, falling with N; O4 and O5 reject every bad mutant
+  except the **expected false accepts Z4-racy (data race, invisible to timing) and, with low confidence, Z5-hist and
+  Z5-unmaskonly**; all oracles accept the good controls at N=20, and O5 answers INCONCLUSIVE below 14 clean captures.
+- **O4 versus O4c (coordinator finding, 2026-11-25):** the shipped deadline test is subject to the same inflation the gate study
+  measured for job pooling (30.1% against 4.5% under A/A). Expected: O4 and O4c agree on every mutant at N=20; they can disagree
+  at small N and small effects (a synthetic pair in `tests/test_research_oracles.py` shows O4 accepting where O4c rejects). If
+  they disagree on any real mutant, that is reported as an oracle-design result; whether the product switches is a separate decision.
+- **Metric:** false-accept rate, false-reject rate, INCONCLUSIVE rate per oracle and N in {1,3,5,10,20}; 1,000 seeded subsets
+  (`oracles.sweep`). Subsets overlap, so the full-20 result is the headline and the subsampling a curve.
+- **Sample size:** 20 clean captures per mutant and per unpatched build (shared by the mutants of a workload); lossy captures
+  are kept and counted and replaced up to 40 attempts; host idle (`run.py` stops above load 0.5 and logs it). Z1-rare's realised
+  per-capture inversion rate is measured and reported with its interval, not assumed to be 20%.
+- **Exclusions:** a mutant that fails to build is a result (listed), not dropped.
+- frozen: (to be filled by the commit that records the freeze: the sha is that of the commit containing every `expected.toml`,
+  `research/oracles.py` and `research/mutants/run.py`)
 
 ## E3 (RQ2, R3): blind benchmark
 
