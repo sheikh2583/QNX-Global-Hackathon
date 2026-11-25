@@ -32,3 +32,23 @@ driver", reported upstream by the user if they choose, not a vulnerability claim
 **Frozen system:** every `.py` file under `src/tracelens/` hashes to `a4b43ec945d06db3` (sha256, sorted by path, working tree
 at 7f601cf plus the uncommitted research edits, which add `--confidence` to `tracelens eval fix` only). No detector, rule or
 threshold changes during this check.
+
+## Pre-run checks (2026-11-25, reading only: not evidence)
+
+**Driver artifact, by reading `nng_repro.c`.** In each cycle the client calls `nng_send()` on the REQ socket *before* it starts
+the closing thread. With the server not yet listening there is no peer, and a blocking `nng_send()` on a REQ socket may wait
+for one (**verify** against NNG's `req0` semantics). If it does, the client's main thread is stuck in `nng_send()`, not in
+`nng_close()`, and the driver's 6 s watchdog reports a HANG that is the driver waiting for a server that has not started.
+That would explain "2 of 7" on the fixed commit (a slow server start in two of the runs) and would not touch v1.7.3's 8 of 8,
+which hung with the server up. **H0 is therefore the leading explanation until the 60 s arm says otherwise.** The run must
+record, for every hang, which call each thread is blocked in (the `stuck_job` summary lists each thread's sync state and the
+joiner); a hang whose blocked thread is in `nng_send` is classed as the artifact, one inside `nng_close()`/aio teardown as H1.
+A cheaper extra arm: client-first with the server started 8 s late (longer than the 6 s watchdog) should hang on every cycle
+if the artifact reading is right.
+
+**Upstream search (GitHub API, 2026-11-25).** Issues mentioning close/hang/deadlock created after the fix (2024-04-24) in
+nanomsg/nng: #1828 (the fix PR for #1827), #1997 (threads should block signals), #2396 and #2370 (DTLS reconnect deadlocks,
+2026). No issue about a dialer-not-yet-connected hang after `nng_close()`. Commits since 2026-01-01 touching aio, IPC
+completion leaks, websocket listener shutdown and UDP/DTLS reconnects exist (e.g. d3248324 "aio: expire operations at their
+deadline", 0b44345f, c2767cb4); none is titled as this case. **Not done:** reading those diffs, and checking v1.7.3-era
+behaviour of `nng_send()` with no peer. Absence in a title search is not absence of a fix.
