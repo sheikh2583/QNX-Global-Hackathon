@@ -9,6 +9,8 @@ arithmetic in src/tracelens/verdict.py. No number is typed by hand here except t
 Each value has a LaTeX macro \\tl<CamelName>; the paper uses the macro, never the digits.
 """
 
+# ruff: noqa: E501
+
 from __future__ import annotations
 
 import argparse
@@ -74,6 +76,51 @@ def numbers() -> dict[str, str]:
         after_n = v["runs"]["after"]
         n[f"{tag}ResidualUpper"] = pct(residual_rate_upper(after_n, 0, 0.95), 0)
 
+
+    # bug-zoo detection and fix tables (docs/results/detect.json, fix.json)
+    det = load(RES / "detect.json")
+    wl = det["workloads"]
+    runs = det["runs_per_build"]
+    n["ZooDetectPerBuild"] = f"{min(w['detected_runs'] for w in wl)} of {runs}"
+    n["ZooReferenceFlagged"] = f"{sum(w['reference_runs_with_findings'] for w in wl)} of {sum(w['reference_clean_runs'] for w in wl)}"
+    neg = det["negatives"]
+    n["ZooHealthyRuns"] = f"{sum(x['runs_with_findings'] for x in neg)} of {sum(x['runs'] - x['lossy'] for x in neg)}"
+    fx = load(RES / "fix.json")["rows"]
+    n["ZooFixVerified"] = str(sum(1 for r in fx if r["status"] == "VERIFIED"))
+    n["ZooFixWorkloads"] = str(len(fx))
+    names = {"z1_infusion_pump": "ZOne", "z2_brake_by_wire": "ZTwo", "z4_camera_pipeline": "ZFour"}
+    for r in fx:
+        tag = names.get(r["workload"])
+        if tag and r["verdict"]["deadlines"]:
+            d = r["verdict"]["deadlines"][0]
+            n[f"{tag}PNinetyNineBefore"] = f"{d['before_p99'] / 1e6:.2f}"
+            n[f"{tag}PNinetyNineAfter"] = f"{d['after_p99'] / 1e6:.2f}"
+    # NOT available in a committed machine-readable file: Z5 masked p99 (2.41 -> 0.24 ms is in PLAN.md prose only)
+
+    # third-party TTK4147 fix (docs/results/third_party_fix/compare/primary_10v10.json)
+    tp = load(RES / "third_party_fix" / "compare" / "primary_10v10.json")
+    d = tp["deadlines"][0]
+    n["TtkVerdict"] = tp["verdict"]
+    n["TtkCaught"] = pct(tp["targets"]["priority_inversion"]["before_rate"], 0)
+    n["TtkPNinetyNineBefore"] = f"{d['before_p99'] / 1e6:.0f}"
+    n["TtkPNinetyNineAfter"] = f"{d['after_p99'] / 1e6:.0f}"
+    n["TtkP"] = f"{d['p_value']:.1e}".replace("e-0", "e-")
+
+    # rt-tests and the busy-medium control (docs/results/third_party/{json,control/json})
+    tpd = RES / "third_party"
+    def has_pi(p: Path) -> bool:
+        return any(f["kind"] == "priority_inversion" for f in load(p)["findings"])
+    rt = [p for p in sorted((tpd / "json").glob("*.json"))
+          if p.name.startswith(("pi_stress_default", "pi_stress_uniproc", "pmqtest", "ptsematest"))]
+    n["RtTestsRuns"] = str(len(rt))
+    n["RtTestsFindings"] = str(sum(1 for p in rt if any(f["kind"] != "unusual_behavior" for f in load(p)["findings"])))
+    n["RtTestsRadarFlags"] = str(sum(1 for p in rt if any(f["kind"] == "unusual_behavior" for f in load(p)["findings"])))
+    bm = sorted((tpd / "control" / "json").glob("busy_medium_*.json")) + sorted((tpd / "json").glob("busy_medium_*.json"))
+    nopi = [p for p in bm if p.name.startswith(("busy_medium_none", "busy_medium_sem"))]
+    pi = [p for p in bm if p.name.startswith("busy_medium_pi")]
+    n["BusyMediumNoPi"] = f"{sum(has_pi(p) for p in nopi)} of {len(nopi)}"
+    n["BusyMediumPi"] = f"{sum(has_pi(p) for p in pi)} of {len(pi)}"
+
     # radar contribution on the generator zoo (honest: generator data, not real bugs)
     c = load(RES / "ml.json")["contribution"]
     n["ZooBuggyWindows"] = str(c["buggy"])
@@ -81,6 +128,11 @@ def numbers() -> dict[str, str]:
     n["ZooRadarOnly"] = str(c["radar_only"])
     n["ZooBoth"] = str(c["both"])
     n["ZooNeither"] = str(c["neither"])
+    n["RadarHealthy"] = f"{c['false_alarms']} of {c['healthy']}"
+
+    # size of the code base (changes with every edit of src/; excluded from the staleness test)
+    n["LinesOfCode"] = str(sum(len(p.read_text(encoding="utf-8").splitlines())
+                               for p in (ROOT / "src" / "tracelens").rglob("*.py")))
 
     # benchmark manifest
     bugs = tomllib.loads((ROOT / "bench" / "manifest.toml").read_text(encoding="utf-8"))["bug"]
