@@ -30,9 +30,6 @@ limit and anonymity rules before final formatting **(verify)**.
 
 ## Macro requests for Main Build (add to make_numbers.py)
 
-Kept in sync with the `\needmacro` calls in `main.tex`:
-`ZooDetectPerBuild`, `ZooReferenceFlagged`, `ZooHealthyRuns`, `ZooFixVerified`, `ZooFixWorkloads`,
-`ZOnePNinetyNineBefore`, `ZOnePNinetyNineAfter`, `ZTwoPNinetyNineBefore`, `ZTwoPNinetyNineAfter`,
-`ZFourPNinetyNineBefore`, `ZFourPNinetyNineAfter`, `ZFiveMaskedBefore`, `ZFiveMaskedAfter`,
-`TtkCaught`, `TtkPNinetyNineBefore`, `TtkPNinetyNineAfter`, `TtkP`, `RtTestsRuns`, `RtTestsFindings`,
-`BusyMediumNoPi`, `BusyMediumPi`, `RadarHealthy`, `LinesOfCode`.
+Kept in sync with the `\needmacro` calls in `main.tex`. The first batch (zoo, TTK4147, rt-tests, radar, code size)
+landed in 8683e0f. Open: `MutantsGood`, `MutantsBad` (count from `research/mutants/*/*/expected.toml`), and a Z5 masked-time
+pair from the z5 fix bundle (Main Build reports it is in no committed result file; the table shows `\pending` until it is).

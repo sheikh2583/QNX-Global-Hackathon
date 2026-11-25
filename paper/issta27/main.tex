@@ -255,7 +255,7 @@ falls back to a stated threshold and reports its exact chance of passing an unch
 \section{Implementation}
 \label{sec:impl}
 
-\tool is \needmacro{LinesOfCode}{about 11{,}000} lines of Python using only the standard library. It manages a QNX~8.0 virtual
+\tool is \tlLinesOfCode{} lines of Python using only the standard library. It manages a QNX~8.0 virtual
 machine built with \qnx{mkqnximage}, copies a \qnx{qcc}-built binary to the target, snapshots thread priorities with
 \qnx{pidin}, runs the program under \qnx{tracelogger}, and fetches and decodes the trace. Reports are produced as terminal
 text, HTML with per-thread timelines, JSON, SARIF and Chrome trace format. \fixme{decide whether to describe the learned
@@ -280,9 +280,9 @@ only as a portability note}
 
 \paragraph{Development set.} Five small QNX programs with planted bugs (Table~\ref{tab:zoo}) were used to build and calibrate the
 detectors and remedies. We report them as a development set, not as an evaluation: the bugs and the rules were written by the
-same authors. On a held-out ten-capture run, every buggy build was caught in \needmacro{ZooDetectPerBuild}{10 of 10} captures,
-the hand-written reference fixes were flagged in \needmacro{ZooReferenceFlagged}{0 of 10}, and three healthy system programs in
-\needmacro{ZooHealthyRuns}{0 of 30}; \needmacro{ZooFixVerified}{4} of \needmacro{ZooFixWorkloads}{5} were repaired automatically
+same authors. On a held-out ten-capture run, each buggy build was caught in \tlZooDetectPerBuild{} captures,
+the hand-written reference fixes were flagged in \tlZooReferenceFlagged{} captures, and three healthy system programs in
+\tlZooHealthyRuns{}; \tlZooFixVerified{} of \tlZooFixWorkloads{} were repaired automatically
 and VERIFIED, and the deadlock received guidance.
 
 \begin{table}[t]
@@ -293,11 +293,11 @@ and VERIFIED, and the deadlock received guidance.
 \toprule
 Program & Planted bug & Before $\to$ after \\
 \midrule
-Infusion pump & semaphore as lock & \needmacro{ZOnePNinetyNineBefore}{5.74} $\to$ \needmacro{ZOnePNinetyNineAfter}{1.29}\,ms \\
-Brake-by-wire & fixed-priority channel & \needmacro{ZTwoPNinetyNineBefore}{6.75} $\to$ \needmacro{ZTwoPNinetyNineAfter}{0.77}\,ms \\
+Infusion pump & semaphore as lock & \tlZOnePNinetyNineBefore{} $\to$ \tlZOnePNinetyNineAfter{}\,ms \\
+Brake-by-wire & fixed-priority channel & \tlZTwoPNinetyNineBefore{} $\to$ \tlZTwoPNinetyNineAfter{}\,ms \\
 Sensor fusion & mutual \qnx{MsgSend()} & guidance only \\
-Camera pipeline & work inside global lock & \needmacro{ZFourPNinetyNineBefore}{7.45} $\to$ \needmacro{ZFourPNinetyNineAfter}{2.99}\,ms \\
-Motor encoder & work before unmask & masked \needmacro{ZFiveMaskedBefore}{2.41} $\to$ \needmacro{ZFiveMaskedAfter}{0.24}\,ms \\
+Camera pipeline & work inside global lock & \tlZFourPNinetyNineBefore{} $\to$ \tlZFourPNinetyNineAfter{}\,ms \\
+Motor encoder & work before unmask & \pending{Z5 masked time, from the z5 bundle} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -313,10 +313,14 @@ masking (less load on the interfering thread, a shorter timeout on a deadlocked 
 the inversion appear in about a fifth of captures); fixes that introduce a new cause (a priority-inheriting mutex held across a
 slow write); and a real past mistake of our own remedy, which ran deferred interrupt work one priority below the interrupt thread
 and started it after attaching, delaying other interrupts by up to 20\,ms. One patch is a functional bug that timing cannot see
-(a shared copy moved out of its lock); we expected every timing oracle to accept it. Expected verdicts were written and frozen
-before any capture \pending{frozen sha from PROTOCOL.md E2}. Each patch was captured 20 times.
-We compare five oracles: O1 a single clean re-run; O2 after-p99 within budget; O3 targets absent in all captures, no statistics;
-O4 \tool's oracle; O5 O4 with the residual bound required below 20\%. For $N \in \{1,3,5,10,20\}$ we draw 1{,}000 subsets of
+(a shared copy moved out of its lock); we expected every timing oracle to accept it. The set also covers the two third-party
+programs of RQ2 (their own fixes as good patches, and for memcached a plausible wrong fix that signals twice instead of
+re-checking the flag): \needmacro{MutantsGood}{7} good and \needmacro{MutantsBad}{14} bad patches in all. For each, the expected
+verdict of every oracle, with a stated confidence, was written and frozen before any capture (protocol commit 8f07f01).
+Each patch was captured 20 times.
+We compare six oracles: O1 a single clean re-run; O2 after-p99 within budget; O3 targets absent in all captures, no statistics;
+O4 \tool's oracle as shipped, whose deadline test pools the jobs of all captures; O4c the same oracle with its deadline test on
+one p99 per capture; O5 O4 with the residual bound required below 20\%. For $N \in \{1,3,5,10,20\}$ we draw 1{,}000 subsets of
 $N$ captures per side.
 
 \paragraph{Results.} \pending{Table: false-accept and false-reject rate per oracle and N; figure: false-accept versus N. Expected
@@ -334,10 +338,10 @@ bug's driver shows the symptom by its own exit code.
 \paragraph{Case studies.}
 \emph{A real-time course exercise.} A teaching program from a university real-time systems course runs three
 \qnx{SCHED\_RR} threads around a global semaphore used as a lock; the course asks students to observe the inversion. Unedited
-apart from a header-level port layer, \tool reported a critical priority inversion in \needmacro{TtkCaught}{10 of 10}
-captures, applied the semaphore-to-mutex remedy in one round, and the fix was VERIFIED: the inversion was absent in every after-capture
-and the high-priority job's p99 fell from \needmacro{TtkPNinetyNineBefore}{1{,}103} to \needmacro{TtkPNinetyNineAfter}{702}\,ms
-(one-sided exact Mann--Whitney $p = \needmacro{TtkP}{5.4\times10^{-6}}$), with the configuration frozen before the confirmation
+apart from a header-level port layer, \tool reported a critical priority inversion in \tlTtkCaught{}
+of captures, applied the semaphore-to-mutex remedy in one round, and the fix was VERIFIED: the inversion was absent in every after-capture
+and the high-priority job's p99 fell from \tlTtkPNinetyNineBefore{} to \tlTtkPNinetyNineAfter{}\,ms
+(one-sided exact Mann--Whitney $p = \tlTtkP{}$), with the configuration frozen before the confirmation
 run. The fix is the exercise's intended answer.
 
 \emph{memcached \#1348.} \qnx{stop\_logger\_thread()} sets a flag and signals a condition variable; if the signal arrives while
@@ -355,9 +359,10 @@ reports the hang in \tlNngBeforeRate{} of buggy captures and \tlNngAfterRate{} o
 upstream's, not ours. \pending{preregistered residual-hang check on the fixed commit (docs/results/nng\_close/RESIDUAL.md)}
 
 \emph{A clean result.} Three \qnx{rt-tests} programs (\qnx{pi\_stress}, \qnx{ptsematest}, \qnx{pmqtest}) built behind a
-compatibility layer produced \needmacro{RtTestsFindings}{0} findings in \needmacro{RtTestsRuns}{16} runs, while a control that
-sustains an inversion on purpose was flagged in \needmacro{BusyMediumNoPi}{9 of 9} runs without priority inheritance and
-\needmacro{BusyMediumPi}{0 of 6} with it.
+compatibility layer produced \tlRtTestsFindings{} rule findings in \tlRtTestsRuns{} runs (the learned detector of
+Section~\ref{sec:discussion} raised \tlRtTestsRadarFlags{} medium-severity flags on \qnx{ptsematest}), while a control that
+sustains an inversion on purpose was flagged in \tlBusyMediumNoPi{} runs without priority inheritance and
+\tlBusyMediumPi{} with it.
 
 \paragraph{Blind evaluation.} Of \tlBenchTotal{} bugs considered so far, \tlBenchReproduced{} are the case studies above,
 \tlBenchExcluded{} were excluded (most often because the bug did not reproduce on QNX; a preregistered attempt on a broker hang
@@ -399,7 +404,7 @@ once verified a fix for a deadlock that had not reproduced. \fixme{trim; the lon
 
 \paragraph{A learned second opinion did not transfer.} A detector trained only on healthy traces flagged
 \tlZooRadarOnly{} of \tlZooBuggyWindows{} held-out buggy captures of bug families no rule covers, with
-\needmacro{RadarHealthy}{0 of 148} false alarms, on traces from our own generator. On the first two real programs it flagged the
+\tlRadarHealthy{} false alarms, on traces from our own generator. On the first two real programs it flagged the
 hung and the healthy run alike. We keep it out of the loop: it never gates a build and never produces a patch.
 
 \paragraph{What the oracle cannot see.} The oracle judges timing and scheduling findings; a patch that removes a lock around
