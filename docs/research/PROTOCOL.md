@@ -52,8 +52,7 @@ see [../results/blind_test/PREREGISTRATION.md](../results/blind_test/PREREGISTRA
   are kept and counted and replaced up to 40 attempts; host idle (`run.py` stops above load 0.5 and logs it). Z1-rare's realised
   per-capture inversion rate is measured and reported with its interval, not assumed to be 20%.
 - **Exclusions:** a mutant that fails to build is a result (listed), not dropped.
-- frozen: (to be filled by the commit that records the freeze: the sha is that of the commit containing every `expected.toml`,
-  `research/oracles.py` and `research/mutants/run.py`)
+- frozen: 8f07f01 2026-11-25 (the commit containing every `expected.toml`, `research/oracles.py` and `research/mutants/run.py`; later changes are dated amendments)
 
 ## E3 (RQ2, R3): blind benchmark
 
