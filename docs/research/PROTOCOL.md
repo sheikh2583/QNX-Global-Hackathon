@@ -11,7 +11,9 @@ and counted; every table reports misses and false positives; the host is idle du
 
 | Freeze | Tag | `tracelens --version` | config SHA-256 | radar/classifier JSON SHA-256 | Date |
 |---|---|---|---|---|---|
-| research-freeze-1 | (not created; ask before pushing a tag) | | | | |
+| research-freeze-1 | `research-freeze-1` (local tag; not pushed, ask before pushing) | `tracelens 0.1.0.dev0` | `bugzoo/tracelens.toml` 09c66b457d2c65e2; `bugzoo/zoo.toml` 497f3ca63965ff9f; `third_party/memcached_logger/tracelens.toml` 470151868d37f58d; `third_party/memcached_logger/tracelens.daemon.toml` a6c649e8dc54c5be; `third_party/nng_close/tracelens.toml` 1b42e5e0d2159443; `third_party/ttk4147_pi/tracelens.bound.toml` e49f17d92ed961e9 | `src/tracelens/ml/radar.json` 0805648f9e2ab66c; `models/radar.json` 383f4d9a641d6b2b; `models/classifier.json` 403157d8d0e21f3a | 2026-11-25 |
+
+`src/tracelens/**/*.py` sha256 (all files, sorted by path, concatenated) = `a4b43ec945d06db33ad47b858321ddfe7d376f10a5e7441b68de1af2a4e54abf` (first 16: `a4b43ec945d06db3`). Hashes in the table are the first 16 hex digits of each file's sha256. The tag points at the commit that records this table; every R3 driver is written after it. Any later change under `src/tracelens/` (a hackathon fix, say) must be recorded here as a dated amendment with the new hash before results that depend on it are collected, and the study says which hash each result used.
 
 Earlier, informal freeze (2026-11-25, blind test of Mosquitto/jemalloc/libzmq): `src/tracelens/` hash `24fec05b8f9f7746`,
 see [../results/blind_test/PREREGISTRATION.md](../results/blind_test/PREREGISTRATION.md). That test produced a null result.
@@ -48,6 +50,7 @@ see [../results/blind_test/PREREGISTRATION.md](../results/blind_test/PREREGISTRA
   they disagree on any real mutant, that is reported as an oracle-design result; whether the product switches is a separate decision.
 - **Metric:** false-accept rate, false-reject rate, INCONCLUSIVE rate per oracle and N in {1,3,5,10,20}; 1,000 seeded subsets
   (`oracles.sweep`). Subsets overlap, so the full-20 result is the headline and the subsampling a curve.
+- **Amendment 2026-11-25 (supervisor-accepted):** Z4-partial locks 2 of 4 workers (the brief's 3 of 4 leaves no contention).
 - **Sample size:** 20 clean captures per mutant and per unpatched build (shared by the mutants of a workload); lossy captures
   are kept and counted and replaced up to 40 attempts; host idle (`run.py` stops above load 0.5 and logs it). Z1-rare's realised
   per-capture inversion rate is measured and reported with its interval, not assumed to be 20%.
