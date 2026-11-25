@@ -587,7 +587,7 @@ def _cmd_eval(args: argparse.Namespace) -> int:
                 wargs = [a.replace("{irq}", str(args.irq)) for a in entry.args]
                 return cap(label, i, binary, None, wargs, o, background=load_for(entry, args.irq_load))
             return FixEngine(workload_dir, [Path(args.zoo) / "common"], cfg, _qcc(args, cfg), fix_cap,
-                             engine_out, runs=args.runs)
+                             engine_out, runs=args.runs, confidence=args.confidence)
 
         eval_fix(args.zoo, cfg, make_engine, cap, out, runs=args.runs, irq=args.irq, only=only,
                  bin_dir=args.bin_dir, irq_load=args.irq_load)
@@ -888,6 +888,9 @@ def build_parser() -> argparse.ArgumentParser:
         e2.add_argument("--arch", default=ARCH, help=f"qcc target for rebuilt binaries (default {ARCH})")
         e2.add_argument("--bin-dir", help="folder holding the prebuilt workloads (default <zoo>/out); an "
                         "aarch64le build lives beside the x86 one, e.g. bugzoo/out-aarch64le")
+        if name == "fix":
+            e2.add_argument("--confidence", type=float, default=0.95,
+                            help="confidence of the residual-rate bound in each verdict (default 0.95)")
         e2.add_argument("--host")
         e2.add_argument("--user")
         e2.add_argument("--key")

@@ -1,39 +1,55 @@
-# Related work (skeleton, 2026-11-25)
+# Related work (reading pass 1, 2026-11-25)
 
-**Every entry below is (unverified).** None was opened in this session; the citations come from the research brief and from
-memory, and the summaries are deliberately left empty rather than guessed. Rule from the brief: an entry only counts once it
-has a full citation, a URL that was actually opened, a two-sentence summary in our own words, and "how we differ". Unverified
-entries never go into a paper.
+Status vocabulary. **opened**: the page was fetched and read this session (abstract or landing page, not the full text unless
+noted). **search-only**: title, authors and venue were confirmed from search-result pages, nothing was opened; fine for a
+citation, not for a claim about the paper's results. **(unverified)**: not checked; never goes into a paper. Summaries are in
+our words. Full texts were not read: the "how we differ" column is a hypothesis from abstracts and must be re-checked on the
+full paper before it is written into P1.
 
-The gap we want to test (to be confirmed or refuted by this reading, not assumed): prior concurrency-repair work fixes
-correctness bugs and checks the fix with tests or symbolic execution; none repairs priority or timing bugs or uses kernel-trace
-distributions as the acceptance oracle. Detection alone is not the novelty.
+**The gap we want to test, as it stands after this pass:** prior concurrency repair (AFix, CFix, RaceFixer, ESfix, SDRacer,
+Dr.Fix, ConFixAgent) fixes races, atomicity violations or hangs in code and judges fixes by detector re-runs, targeted tests,
+static dependence checks or developer-patch comparison. None of the works found repairs a **priority or timing** bug, or uses
+**kernel-trace response-time distributions with a rank test** as the acceptance oracle. This is "not found in a 5-query search",
+not "does not exist": see the search log below, and treat the claim as open until RQ-level reading is done.
 
-| Area | Work | Status | URL opened | Summary | How we differ |
+| Area | Work | Status | URL | Summary | How we differ (hypothesis) |
 |---|---|---|---|---|---|
-| Trace analysis for real-time | Cote and Dagenais, "Problem detection in real-time systems by trace analysis" (2016) | (unverified) | | | |
-| | Rajotte, trace-based detection on Linux (2014) | (unverified) | | | |
-| | Desfossez, Desnoyers and Dagenais, "Runtime latency detection and analysis" (2016) | (unverified) | | | |
-| | Trace Compass | (unverified) | | | |
-| | QNX IDE guide: "Detecting priority inversion", "Client/Server CPU Statistics" | (unverified) | | | |
-| Concurrency repair | AFix (PLDI 2011) | (unverified) | | | |
-| | CFix (OSDI 2012) | (unverified) | | | |
-| | HFix (Liu et al.) | (unverified) | | | |
-| | SDRacer (arXiv 2305.17869) | (unverified) | | | |
-| | ESfix (2025) | (unverified) | | | |
-| | Automatic Software Repair bibliography (arXiv 1807.00515) | (unverified) | | | |
-| Performance-test statistics | Kalibera and Jones, "Rigorous benchmarking in reasonable time" | (unverified) | | | |
-| | Daly et al., change-point detection at MongoDB (ICPE 2020) | (unverified) | | | |
-| | Laaber et al. on cloud benchmarking | (unverified) | | | |
-| | Holm (1979); Clopper and Pearson (1934) | (unverified) | | | |
-| Trace anomaly detection | Kohyarnejadfard thesis (2022) | (unverified) | | | |
-| | Fournier, Ezzati-Jivan et al. (arXiv 2103.04954) | (unverified) | | | |
-| | DeepLog (Du et al., CCS 2017) | (unverified) | | | |
-| Sim-to-real | Tobin et al. (2017), domain randomisation | (unverified) | | | |
-| Concurrency bug studies | Lu et al., "Learning from Mistakes" (ASPLOS 2008); RADBench (Jalbert, Pereira, Sen 2011) | (unverified) | | | |
-| QNX semantics | QNX 8.0 System Architecture: priority inheritance, messages, server boost, `_NTO_CHF_FIXED_PRIORITY` | (unverified) | | | |
+| Repair, embedded | Wang, Gao, Wang, Yu, Wang, Zhao, Li, "Automatic Detection, Validation and Repair of Race Conditions in Interrupt-Driven Embedded Software", arXiv 2305.17869 (2023, venue not named on the page) | opened | https://arxiv.org/abs/2305.17869 | Finds interrupt races with static analysis and symbolic execution, confirms them by forcing interrupts on a virtual platform, then proposes repairs; evaluated on nine embedded C programs. | Data races on interrupt paths, confirmed by forced interleavings; no timing-distribution oracle and no priority bugs. Closest embedded repair work found; read in full before P1. |
+| | Zhao, Wu, Fu, Liu, "ESfix: An Embedded Program Repair Tool for Effective Removal of Concurrency Defects", Entropy 27(3):294, 2025 | search-only | https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11941405/ | Takes a detector's report, rewrites interrupt enable/disable, locking or statement order, checks dependence in the control-flow graph, and aborts when a repair looks too complex. A snippet quotes 92.6% repaired; unchecked. | Static semantic check, no run on a target, no timing criterion. Its "abort and tell the developer" mirrors our refusal rule. |
+| | Hotpatching real-time embedded devices (AutoPatch, arXiv 2408.15372) | search-only | https://arxiv.org/abs/2408.15372 | Generates hotpatches for real-time embedded devices (motivation: hotpatches are written by hand today). | Deployment of a fix, not finding or verifying one. |
+| | Kölbl, Leue, Wies, TARTAR (timed automata repair, ATVA 2022) | search-only | https://hal.archives-ouvertes.fr/hal-03777464/file/atva2022-NSJMM.pdf | Repairs timed-automata models so a property holds; reports 69-88% of detected faults repaired. | Repairs a design model, not running RTOS code. |
+| Repair, concurrency | Jin, Song, Zhang, Lu, Liblit, "Automated atomicity-violation fixing" (AFix), PLDI 2011, pp. 389-400 | opened | https://pure.psu.edu/en/publications/automated-atomicity-violation-fixing/ | Builds patches for single-variable atomicity violations from a detector's reports and tests each patch at run time; fixed 6 of 8 real bugs and cut failure probability in the other 2. | Single-variable atomicity on desktop and server code; the oracle is "bug no longer triggers, no new bug, similar speed". We target scheduling bugs and report a bound on the residual rate. |
+| | Jin, Zhang, Deng, Liblit, Lu, "Automated Concurrency-Bug Fixing" (CFix), OSDI 2012, pp. 221-236 | opened | https://usenix.org/conference/osdi12/technical-sessions/presentation/jin | From a failing interleaving, derives the mutual-exclusion and ordering needed to forbid it, and inserts synchronisation without causing deadlock or large slowdowns; 13 real bugs, compared with developer patches. | Closest in spirit on the oracle (no deadlock, small slowdown) but it forbids interleavings; it never reasons about priorities or response-time distributions. |
+| | "Understanding and generating high quality patches for concurrency bugs" (HFix) | search-only | https://www.scilit.net/publications/c913aecfad40ca30f1f5718aff780051 | Studies manual patches of 77 real concurrency bugs and builds HFix to generate patches of similar quality. Authors not confirmed. | Unconfirmed authors and venue; a separate tool, HangFix (NC State, hangs in Java cloud systems), is a different paper. |
+| | Malakar, Haider, Shahriar, "RaceFixer", arXiv 2401.04221 (2024) | opened | https://arxiv.org/abs/2401.04221 | Starts from ThreadSanitizer reports, builds static patches for single-variable atomicity violations and merges them. | Same family as AFix; no timing criterion. |
+| | Dr.Fix (PLDI 2025), LLM plus program analysis for Go data races | search-only | https://api.crossref.org/works/10.1145%2F3729265 | Takes a race report, retrieves earlier fixes and asks an LLM for a patch; industrial setting. | LLM arm; our R5.3 ablation would be the comparable piece. |
+| | ConFixAgent, arXiv 2604.05753 (2026) | search-only | https://arxiv.org/abs/2604.05753 | End-to-end agent for Java concurrency bugs, deadlocks included, using a happens-before context extractor. | Java, no kernel traces; the LLM-agent comparison point. |
+| | Monperrus, "Automatic Software Repair: a Bibliography", arXiv 1807.00515 (ACM Computing Surveys) | opened | https://arxiv.org/abs/1807.00515 | Survey separating behavioural repair (test, contract, model oracles) from state repair. | Our oracle (kernel-trace distribution) is a behavioural-repair oracle absent from the survey's list. |
+| Repair, performance | RAPGen (ICSE-SEIP 2025), retrieval plus LLM for code inefficiencies; PerfBench (arXiv 2509.24091) | search-only | https://arxiv.org/abs/2306.17077v4 and https://arxiv.org/html/2509.24091 | RAPGen fixes performance bugs from retrieved fix instructions (7 of 10 shared fixes accepted per its abstract); PerfBench is 81 .NET performance-bug tasks where a baseline agent solves about 3%. | Throughput and CPU inefficiency, not scheduling latency; PerfBench shows performance repair with an agent oracle is hard. |
+| Trace analysis, real time | Côté and Dagenais, "Problem detection in real-time systems by trace analysis", Advances in Computer Engineering, 2016, pp. 1-12, DOI 10.1155/2016/9467181 | search-only | https://publications.polymtl.ca/4831/ | Analyses kernel traces of real-time systems to find problems that were hard to locate, reporting two cases solved in minutes. | Detection and diagnosis only; no fix, no verification. |
+| | Desfossez, Desnoyers, Dagenais, "Runtime latency detection and analysis", Software: Practice and Experience 46(10):1397-1409, 2016, DOI 10.1002/spe.2389 | search-only | https://publications.polymtl.ca/2989/ | A kernel-level latency tracker for production systems, with efficient stateful tracing. | Finds where latency comes from; we then fix and verify. |
+| | Fournier, Ezzati-Jivan, Aloise, Dagenais, "Automatic Cause Detection of Performance Problems in Web Applications", arXiv 2103.04954 (ISSREW 2019 per the page) | opened | https://arxiv.org/abs/2103.04954 | Traces user and kernel space per web request, flags outliers, clusters them to explain slow requests; found a PHP cache contention. | Unsupervised cause detection, no fix oracle. |
+| | Eclipse Trace Compass | opened | https://eclipse.dev/tracecompass/ | Open-source viewer for LTTng, ftrace, CTF and other traces with latency and critical-path analyses. | Linux-centred analysis GUI; we target QNX kernel events and close the loop to a verified fix. |
+| | QNX Momentics IDE guide: "Detecting priority inversion" and "Analyzing System Behavior" (8.0) | search-only | https://qnx.com/developers/docs/8.0/com.qnx.doc.ide.userguide/topic/detecting_priority_inversion.html | The guide has the user find the higher-priority thread that did not run while a lower one did, in System Profiler timelines, and advises mutexes over semaphores. | Manual visual diagnosis; TraceLens automates the finding and the fix and tests it. The landing page and the `analyze_sys_behavior` page were opened and do not name priority inversion. |
+| Performance statistics | Daly, Brown, Ingo, O'Leary, Bradford, "Change Point Detection in Software Performance Testing", arXiv 2003.00584 (2020; the ICPE venue was not confirmed) | opened | https://arxiv.org/abs/2003.00584 | Applies E-Divisive means to a history of performance tests to flag the commit behind a regression, with humans reviewing the list. | Changes over a history; we compare two sets of captures of one pair of builds and make capture the unit. |
+| | Kalibera and Jones, "Rigorous benchmarking in reasonable time", ISMM 2013, pp. 63-74, DOI 10.1145/2464157.2464160 | search-only | https://kar.kent.ac.uk/id/document/3127886 | A cost model for how many repetitions per experimental level are needed for a target precision, and how to report effect-size intervals. | Supports our capture-as-unit design; their multi-level model is a candidate for a nested analysis (boot, run, job). |
+| | Laaber et al. on cloud benchmarking; Holm (1979); Clopper and Pearson (1934) | (unverified) | | | |
+| | Rajotte, trace-based detection on Linux (2014) | (unverified; the coordinator session reports it open at publications.polymtl.ca/5105/7, not opened here) | | | |
+| Trace anomaly detection | Kohyarnejadfard thesis (2022; lead: publications.polymtl.ca/10281 from the coordinator session); DeepLog (Du et al., CCS 2017, ACM page returned 403) | (unverified) | | | |
+| Sim-to-real | Tobin et al., "Domain Randomization for Transferring Deep Neural Networks from Simulation to the Real World", arXiv 1703.06907 (2017) | opened | https://arxiv.org/abs/1703.06907 | Trains a vision model on randomised simulated images so it transfers to real ones. | Our radar trains on randomised simulated traces and failed to transfer to real programs; this is the cited motivation and our negative result. |
+| Concurrency bug studies | Lu, Park, Seo, Zhou, "Learning from Mistakes", ASPLOS 2008, pp. 329-339, DOI 10.1145/1346281.1346323 | search-only | https://www.microsoft.com/en-us/research/?p=1123215 | Studies 105 real concurrency bugs from MySQL, Apache, Mozilla and OpenOffice, and finds most can be triggered by enforcing an order among few accesses. | Source of bug classes for the R3 benchmark; says nothing about priority bugs. RADBench (Jalbert, Pereira, Sen, 2011): PDF was fetched but not readable, **(unverified)**. |
+| QNX semantics | QNX 8.0 System Architecture (priority inheritance, messages, `_NTO_CHF_FIXED_PRIORITY`) | opened, not sufficient | https://www.qnx.com/developers/docs/8.0/com.qnx.doc.neutrino.sys_arch/topic/about.html | The About and IPC pages were read; neither discusses priority inheritance. | The priority-inheritance page under `getting_started` was linked but not fetched: **(verify)** before any semantic claim goes in a paper. |
 
-## Search pass still to do (record what was searched and when)
+## Search log (auditable)
 
-2024-2026: "LLM program repair concurrency", "performance bug repair", "real-time systems program repair", "kernel trace
-oracle", "RTOS debugging tool". Not yet run.
+Run 2026-11-25 with the assistant's web search (standard mode), one query each, results read as abstracts and snippets only:
+
+1. "LLM program repair concurrency bugs data race deadlock fix 2024 2025" -> Dr.Fix, ConFixAgent, CONCUR benchmark, an LLM-verification study.
+2. "automatic performance bug repair 2024 2025 paper" -> RAPGen, PerfBench, an invariant-based repair paper (FASE 2024).
+3. "automated program repair real-time embedded systems timing bugs priority inversion RTOS" -> ESfix, SDRacer, TARTAR, AutoPatch; nothing that repairs priority inversion.
+4. "kernel trace analysis RTOS debugging tool QNX trace priority inversion detection" -> QNX IDE guide pages, a patent on detecting inversion with breakpoints.
+5. Targeted lookups for AFix, CFix, HFix, Cote-Dagenais, Desfossez, Kalibera-Jones, Lu et al., ESfix.
+
+Not run: "RTOS debugging tool" beyond QNX (Percepio Tracealyzer, Segger SystemView, Lauterbach, Green Hills MULTI/SuperTrace
+were not searched), Linux `rt-tests`/`ftrace` analysis papers, and any 2026 work beyond what the queries returned. These are the
+likeliest places for a competitor, so P1 may not claim novelty until they are searched.
