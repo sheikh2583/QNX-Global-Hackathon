@@ -119,3 +119,11 @@ def test_the_committed_mutants_match_the_generator_and_every_bad_mutant_has_a_pr
         assert d["truth"] in ("good", "bad") and set(d["predicted"]) == set(O.NAMES), f
         assert (f.parent / "patch.diff").read_text(encoding="utf-8").startswith("--- a/"), f
     assert {"Z1-ref", "Z4-racy", "Z5-hist"} <= {tomllib.loads(f.read_text(encoding="utf-8"))["id"] for f in files}
+
+
+def test_run_py_sees_the_e2_freeze_record():
+    spec2 = importlib.util.spec_from_file_location("mutrun", ROOT / "research" / "mutants" / "run.py")
+    mod = importlib.util.module_from_spec(spec2)
+    sys.path.insert(0, str(ROOT / "research" / "mutants"))
+    spec2.loader.exec_module(mod)
+    assert mod.frozen() is True

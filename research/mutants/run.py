@@ -57,9 +57,14 @@ def targets():
 
 
 def frozen() -> bool:
-    text = PROTOCOL.read_text(encoding="utf-8")
-    sec = text.split("## E2", 1)[-1].split("\n## ", 1)[0]
-    return any(re.match(r"-\s*frozen:\s*[0-9a-f]{7,40}", line.strip()) for line in sec.splitlines())
+    """True when the E2 section of PROTOCOL.md carries a `- frozen: <git sha> ...` line."""
+    inside = False
+    for line in PROTOCOL.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            inside = line.startswith("## E2")
+        elif inside and re.match(r"-\s*frozen:\s*[0-9a-f]{7,40}", line.strip()):
+            return True
+    return False
 
 
 def loadavg() -> float:

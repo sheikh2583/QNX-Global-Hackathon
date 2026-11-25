@@ -24,6 +24,8 @@
  "MemcachedRunsAfter": "10",
  "MemcachedRunsBefore": "10",
  "MemcachedVerdict": "VERIFIED",
+ "MutantsBad": "14",
+ "MutantsGood": "7",
  "NngAfterRate": "0\\%",
  "NngBeforeRate": "100\\%",
  "NngLossySkipped": "3",

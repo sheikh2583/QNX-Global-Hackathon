@@ -134,6 +134,12 @@ def numbers() -> dict[str, str]:
     n["LinesOfCode"] = str(sum(len(p.read_text(encoding="utf-8").splitlines())
                                for p in (ROOT / "src" / "tracelens").rglob("*.py")))
 
+    # R2 mutants (counted from the preregistered expected.toml files)
+    truths = [tomllib.loads(f.read_text(encoding="utf-8"))["truth"]
+              for f in sorted((ROOT / "research" / "mutants").glob("*/*/expected.toml"))]
+    n["MutantsGood"] = str(truths.count("good"))
+    n["MutantsBad"] = str(truths.count("bad"))
+
     # benchmark manifest
     bugs = tomllib.loads((ROOT / "bench" / "manifest.toml").read_text(encoding="utf-8"))["bug"]
     for st in ("candidate", "reproduced", "excluded"):
