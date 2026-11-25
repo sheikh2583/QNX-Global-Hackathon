@@ -38,7 +38,7 @@ see [../results/blind_test/PREREGISTRATION.md](../results/blind_test/PREREGISTRA
 - **Hypothesis:** with the tool frozen, detection and repair on real bugs are far below the zoo's 50/50; some classes are missed.
 - **Expected (write the numbers here before the run):** (to be written; honest prior: detection of a minority of bugs, most
   misses in classes with no rule, radar not discriminating.)
-- **Metrics:** rubric D1-D3, F0, R1-R5, radar flags (see `bench/RUBRIC.md`, not yet written). **Sample size:** 10 buggy and 10
+- **Inclusion criteria and rubric:** `bench/RUBRIC.md` (written 2026-11-25, frozen with the tool). **Metrics:** S0, D1-D3, F0, R1-R5, RA. **Sample size:** 10 buggy and 10
   fixed captures per bug. **Exclusions:** bugs that do not reproduce are listed as excluded with the reason.
 - frozen: (not frozen; requires the freeze tag above)
 
@@ -62,7 +62,14 @@ see [../results/blind_test/PREREGISTRATION.md](../results/blind_test/PREREGISTRA
 
 - **Hypothesis:** the capture-as-unit gate holds its false-alarm rate near alpha under A/A; a job-as-unit comparator does not.
 - **Metrics:** A/A false-alarm rate over 1,000 random splits; detection rate for +5/10/20/50% slowdowns versus N. frozen: (not frozen)
+- **Simulator part run 2026-11-25** (`research/gate_study.py`, results in [gate_study.md](gate_study.md)). A/A: the capture-unit gate
+  alarmed in 4.5% (5v5) and 3.2% (10v10) of 1,000 splits with the floors off; the job-unit comparator in 30.1% and 28.8%.
+  Ten-metric family, floors off: none 37.6%, Holm 4.2%, BH 4.3%. Power could not be measured: simulator noise (p99 spread
+  about 0.8%) separates even a +1% slowdown completely, so the floors decide. The expectation written beforehand (capture unit
+  near alpha, job unit well above it) held; the power expectation was untestable here. VM part: Phase B, not run.
 
 ## Amendments
 
-(none yet)
+- 2026-11-25: E7 simulator part was run before its VM part; this is allowed because it needs no target, and it is recorded here
+  rather than edited into E7's hypothesis. E7 power at small effect sizes is deferred to the VM.
+- 2026-11-25: E3 gained `bench/RUBRIC.md` (see above) and the manifest criteria; no bug has been reproduced under a freeze yet.

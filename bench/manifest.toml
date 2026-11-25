@@ -6,8 +6,9 @@
 #   - the bug shows up as scheduling behaviour: hang, deadlock, priority inversion, lost wake-up, starvation, latency
 #   - ground truth exists: an upstream issue or commit describing it, ideally with the developer's fix
 #   - the licence allows redistribution, or the file is fetched by hash
-# status: candidate | reproduced | excluded.  "tool_frozen_before_driver" is false for every entry below: these were
-# worked on before any freeze tag existed, so they are CASE STUDIES, not blind results (see docs/research/CLAIMS.md).
+# status: candidate | reproduced | excluded.  "tool_frozen_before_driver" is false for the case studies (ttk4147, memcached-1348, nng-1813: worked on
+# before any freeze tag existed, so CASE STUDIES, not blind results) and true for the three blind-test entries, which were all
+# EXCLUDED because none reproduced: no blind result exists yet (see docs/research/CLAIMS.md).
 # Every field marked (verify) has not been checked against the primary source.
 
 [[bug]]
@@ -99,3 +100,157 @@ port_layer_lines = 0
 status = "excluded"
 tool_frozen_before_driver = true
 exclusion_reason = "no code fix exists; maintainers closed it as misuse of PAIR sockets, so a fix cannot be verified"
+
+# --- Mined 2026-11-25 by research/mine_bench.py (GitHub API metadata only, no code downloaded) -------------------
+# Every entry below is a LEAD: issue, closing commit and its first parent come from the API; class, licence text, the
+# file hashes and whether a deterministic reproducer is feasible are NOT checked. files_sha256 is filled when a driver is written.
+# port_layer_lines = -1 means unknown. Not blind: the tool is not yet frozen, so tool_frozen_before_driver stays false.
+[[bug]]
+id = "nng-1827"
+project = "nanomsg/nng"
+url = "https://github.com/nanomsg/nng/issues/1827"
+buggy_commit = "e46b41a562d04ef15e73e3e729263bd60e256388"   # first parent of the closing commit (verify that it still shows the bug)
+fixed_commit = "3a94e22db2e9f548ff81369dd2ac2badb5b6ac0f"
+files_sha256 = {}
+licence = "MIT (verify)"
+class_claimed_upstream = "nng_close() deadlock (Windows title; fix in src/core/socket.c)"
+symptom_oracle = ""
+port_layer_lines = -1
+status = "candidate"
+tool_frozen_before_driver = false
+exclusion_reason = ""
+
+[[bug]]
+id = "nng-648"
+project = "nanomsg/nng"
+url = "https://github.com/nanomsg/nng/issues/648"
+buggy_commit = "77311bfcc94bba96cdee73ddcd1ac9a6d0ed17d2"   # first parent of the closing commit (verify that it still shows the bug)
+fixed_commit = "658fe8b446905158437f4698933a971c15d29e9e"
+files_sha256 = {}
+licence = "MIT (verify)"
+class_claimed_upstream = "REQ protocol hang on close"
+symptom_oracle = ""
+port_layer_lines = -1
+status = "candidate"
+tool_frozen_before_driver = false
+exclusion_reason = ""
+
+[[bug]]
+id = "nng-1734"
+project = "nanomsg/nng"
+url = "https://github.com/nanomsg/nng/issues/1734"
+buggy_commit = "8ff9663c06a18d6c7fe0605de679948d3c4de9d7"   # first parent of the closing commit (verify that it still shows the bug)
+fixed_commit = "9528f41e847e85205d4f3a74fd1340836a219f6d"
+files_sha256 = {}
+licence = "MIT (verify)"
+class_claimed_upstream = "websocket dialer hang on shutdown"
+symptom_oracle = ""
+port_layer_lines = -1
+status = "candidate"
+tool_frozen_before_driver = false
+exclusion_reason = ""
+
+[[bug]]
+id = "nng-1733"
+project = "nanomsg/nng"
+url = "https://github.com/nanomsg/nng/issues/1733"
+buggy_commit = "8ccc10bf6a7ce305e5197e8eaf931ac7dc8612c0"   # first parent of the closing commit (verify that it still shows the bug)
+fixed_commit = "8ff9663c06a18d6c7fe0605de679948d3c4de9d7"
+files_sha256 = {}
+licence = "MIT (verify)"
+class_claimed_upstream = "deadlock in websocket listener close"
+symptom_oracle = ""
+port_layer_lines = -1
+status = "candidate"
+tool_frozen_before_driver = false
+exclusion_reason = ""
+
+[[bug]]
+id = "curl-18532"
+project = "curl/curl"
+url = "https://github.com/curl/curl/issues/18532"
+buggy_commit = "f7cac7cc07a45481b246c875e8113d741ba2a6e1"   # first parent of the closing commit (verify that it still shows the bug)
+fixed_commit = "de3fc1d7adb78c078e4cc7ccc48e550758094ad3"
+files_sha256 = {}
+licence = "curl licence, MIT-style (verify)"
+class_claimed_upstream = "threaded resolver shutdown can hang"
+symptom_oracle = ""
+port_layer_lines = -1
+status = "candidate"
+tool_frozen_before_driver = false
+exclusion_reason = ""
+
+[[bug]]
+id = "curl-16955"
+project = "curl/curl"
+url = "https://github.com/curl/curl/issues/16955"
+buggy_commit = "dac78ae638048a212f446f28f1f5731e594dce94"   # first parent of the closing commit (verify that it still shows the bug)
+fixed_commit = "5fbd78eb2dc4afbd8884e8eed27147fc3d4318f6"
+files_sha256 = {}
+licence = "curl licence, MIT-style (verify)"
+class_claimed_upstream = "HTTP/2 protocol deadlock under flow control"
+symptom_oracle = ""
+port_layer_lines = -1
+status = "candidate"
+tool_frozen_before_driver = false
+exclusion_reason = ""
+
+[[bug]]
+id = "libuv-4584"
+project = "libuv/libuv"
+url = "https://github.com/libuv/libuv/issues/4584"
+buggy_commit = "fbe2d85bd5a5c370a8cacea92b3bdfbd9f98a530"   # first parent of the closing commit (verify that it still shows the bug)
+fixed_commit = "18d48bc13ce4a44efb9c37fd81cfdd9db7bc92b8"
+files_sha256 = {}
+licence = "MIT (verify)"
+class_claimed_upstream = "regression in 1.49.0 (async.c) breaking BIND dnstap test; scheduling relevance unconfirmed"
+symptom_oracle = ""
+port_layer_lines = -1
+status = "candidate"
+tool_frozen_before_driver = false
+exclusion_reason = ""
+
+[[bug]]
+id = "nng-1543"
+project = "nanomsg/nng"
+url = "https://github.com/nanomsg/nng/issues/1543"
+buggy_commit = "08e55b929a64e5762561aa4a0ca5dd16fb14a157"   # first parent of the closing commit (verify that it still shows the bug)
+fixed_commit = "8e62028a0db24364ea218007811e58ea11d0b64f"
+files_sha256 = {}
+licence = "MIT (verify)"
+class_claimed_upstream = "Deadlock in nng_close(socket)"
+symptom_oracle = ""
+port_layer_lines = -1
+status = "excluded"
+tool_frozen_before_driver = false
+exclusion_reason = "fix touches only src/platform/windows/* in the GitHub file list: no POSIX path to run on QNX (verify)"
+
+[[bug]]
+id = "nng-2092"
+project = "nanomsg/nng"
+url = "https://github.com/nanomsg/nng/issues/2092"
+buggy_commit = "98b0d432dfeaa811cdfe20adb60ea899d61947b9"   # first parent of the closing commit (verify that it still shows the bug)
+fixed_commit = "dba356ddc23f59e158368e8f1af4f714bca9c111"
+files_sha256 = {}
+licence = "MIT (verify)"
+class_claimed_upstream = "nng_close may hang on Windows"
+symptom_oracle = ""
+port_layer_lines = -1
+status = "excluded"
+tool_frozen_before_driver = false
+exclusion_reason = "fix touches only src/platform/windows/win_ipclisten.c (verify)"
+
+[[bug]]
+id = "zephyr-119700"
+project = "zephyrproject-rtos/zephyr"
+url = "https://github.com/zephyrproject-rtos/zephyr/issues/119700"
+buggy_commit = "21a19931744081588b73d374b084db271744d820"   # first parent of the closing commit (verify that it still shows the bug)
+fixed_commit = "0d6e89e998dcc1461746866643dcee0b8e6abb01"
+files_sha256 = {}
+licence = "Apache-2.0 (verify)"
+class_claimed_upstream = "k_work_cancel_sync waiters can hang"
+symptom_oracle = ""
+port_layer_lines = -1
+status = "excluded"
+tool_frozen_before_driver = false
+exclusion_reason = "Zephyr kernel code, not user-space code that builds with qcc for QNX"

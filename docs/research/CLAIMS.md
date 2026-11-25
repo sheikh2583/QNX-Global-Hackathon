@@ -1,7 +1,7 @@
 # Claims register (seed, 2026-11-25)
 
-A paper may use only rows whose status is **supported**. Number macros come from `research/make_numbers.py` (not written yet,
-so the macro column is empty). Statuses are conservative.
+A paper may use only rows whose status is **supported**. Number macros come from `research/make_numbers.py` (written 2026-11-25; the table lists
+the ones that exist). Statuses are conservative.
 
 | Claim | Evidence | Macro | Status |
 |---|---|---|---|
@@ -15,5 +15,7 @@ so the macro column is empty). Statuses are conservative.
 | TraceLens finds bugs it has not seen | `docs/results/blind_test/` | | **unsupported** (null result: nothing reproduced) |
 | The trace oracle rarely accepts a bad patch | (none yet) | | **unsupported** until R2 |
 | Guarded transforms avoid breaking code that naive transforms break | (none yet) | | **unsupported** until R5 |
-| The capture-as-unit gate controls false alarms | `docs/results/` gate checks, sim only | | **partial** until R8 |
-| After a fix with 0 of n clean after-captures, the bug's residual per-capture rate is below a stated bound | `src/tracelens/verdict.py`, `tests/test_verdict.py` | | **supported** (exact binomial arithmetic) |
+| The capture-as-unit gate keeps A/A false alarms at or below alpha (4.5% at 5v5, 3.2% at 10v10); a job-as-unit comparator alarms in about 30% | `docs/research/gate_study.md` | `	lAACaptureFiveFloorsOff`, `	lAAJobFiveFloorsOff` | **partial**: simulator only, simulator noise far below real, VM part is Phase B |
+| Holm holds the 10-metric family-wise false-alarm rate near alpha (4.2% against 37.6% uncorrected) | `docs/research/gate_study.md` | `	lFamilyHolm`, `	lFamilyNone` | **partial**: synthetic independent metrics |
+| The gate's power against small slowdowns | `docs/research/gate_study.md` | | **unsupported**: the simulator is too quiet to measure it; needs the VM |
+| After a fix with 0 of n clean after-captures, the bug's residual per-capture rate is below a stated bound | `src/tracelens/verdict.py`, `tests/test_verdict.py` | `	lResidualZeroOfFive` etc. | **supported** (exact binomial arithmetic) |
